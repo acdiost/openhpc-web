@@ -85,15 +85,23 @@ type detailCopy struct {
 	Step, AveCPU, TotalCPU, AveRSS, MaxVMSize                string
 	Accounts, Users, Description, Organization               string
 	Coordinators, Associations, AdminLevel                   string
+	AssociationDetails, AssociationID, Cluster               string
+	AccountLevel, AllPartitions, EmptyAssociations           string
+	AssociationUnavailable                                   string
+	PreviousPage, NextPage                                   string
 	DefaultAccount, DefaultWCKey, Priority, UsageFactor      string
 	MaxJobs, Unlimited                                       string
 }
 
 type accountsView struct {
 	appChrome
-	Module    module
-	Labels    detailCopy
-	Directory cluster.AccountDirectory
+	Module                  module
+	Labels                  detailCopy
+	Directory               cluster.AccountDirectory
+	Associations            []cluster.Association
+	AssociationsAvailable   bool
+	AssociationPreviousPage int
+	AssociationNextPage     int
 }
 type qosView struct {
 	appChrome
@@ -201,6 +209,9 @@ func detailCopyFor(language string) detailCopy {
 			OutputPreviewUnavailable: "Output preview is not enabled", OutputLoading: "Loading output...", OutputError: "Output could not be loaded",
 			OutputPreview: "Output preview", OutputTruncated: "latest 256 KiB only", Details: "Details", Actions: "Actions",
 			Accounts: "Accounts", Users: "Users", Description: "Description", Organization: "Organization", Coordinators: "Coordinators", Associations: "Associations", AdminLevel: "Admin level",
+			AssociationDetails: "Association details", AssociationID: "ID", Cluster: "Cluster", AccountLevel: "Account level", AllPartitions: "All partitions",
+			EmptyAssociations: "No associations reported", AssociationUnavailable: "Association data is temporarily unavailable",
+			PreviousPage: "Previous page", NextPage: "Next page",
 			DefaultAccount: "Default account", DefaultWCKey: "Default WCKey", Priority: "Priority", UsageFactor: "Usage factor", MaxJobs: "Max jobs", Unlimited: "Unlimited",
 		}
 	}
@@ -221,6 +232,9 @@ func detailCopyFor(language string) detailCopy {
 		OutputPreviewUnavailable: "未启用输出内容预览", OutputLoading: "正在加载输出...", OutputError: "无法加载输出内容",
 		OutputPreview: "输出内容", OutputTruncated: "仅显示末尾 256 KiB", Details: "详情", Actions: "操作",
 		Accounts: "账户", Users: "用户", Description: "描述", Organization: "组织", Coordinators: "协调员", Associations: "关联数", AdminLevel: "管理员级别",
+		AssociationDetails: "关联明细", AssociationID: "ID", Cluster: "集群", AccountLevel: "账户级", AllPartitions: "全部分区",
+		EmptyAssociations: "暂无关联记录", AssociationUnavailable: "关联数据暂不可用",
+		PreviousPage: "上一页", NextPage: "下一页",
 		DefaultAccount: "默认账户", DefaultWCKey: "默认 WCKey", Priority: "优先级", UsageFactor: "使用因子", MaxJobs: "最大作业数", Unlimited: "无限制",
 	}
 }

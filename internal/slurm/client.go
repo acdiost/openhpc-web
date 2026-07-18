@@ -39,7 +39,7 @@ type Client struct {
 	refreshing     chan struct{}
 	nodesCache     valueCache[[]cluster.Node]
 	jobsCache      valueCache[[]cluster.Job]
-	accountCache   valueCache[cluster.AccountDirectory]
+	accountCache   valueCache[accountingSnapshot]
 	qosCache       valueCache[[]cluster.QoS]
 	now            func() time.Time
 }
@@ -82,7 +82,7 @@ func New(config Config) (*Client, error) {
 		maxOutputBytes: config.MaxOutputBytes, runner: runner, cacheTTL: config.CacheTTL,
 		nodesCache:   valueCache[[]cluster.Node]{ttl: config.CacheTTL},
 		jobsCache:    valueCache[[]cluster.Job]{ttl: config.CacheTTL},
-		accountCache: valueCache[cluster.AccountDirectory]{ttl: config.CacheTTL},
+		accountCache: valueCache[accountingSnapshot]{ttl: config.CacheTTL},
 		qosCache:     valueCache[[]cluster.QoS]{ttl: config.CacheTTL},
 		now:          time.Now,
 	}, nil

@@ -846,7 +846,6 @@ func TestModulePlaceholderRoutes(t *testing.T) {
 		{path: "/ldap", label: "LDAP 目录"},
 		{path: "/slurm/config", label: "Slurm 配置"},
 		{path: "/slurm/users", label: "/slurm/users"},
-		{path: "/slurm/associations", label: "/slurm/associations"},
 		{path: "/slurm/core-hours", label: "/slurm/core-hours"},
 		{path: "/system/files", label: "文件管理"},
 		{path: "/terminal", label: "终端"},

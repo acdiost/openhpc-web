@@ -51,13 +51,14 @@ func main() {
 	var jobProvider cluster.JobProvider
 	var jobResourceProvider cluster.JobResourceProvider
 	var accountingProvider cluster.AccountingProvider
+	var associationProvider cluster.AssociationProvider
 	if slurmEnabled {
 		client, clientErr := slurm.New(slurmConfig)
 		err = clientErr
 		if err != nil {
 			log.Fatalf("initialize Slurm integration: %v", err)
 		}
-		metricsProvider, nodeProvider, partitionProvider, jobProvider, jobResourceProvider, accountingProvider = client, client, client, client, client, client
+		metricsProvider, nodeProvider, partitionProvider, jobProvider, jobResourceProvider, accountingProvider, associationProvider = client, client, client, client, client, client, client
 	}
 	handler, err := web.New(web.Config{
 		AdminUsername:       username,
@@ -72,6 +73,7 @@ func main() {
 		JobResourceProvider: jobResourceProvider,
 		JobOutputRoots:      jobOutputRoots,
 		AccountingProvider:  accountingProvider,
+		AssociationProvider: associationProvider,
 	})
 	if err != nil {
 		log.Fatalf("initialize server: %v", err)

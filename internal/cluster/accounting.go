@@ -23,6 +23,14 @@ type AccountDirectory struct {
 	Users    []SlurmUser
 }
 
+type Association struct {
+	ID        int64
+	Cluster   string
+	Account   string
+	User      string
+	Partition string
+}
+
 type QoS struct {
 	Name             string
 	Description      string
@@ -35,4 +43,8 @@ type QoS struct {
 type AccountingProvider interface {
 	AccountDirectory(context.Context) (AccountDirectory, error)
 	QoS(context.Context) ([]QoS, error)
+}
+
+type AssociationProvider interface {
+	Associations(context.Context) ([]Association, error)
 }

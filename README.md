@@ -1,6 +1,6 @@
 # OpenHPC Web
 
-面向单集群环境的轻量 HPC 管理平台。目前仓库已完成平台登录、安全会话、可查询的 SQLite 只读审计日志、集群总览，以及 Slurm 节点、分区、作业、账户、用户和 QoS 只读视图。模块导航、中英文和科研红/Slurm 蓝主题已接入；LDAP、文件和终端页面已经建立模块边界，真实系统适配器将在后续阶段接入。
+面向单集群环境的轻量 HPC 管理平台。目前仓库已完成平台登录、安全会话、可查询的 SQLite 只读审计日志、集群总览，以及 Slurm 节点、分区、作业、账户、用户、关联和 QoS 只读视图。模块导航、中英文和科研红/Slurm 蓝主题已接入；LDAP、文件和终端页面已经建立模块边界，真实系统适配器将在后续阶段接入。
 
 CentOS 7 的完整安装、升级和故障排查步骤见 [部署指南](docs/deployment-centos7.md)。
 
@@ -92,7 +92,7 @@ install -o root -g root -m 0644 deploy/openhpc-web.service /etc/systemd/system/o
 - ldap 管理
 - slurm 配置文件管理
 - slurm 账户与用户只读目录
-- slurm 关联管理
+- slurm 关联只读明细
 - slurm QoS 只读视图
 - slurm 核时管理
 - slurm 作业只读详情与受限输出预览

@@ -50,6 +50,7 @@ type Config struct {
 	JobResourceProvider cluster.JobResourceProvider
 	JobOutputRoots      []string
 	AccountingProvider  cluster.AccountingProvider
+	AssociationProvider cluster.AssociationProvider
 }
 
 type application struct {
@@ -66,6 +67,7 @@ type application struct {
 	jobOutputRoots      []jobOutputRoot
 	jobOutputSlots      chan struct{}
 	accountingProvider  cluster.AccountingProvider
+	associationProvider cluster.AssociationProvider
 	templates           *template.Template
 	audit               *platform.AuditStore
 	sessions            *sessionStore
@@ -152,6 +154,7 @@ func New(config Config) (http.Handler, error) {
 		jobOutputRoots:      jobOutputRoots,
 		jobOutputSlots:      makeJobOutputSlots(jobOutputRoots),
 		accountingProvider:  config.AccountingProvider,
+		associationProvider: config.AssociationProvider,
 		templates:           templates,
 		audit:               audit,
 		sessions:            &sessionStore{tokens: map[string]sessionData{}},
@@ -192,14 +195,16 @@ func New(config Config) (http.Handler, error) {
 	protected.GET("/slurm/jobs/:id/resources", app.slurmJobResources)
 	protected.GET("/slurm/jobs/:id/output/:stream", app.slurmJobOutput)
 	protected.GET("/slurm/accounts", app.slurmAccounts)
+	protected.GET("/slurm/associations", func(c echo.Context) error {
+		return c.Redirect(http.StatusFound, "/slurm/accounts#associations")
+	})
 	protected.GET("/slurm/qos", app.slurmQoS)
 	protected.GET("/audit", app.auditLog)
 	protected.POST("/preferences/language", app.setLanguage)
 	protected.POST("/preferences/theme", app.setTheme)
 	protected.POST("/logout", app.logout)
 	for _, path := range []string{
-		"/ldap", "/slurm/config", "/slurm/users",
-		"/slurm/associations", "/slurm/core-hours",
+		"/ldap", "/slurm/config", "/slurm/users", "/slurm/core-hours",
 		"/system/files", "/terminal", "/platform/users",
 	} {
 		protected.GET(path, app.modulePlaceholder)
@@ -259,6 +264,10 @@ func parseAuditCursor(value string) (int64, error) {
 }
 
 func (a *application) slurmAccounts(c echo.Context) error {
+	associationPage, err := parseAssociationPage(c.QueryParam("association_page"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest)
+	}
 	lang := language(c)
 	labels := detailCopyFor(lang)
 	currentModule := moduleByPath("/slurm/accounts", lang)
@@ -267,9 +276,21 @@ func (a *application) slurmAccounts(c echo.Context) error {
 	if a.accountingProvider != nil {
 		liveDirectory, err := a.accountingProvider.AccountDirectory(c.Request().Context())
 		if err != nil {
-			log.Printf("Slurm account directory failed: %v", err)
+			log.Printf("Slurm account directory failed")
 		} else {
 			directory, available = liveDirectory, true
+		}
+	}
+	var associations []cluster.Association
+	associationPreviousPage, associationNextPage := 0, 0
+	associationsAvailable := false
+	if a.associationProvider != nil {
+		liveAssociations, err := a.associationProvider.Associations(c.Request().Context())
+		if err != nil {
+			log.Printf("Slurm associations snapshot failed")
+		} else {
+			associations, associationPreviousPage, associationNextPage = paginateAssociations(liveAssociations, associationPage)
+			associationsAvailable = true
 		}
 	}
 	view := accountsView{
@@ -278,8 +299,56 @@ func (a *application) slurmAccounts(c echo.Context) error {
 			RefreshPath: currentModule.Path, RefreshLabel: labels.Refresh,
 		}),
 		Module: currentModule, Labels: labels, Directory: directory,
+		Associations: associations, AssociationsAvailable: associationsAvailable,
+		AssociationPreviousPage: associationPreviousPage, AssociationNextPage: associationNextPage,
 	}
 	return a.render(c, http.StatusOK, "accounts.html", view)
+}
+
+const (
+	associationPageSize = 100
+	maxAssociationPages = 100
+)
+
+func parseAssociationPage(value string) (int, error) {
+	if value == "" {
+		return 1, nil
+	}
+	if len(value) > 3 || value[0] == '0' {
+		return 0, errors.New("invalid association page")
+	}
+	for _, character := range value {
+		if character < '0' || character > '9' {
+			return 0, errors.New("invalid association page")
+		}
+	}
+	page, err := strconv.Atoi(value)
+	if err != nil || page < 1 || page > maxAssociationPages {
+		return 0, errors.New("invalid association page")
+	}
+	return page, nil
+}
+
+func paginateAssociations(values []cluster.Association, page int) ([]cluster.Association, int, int) {
+	start := (page - 1) * associationPageSize
+	if start >= len(values) {
+		if page > 1 {
+			return nil, page - 1, 0
+		}
+		return nil, 0, 0
+	}
+	end := start + associationPageSize
+	if end > len(values) {
+		end = len(values)
+	}
+	previousPage, nextPage := 0, 0
+	if page > 1 {
+		previousPage = page - 1
+	}
+	if end < len(values) {
+		nextPage = page + 1
+	}
+	return append([]cluster.Association(nil), values[start:end]...), previousPage, nextPage
 }
 
 func (a *application) slurmQoS(c echo.Context) error {
@@ -291,7 +360,7 @@ func (a *application) slurmQoS(c echo.Context) error {
 	if a.accountingProvider != nil {
 		liveQoS, err := a.accountingProvider.QoS(c.Request().Context())
 		if err != nil {
-			log.Printf("Slurm QoS snapshot failed: %v", err)
+			log.Printf("Slurm QoS snapshot failed")
 		} else {
 			qos, available = liveQoS, true
 		}

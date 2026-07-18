@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/openhpc-web/openhpc-web/internal/cluster"
 )
@@ -285,6 +286,11 @@ func validateDetailStrings(values []string) error {
 	for _, value := range values {
 		if len(value) > maxDetailFieldLength {
 			return errors.New("Slurm detail field exceeds maximum length")
+		}
+		for _, character := range value {
+			if unicode.IsControl(character) {
+				return errors.New("Slurm detail field contains control characters")
+			}
 		}
 	}
 	return nil
