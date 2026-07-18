@@ -1,6 +1,6 @@
 # CentOS 7 部署指南
 
-本文档用于将 OpenHPC Web 部署到 Slurm 管理节点。当前验证环境为 CentOS 7、Slurm 25.05.4，服务监听 loopback 地址，并通过固定的 `sinfo`、`squeue`、`sacctmgr` JSON 命令读取集群快照。
+本文档用于将 OpenHPC Web 部署到 Slurm 管理节点。当前验证环境为 CentOS 7、Slurm 25.05.4，服务监听 loopback 地址，并通过固定的 `sinfo`、`squeue`、`sstat`、`sacctmgr` 命令读取集群和作业资源数据。
 
 ## 1. 部署原则
 
@@ -23,6 +23,11 @@ runuser -u openhpc-web -- /usr/local/bin/sinfo \
 runuser -u openhpc-web -- /usr/local/bin/squeue \
   --json
 
+# 将 32943 替换为当前正在运行的作业 ID
+runuser -u openhpc-web -- /usr/local/bin/sstat \
+  --jobs=32943 --allsteps --noheader --parsable2 --units=K \
+  --format=JobID,AveCPU,TotalCPU,AveRSS,MaxRSS,AveVMSize,MaxVMSize
+
 runuser -u openhpc-web -- /usr/local/bin/sacctmgr \
   --json show account WithAssoc
 runuser -u openhpc-web -- /usr/local/bin/sacctmgr \
@@ -31,7 +36,7 @@ runuser -u openhpc-web -- /usr/local/bin/sacctmgr \
   --json show qos
 ```
 
-五个 Slurm 命令都必须成功。Web 进程不需要 root、sudo 或 MariaDB 直连权限；账户、用户和 QoS 页面只读取 SlurmDBD 已授权返回的数据。
+六个 Slurm 命令都必须成功。Web 进程不需要 root、sudo 或 MariaDB 直连权限；账户、用户和 QoS 页面只读取 SlurmDBD 已授权返回的数据。
 
 “节点与分区”页面中的分区容量由 `sinfo --Node --json` 节点记录聚合，不会额外执行 Slurm 命令。可将页面中的分区节点数、CPU 总量与 `sinfo` 输出交叉核对；同一节点属于多个分区时，会分别计入各自分区。
 
@@ -370,6 +375,9 @@ runuser -u openhpc-web -- /usr/local/bin/sinfo \
   --Node --json
 runuser -u openhpc-web -- /usr/local/bin/squeue \
   --json
+runuser -u openhpc-web -- /usr/local/bin/sstat \
+  --jobs=32943 --allsteps --noheader --parsable2 --units=K \
+  --format=JobID,AveCPU,TotalCPU,AveRSS,MaxRSS,AveVMSize,MaxVMSize
 runuser -u openhpc-web -- /usr/local/bin/sacctmgr \
   --json show account WithAssoc
 runuser -u openhpc-web -- /usr/local/bin/sacctmgr \
@@ -379,7 +387,7 @@ runuser -u openhpc-web -- /usr/local/bin/sacctmgr \
 journalctl -u openhpc-web -n 50 --no-pager
 ```
 
-确认 `/usr/local/bin/sinfo`、`/usr/local/bin/squeue`、`/usr/local/bin/sacctmgr` 及其父目录均由 root 持有，并且 group/other 不可写。应用会拒绝符号链接或可被普通用户替换的命令路径。
+确认 `/usr/local/bin/sinfo`、`/usr/local/bin/squeue`、`/usr/local/bin/sstat`、`/usr/local/bin/sacctmgr` 及其父目录均由 root 持有，并且 group/other 不可写。应用会拒绝符号链接或可被普通用户替换的命令路径。
 
 ### 服务启动但无法访问
 

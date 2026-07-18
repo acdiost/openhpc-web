@@ -37,6 +37,30 @@ type Job struct {
 	Command       string
 }
 
+type JobResourceStep struct {
+	Step            string `json:"step"`
+	AveCPU          string `json:"ave_cpu"`
+	AveCPUSeconds   int64  `json:"ave_cpu_seconds"`
+	TotalCPU        string `json:"total_cpu"`
+	TotalCPUSeconds int64  `json:"total_cpu_seconds"`
+	AveRSS          string `json:"ave_rss"`
+	AveRSSBytes     int64  `json:"ave_rss_bytes"`
+	MaxRSS          string `json:"max_rss"`
+	MaxRSSBytes     int64  `json:"max_rss_bytes"`
+	AveVMSize       string `json:"ave_vm_size"`
+	AveVMSizeBytes  int64  `json:"ave_vm_size_bytes"`
+	MaxVMSize       string `json:"max_vm_size"`
+	MaxVMSizeBytes  int64  `json:"max_vm_size_bytes"`
+}
+
+type JobResourceUsage struct {
+	JobID           string            `json:"job_id"`
+	SampledAt       string            `json:"sampled_at"`
+	TotalCPUSeconds int64             `json:"total_cpu_seconds"`
+	MaxRSSBytes     int64             `json:"max_rss_bytes"`
+	Steps           []JobResourceStep `json:"steps"`
+}
+
 type Partition struct {
 	Name           string
 	NodeCount      int
@@ -58,4 +82,8 @@ type PartitionProvider interface {
 type JobProvider interface {
 	Jobs(context.Context) ([]Job, error)
 	Job(context.Context, int64) (Job, bool, error)
+}
+
+type JobResourceProvider interface {
+	JobResourceUsage(context.Context, int64) (JobResourceUsage, error)
 }

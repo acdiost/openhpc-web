@@ -36,38 +36,41 @@ var assets embed.FS
 type DashboardMetrics = cluster.Metrics
 
 type Config struct {
-	AdminUsername      string
-	AdminPassword      string
-	DatabasePath       string
-	SecureCookies      bool
-	TrustedProxyCIDRs  []string
-	Metrics            DashboardMetrics
-	MetricsAvailable   bool
-	MetricsProvider    cluster.Provider
-	NodeProvider       cluster.NodeProvider
-	PartitionProvider  cluster.PartitionProvider
-	JobProvider        cluster.JobProvider
-	JobOutputRoots     []string
-	AccountingProvider cluster.AccountingProvider
+	AdminUsername       string
+	AdminPassword       string
+	DatabasePath        string
+	SecureCookies       bool
+	TrustedProxyCIDRs   []string
+	Metrics             DashboardMetrics
+	MetricsAvailable    bool
+	MetricsProvider     cluster.Provider
+	NodeProvider        cluster.NodeProvider
+	PartitionProvider   cluster.PartitionProvider
+	JobProvider         cluster.JobProvider
+	JobResourceProvider cluster.JobResourceProvider
+	JobOutputRoots      []string
+	AccountingProvider  cluster.AccountingProvider
 }
 
 type application struct {
-	username           string
-	passwordHash       []byte
-	metrics            DashboardMetrics
-	metricsAvailable   bool
-	metricsProvider    cluster.Provider
-	nodeProvider       cluster.NodeProvider
-	partitionProvider  cluster.PartitionProvider
-	jobProvider        cluster.JobProvider
-	jobOutputRoots     []jobOutputRoot
-	jobOutputSlots     chan struct{}
-	accountingProvider cluster.AccountingProvider
-	templates          *template.Template
-	audit              *platform.AuditStore
-	sessions           *sessionStore
-	loginAttempts      *loginAttemptStore
-	secureCookies      bool
+	username            string
+	passwordHash        []byte
+	metrics             DashboardMetrics
+	metricsAvailable    bool
+	metricsProvider     cluster.Provider
+	nodeProvider        cluster.NodeProvider
+	partitionProvider   cluster.PartitionProvider
+	jobProvider         cluster.JobProvider
+	jobResourceProvider cluster.JobResourceProvider
+	jobResourceSlots    chan struct{}
+	jobOutputRoots      []jobOutputRoot
+	jobOutputSlots      chan struct{}
+	accountingProvider  cluster.AccountingProvider
+	templates           *template.Template
+	audit               *platform.AuditStore
+	sessions            *sessionStore
+	loginAttempts       *loginAttemptStore
+	secureCookies       bool
 }
 
 type Handler struct {
@@ -136,22 +139,24 @@ func New(config Config) (http.Handler, error) {
 	}
 
 	app := &application{
-		username:           normalizedUsername,
-		passwordHash:       passwordHash,
-		metrics:            config.Metrics,
-		metricsAvailable:   config.MetricsAvailable,
-		metricsProvider:    config.MetricsProvider,
-		nodeProvider:       config.NodeProvider,
-		partitionProvider:  config.PartitionProvider,
-		jobProvider:        config.JobProvider,
-		jobOutputRoots:     jobOutputRoots,
-		jobOutputSlots:     makeJobOutputSlots(jobOutputRoots),
-		accountingProvider: config.AccountingProvider,
-		templates:          templates,
-		audit:              audit,
-		sessions:           &sessionStore{tokens: map[string]sessionData{}},
-		loginAttempts:      &loginAttemptStore{attempts: map[string]loginAttempt{}},
-		secureCookies:      config.SecureCookies,
+		username:            normalizedUsername,
+		passwordHash:        passwordHash,
+		metrics:             config.Metrics,
+		metricsAvailable:    config.MetricsAvailable,
+		metricsProvider:     config.MetricsProvider,
+		nodeProvider:        config.NodeProvider,
+		partitionProvider:   config.PartitionProvider,
+		jobProvider:         config.JobProvider,
+		jobResourceProvider: config.JobResourceProvider,
+		jobResourceSlots:    make(chan struct{}, maxConcurrentJobResourceReads),
+		jobOutputRoots:      jobOutputRoots,
+		jobOutputSlots:      makeJobOutputSlots(jobOutputRoots),
+		accountingProvider:  config.AccountingProvider,
+		templates:           templates,
+		audit:               audit,
+		sessions:            &sessionStore{tokens: map[string]sessionData{}},
+		loginAttempts:       &loginAttemptStore{attempts: map[string]loginAttempt{}},
+		secureCookies:       config.SecureCookies,
 	}
 
 	e := echo.New()
@@ -184,6 +189,7 @@ func New(config Config) (http.Handler, error) {
 		return c.Redirect(http.StatusFound, "/slurm/nodes#partitions")
 	})
 	protected.GET("/slurm/jobs", app.slurmJobs)
+	protected.GET("/slurm/jobs/:id/resources", app.slurmJobResources)
 	protected.GET("/slurm/jobs/:id/output/:stream", app.slurmJobOutput)
 	protected.GET("/slurm/accounts", app.slurmAccounts)
 	protected.GET("/slurm/qos", app.slurmQoS)

@@ -57,12 +57,13 @@ export OPENHPC_JOB_OUTPUT_ROOTS=
 ```text
 /usr/local/bin/sinfo --Node --json
 /usr/local/bin/squeue --json
+/usr/local/bin/sstat --jobs=32943 --allsteps --noheader --parsable2 --units=K --format=JobID,AveCPU,TotalCPU,AveRSS,MaxRSS,AveVMSize,MaxVMSize
 /usr/local/bin/sacctmgr --json show account WithAssoc
 /usr/local/bin/sacctmgr --json show user WithAssoc
 /usr/local/bin/sacctmgr --json show qos
 ```
 
-命令通过 `exec.CommandContext` 直接执行，固定 C locale，禁止 shell 和调用方自定义参数。适配器只反序列化页面所需 JSON 字段。读取失败时保留页面和导航，但将实时数据标记为不可用。各类快照使用独立的 10 秒缓存与并发合并边界。分区容量和利用率由节点快照按分区聚合，与节点表复用同一次 `sinfo --Node --json` 缓存；分区和节点嵌入同一个“节点与分区”主页面，旧 `/slurm/partitions` 地址仅重定向到页面内分区区域。
+命令通过 `exec.CommandContext` 直接执行，固定 C locale，禁止 shell 和调用方自定义参数。适配器只解析页面所需字段。读取失败时保留页面和导航，但将实时数据标记为不可用。各类快照使用独立的 10 秒缓存与并发合并边界。分区容量和利用率由节点快照按分区聚合，与节点表复用同一次 `sinfo --Node --json` 缓存；分区和节点嵌入同一个“节点与分区”主页面，旧 `/slurm/partitions` 地址仅重定向到页面内分区区域。作业资源弹窗每 5 秒串行采样一次 `sstat`，服务端最多同时执行 4 个资源采样，并展示总 CPU 时间、最大 RSS、近期曲线和 step 明细。
 
 作业详情中的输出预览默认关闭。配置 `OPENHPC_JOB_OUTPUT_ROOTS` 后，服务端仅接受作业 ID 与 `stdout`/`stderr` 类型，文件路径由当前 Slurm 作业元数据决定；文件必须位于允许根目录及作业工作目录内、为非符号链接普通文件，且 UID 与作业用户一致。接口只返回最新 256 KiB 纯文本。服务账号还需要对应目录的只读权限。
 

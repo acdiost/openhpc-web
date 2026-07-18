@@ -57,6 +57,21 @@ func TestMobileMenuScriptSynchronizesExpandedState(t *testing.T) {
 	}
 }
 
+func TestJobResourceScriptPollsAndCancelsWithModalLifecycle(t *testing.T) {
+	contents, err := fs.ReadFile(assets, "static/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(contents)
+	for _, expected := range []string{
+		"[data-job-resource]", "/resources", "setTimeout", "clearTimeout", "AbortController", "data-resource-chart",
+	} {
+		if !strings.Contains(script, expected) {
+			t.Errorf("app.js does not contain %q", expected)
+		}
+	}
+}
+
 func assertFontSizeAtLeast(t *testing.T, stylesheet, selector string, minimum int) {
 	t.Helper()
 	pattern := regexp.MustCompile(regexp.QuoteMeta(selector) + `[^{}]*\{[^{}]*font-size:([0-9]+)px`)

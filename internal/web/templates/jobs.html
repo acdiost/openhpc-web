@@ -16,7 +16,7 @@
         {{else}}
           <div class="data-table-wrap"><table class="data-table jobs-table">
             <thead><tr><th>{{.Labels.JobID}}</th><th>{{.Labels.JobName}}</th><th>{{.Labels.User}}</th><th>{{.Labels.Account}}</th><th>{{.Labels.Partition}}</th><th>{{.Labels.State}}</th><th>{{.Labels.CPUCount}}</th><th>{{.Labels.Elapsed}}</th><th>{{.Labels.TimeLimit}}</th><th>{{.Labels.NodesOrReason}}</th><th>{{.Labels.Actions}}</th></tr></thead>
-            <tbody>{{range .Jobs}}<tr><td><strong>{{.ID}}</strong></td><td class="detail-value">{{.Name}}</td><td>{{.User}}</td><td>{{.Account}}</td><td>{{if .Partition}}{{.Partition}}{{else}}—{{end}}</td><td><span class="state-badge">{{.State}}</span></td><td>{{.CPUCount}}</td><td>{{.Elapsed}}</td><td>{{.TimeLimit}}</td><td class="detail-value">{{.NodesOrReason}}{{if gt .NodeCount 1}} ({{.NodeCount}}){{end}}</td><td><button class="job-detail-button" type="button" data-job-detail="job-detail-{{.ID}}" aria-haspopup="dialog" aria-controls="job-detail-modal" aria-label="{{$.Labels.Details}}: {{.ID}}">{{$.Labels.Details}}</button></td></tr>{{end}}</tbody>
+            <tbody>{{range .Jobs}}<tr><td><strong>{{.ID}}</strong></td><td class="detail-value">{{.Name}}</td><td>{{.User}}</td><td>{{.Account}}</td><td>{{if .Partition}}{{.Partition}}{{else}}—{{end}}</td><td><span class="state-badge">{{.State}}</span></td><td>{{.CPUCount}}</td><td>{{.Elapsed}}</td><td>{{.TimeLimit}}</td><td class="detail-value">{{.NodesOrReason}}{{if gt .NodeCount 1}} ({{.NodeCount}}){{end}}</td><td><div class="job-actions"><button class="job-detail-button" type="button" data-job-detail="job-detail-{{.ID}}" aria-haspopup="dialog" aria-controls="job-detail-modal" aria-label="{{$.Labels.Details}}: {{.ID}}">{{$.Labels.Details}}</button><button class="job-resource-button" type="button" data-job-resource="{{.ID}}" aria-haspopup="dialog" aria-controls="job-resource-modal" aria-label="{{$.Labels.Resources}}: {{.ID}}">{{$.Labels.Resources}}</button></div></td></tr>{{end}}</tbody>
           </table></div>
         {{end}}
         {{range .JobDetails}}{{template "job-detail-content" .}}{{end}}
@@ -24,6 +24,39 @@
           <div class="job-modal-surface">
             <header><h2 id="job-detail-title">{{.Labels.JobDetails}}</h2><button type="button" class="modal-close" data-modal-close aria-label="{{.Labels.Close}}">×</button></header>
             <div class="job-modal-body" data-job-modal-body></div>
+          </div>
+        </dialog>
+        <dialog id="job-resource-modal" class="job-modal resource-modal" aria-modal="true" aria-labelledby="job-resource-title"
+          data-resource-loading="{{.Labels.ResourceLoading}}" data-resource-error="{{.Labels.ResourceError}}" data-resource-empty="{{.Labels.ResourceEmpty}}"
+          data-resource-sampled-label="{{.Labels.SampledAt}}" data-resource-cpu-label="{{.Labels.CPUTime}}" data-resource-memory-label="{{.Labels.MaxRSS}}">
+          <div class="job-modal-surface">
+            <header><div><h2 id="job-resource-title">{{.Labels.ResourceUsage}}</h2><span class="resource-job-id" data-resource-job-label></span></div><button type="button" class="modal-close" data-resource-close aria-label="{{.Labels.Close}}">×</button></header>
+            <div class="job-modal-body resource-modal-body">
+              <p class="resource-status" data-resource-status role="status" aria-live="polite"></p>
+              <div data-resource-content hidden>
+                <div class="resource-summary">
+                  <div><span>{{.Labels.CPUTime}}</span><strong data-resource-cpu>—</strong></div>
+                  <div><span>{{.Labels.MaxRSS}}</span><strong data-resource-memory>—</strong></div>
+                  <div><span>{{.Labels.SampledAt}}</span><strong data-resource-sampled>—</strong></div>
+                </div>
+                <section class="resource-chart-section" aria-labelledby="resource-chart-title">
+                  <h3 id="resource-chart-title">{{.Labels.ResourceTrend}}</h3>
+                  <div class="resource-chart" data-resource-chart>
+                    <svg viewBox="0 0 720 220" role="img" aria-label="{{.Labels.ResourceTrend}}" preserveAspectRatio="none">
+                      <desc data-resource-chart-description>{{.Labels.ResourceEmpty}}</desc>
+                      <g class="resource-grid"><line x1="0" y1="20" x2="720" y2="20"></line><line x1="0" y1="110" x2="720" y2="110"></line><line x1="0" y1="200" x2="720" y2="200"></line></g>
+                      <polyline data-resource-cpu-line class="resource-line cpu" points=""></polyline>
+                      <polyline data-resource-memory-line class="resource-line memory" points=""></polyline>
+                    </svg>
+                  </div>
+                  <div class="resource-legend"><span><i class="cpu"></i>{{.Labels.CPUTime}}</span><span><i class="memory"></i>{{.Labels.MaxRSS}}</span></div>
+                </section>
+                <div class="resource-table-wrap"><table class="resource-table" data-sstat-table>
+                  <thead><tr><th>{{.Labels.Step}}</th><th>{{.Labels.AveCPU}}</th><th>{{.Labels.TotalCPU}}</th><th>{{.Labels.AveRSS}}</th><th>{{.Labels.MaxRSS}}</th><th>{{.Labels.MaxVMSize}}</th></tr></thead>
+                  <tbody data-sstat-body></tbody>
+                </table></div>
+              </div>
+            </div>
           </div>
         </dialog>
       </main>

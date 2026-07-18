@@ -80,6 +80,9 @@ type detailCopy struct {
 	StdOut, StdErr, Command, ViewContent                     string
 	OutputPreviewUnavailable, OutputLoading, OutputError     string
 	OutputPreview, OutputTruncated, Details, Actions         string
+	Resources, ResourceUsage, ResourceLoading, ResourceError string
+	ResourceEmpty, SampledAt, CPUTime, MaxRSS, ResourceTrend string
+	Step, AveCPU, TotalCPU, AveRSS, MaxVMSize                string
 	Accounts, Users, Description, Organization               string
 	Coordinators, Associations, AdminLevel                   string
 	DefaultAccount, DefaultWCKey, Priority, UsageFactor      string
@@ -189,6 +192,9 @@ func detailCopyFor(language string) detailCopy {
 			JobID: "Job ID", JobName: "Name", User: "User", Account: "Account", Elapsed: "Elapsed", TimeLimit: "Time limit",
 			NodesOrReason: "Nodes / reason", Online: "Online", Offline: "Unavailable", NodeCount: "Node count",
 			JobDetails: "Job details", BackToJobs: "Back to jobs", JobNotFound: "Job not found in the current queue", Close: "Close",
+			Resources: "Resources", ResourceUsage: "Live resource usage", ResourceLoading: "Loading sstat data...", ResourceError: "Resource data is temporarily unavailable",
+			ResourceEmpty: "No active sstat steps reported", SampledAt: "Sampled at", CPUTime: "CPU time", MaxRSS: "Maximum RSS", ResourceTrend: "Recent resource trend",
+			Step: "Step", AveCPU: "Average CPU time", TotalCPU: "Total CPU time", AveRSS: "Average RSS", MaxVMSize: "Maximum virtual memory",
 			CPUCount: "CPU count", SubmitTime: "Submit time", StartTime: "Start time", WorkDir: "Working directory",
 			EligibleTime: "EligibleTime", EndTime: "EndTime", Unknown: "Unknown",
 			StdOut: "Standard output", StdErr: "Standard error", Command: "Submit command", ViewContent: "View content",
@@ -206,6 +212,9 @@ func detailCopyFor(language string) detailCopy {
 		JobID: "作业 ID", JobName: "名称", User: "用户", Account: "账户", Elapsed: "已运行", TimeLimit: "时间限制",
 		NodesOrReason: "节点 / 原因", Online: "在线", Offline: "不可用", NodeCount: "节点数",
 		JobDetails: "作业详细信息", BackToJobs: "返回作业列表", JobNotFound: "当前队列中未找到该作业", Close: "关闭",
+		Resources: "资源", ResourceUsage: "实时资源消耗", ResourceLoading: "正在加载 sstat 数据...", ResourceError: "资源数据暂不可用",
+		ResourceEmpty: "sstat 暂无活动步骤数据", SampledAt: "采样时间", CPUTime: "CPU 时间", MaxRSS: "最大常驻内存", ResourceTrend: "近期资源趋势",
+		Step: "步骤", AveCPU: "平均 CPU 时间", TotalCPU: "总 CPU 时间", AveRSS: "平均常驻内存", MaxVMSize: "最大虚拟内存",
 		CPUCount: "CPU数", SubmitTime: "提交时间", StartTime: "开始时间", WorkDir: "工作目录",
 		EligibleTime: "可调度时间", EndTime: "结束时间", Unknown: "未知",
 		StdOut: "标准输出", StdErr: "标准错误", Command: "提交命令", ViewContent: "查看内容",

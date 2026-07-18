@@ -69,7 +69,7 @@ func New(config Config) (*Client, error) {
 	}
 	runner := config.Runner
 	if runner == nil {
-		for _, command := range []string{"sinfo", "squeue", "sacctmgr"} {
+		for _, command := range []string{"sinfo", "squeue", "sacctmgr", "sstat"} {
 			path := filepath.Join(config.BinaryDir, command)
 			if err := validateRootOwnedExecutable(path); err != nil {
 				return nil, err

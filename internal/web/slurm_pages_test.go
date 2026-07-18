@@ -57,6 +57,11 @@ func TestSlurmJobsPageShowsLiveEscapedData(t *testing.T) {
 	assertBodyContains(t, response, `aria-label="关闭"`)
 	assertBodyContains(t, response, `<tr><td><strong>32943</strong></td>`)
 	assertBodyContains(t, response, `class="job-detail-button"`)
+	assertBodyContains(t, response, `class="job-resource-button"`)
+	assertBodyContains(t, response, `data-job-resource="32943"`)
+	assertBodyContains(t, response, `<dialog id="job-resource-modal"`)
+	assertBodyContains(t, response, `data-resource-chart`)
+	assertBodyContains(t, response, `data-sstat-table`)
 	assertBodyNotContains(t, response, `href="/slurm/jobs/32943"`)
 	if count := strings.Count(response.Body.String(), `<dialog id="job-detail-modal"`); count != 1 {
 		t.Errorf("job detail dialogs = %d, want 1", count)
