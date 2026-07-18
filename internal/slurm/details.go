@@ -20,6 +20,24 @@ type slurmNumber struct {
 	Number   int64 `json:"number"`
 }
 
+func (n *slurmNumber) UnmarshalJSON(data []byte) error {
+	type objectNumber slurmNumber
+	var object objectNumber
+	if len(data) > 0 && data[0] == '{' {
+		if err := json.Unmarshal(data, &object); err != nil {
+			return err
+		}
+		*n = slurmNumber(object)
+		return nil
+	}
+	var number int64
+	if err := json.Unmarshal(data, &number); err != nil {
+		return err
+	}
+	*n = slurmNumber{Set: true, Number: number}
+	return nil
+}
+
 type sinfoJSON struct {
 	Errors []json.RawMessage `json:"errors"`
 	Sinfo  []struct {
@@ -51,13 +69,23 @@ type squeueJSON struct {
 		ID          int64       `json:"job_id"`
 		Name        string      `json:"name"`
 		User        string      `json:"user_name"`
+		UserID      slurmNumber `json:"user_id"`
 		Account     string      `json:"account"`
+		Partition   string      `json:"partition"`
 		State       []string    `json:"job_state"`
+		CPUs        slurmNumber `json:"cpus"`
+		SubmitTime  slurmNumber `json:"submit_time"`
+		Eligible    slurmNumber `json:"eligible_time"`
 		StartTime   slurmNumber `json:"start_time"`
+		EndTime     slurmNumber `json:"end_time"`
 		TimeLimit   slurmNumber `json:"time_limit"`
 		NodeCount   slurmNumber `json:"node_count"`
 		Nodes       string      `json:"nodes"`
 		StateReason string      `json:"state_reason"`
+		WorkDir     string      `json:"current_working_directory"`
+		StdOut      string      `json:"standard_output"`
+		StdErr      string      `json:"standard_error"`
+		Command     string      `json:"command"`
 	} `json:"jobs"`
 }
 
@@ -160,7 +188,14 @@ func parseJobsJSON(output []byte, now time.Time) ([]cluster.Job, error) {
 		if record.NodeCount.Number < 0 || record.NodeCount.Number > int64(^uint(0)>>1) {
 			return nil, fmt.Errorf("job %d node count is invalid", record.ID)
 		}
-		values := []string{record.Name, record.User, record.Account, record.Nodes, record.StateReason}
+		if (record.UserID.Set && record.UserID.Number <= 0) || record.CPUs.Number < 0 || record.CPUs.Number > int64(^uint(0)>>1) {
+			return nil, fmt.Errorf("job %d user or CPU count is invalid", record.ID)
+		}
+		userID := int64(0)
+		if record.UserID.Set {
+			userID = record.UserID.Number
+		}
+		values := []string{record.Name, record.User, record.Account, record.Partition, record.Nodes, record.StateReason, record.WorkDir, record.StdOut, record.StdErr, record.Command}
 		values = append(values, record.State...)
 		if err := validateDetailStrings(values); err != nil {
 			return nil, err
@@ -172,13 +207,35 @@ func parseJobsJSON(output []byte, now time.Time) ([]cluster.Job, error) {
 				nodesOrReason = "—"
 			}
 		}
+		nodes := strings.TrimSpace(record.Nodes)
+		if nodes == "" {
+			nodes = "—"
+		}
 		jobs = append(jobs, cluster.Job{
-			ID: strconv.FormatInt(record.ID, 10), Name: record.Name, User: record.User, Account: record.Account,
-			State: strings.ToUpper(record.State[0]), Elapsed: formatElapsed(record.StartTime, now),
-			TimeLimit: formatTimeLimit(record.TimeLimit), NodeCount: int(record.NodeCount.Number), NodesOrReason: nodesOrReason,
+			ID: strconv.FormatInt(record.ID, 10), Name: record.Name, User: record.User, UserID: userID,
+			Account: record.Account, Partition: record.Partition, State: strings.ToUpper(record.State[0]), CPUCount: int(record.CPUs.Number),
+			Elapsed: formatElapsed(record.StartTime, now), TimeLimit: formatTimeLimit(record.TimeLimit), NodeCount: int(record.NodeCount.Number),
+			Nodes: nodes, NodesOrReason: nodesOrReason, SubmitTime: formatSlurmTimestamp(record.SubmitTime, now.Location(), "—"),
+			EligibleTime: formatSlurmTimestamp(record.Eligible, now.Location(), "—"), StartTime: formatSlurmTimestamp(record.StartTime, now.Location(), "—"),
+			EndTime: formatSlurmTimestamp(record.EndTime, now.Location(), "Unknown"), WorkDir: displayValue(record.WorkDir),
+			StdOut: displayValue(record.StdOut), StdErr: displayValue(record.StdErr), Command: displayValue(record.Command),
 		})
 	}
 	return jobs, nil
+}
+
+func formatSlurmTimestamp(value slurmNumber, location *time.Location, unavailable string) string {
+	if !value.Set || value.Infinite || value.Number <= 0 {
+		return unavailable
+	}
+	return time.Unix(value.Number, 0).In(location).Format("2006-01-02T15:04:05")
+}
+
+func displayValue(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "—"
+	}
+	return value
 }
 
 func jsonNodeOnline(states []string) bool {

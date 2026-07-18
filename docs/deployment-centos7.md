@@ -33,6 +33,8 @@ runuser -u openhpc-web -- /usr/local/bin/sacctmgr \
 
 五个 Slurm 命令都必须成功。Web 进程不需要 root、sudo 或 MariaDB 直连权限；账户、用户和 QoS 页面只读取 SlurmDBD 已授权返回的数据。
 
+“节点与分区”页面中的分区容量由 `sinfo --Node --json` 节点记录聚合，不会额外执行 Slurm 命令。可将页面中的分区节点数、CPU 总量与 `sinfo` 输出交叉核对；同一节点属于多个分区时，会分别计入各自分区。
+
 ## 3. 构建与上传
 
 在开发机仓库根目录构建：
@@ -124,9 +126,13 @@ OPENHPC_SLURM_BIN_DIR=/usr/local/bin
 OPENHPC_SLURM_TIMEOUT=3s
 OPENHPC_SLURM_MAX_OUTPUT=2097152
 OPENHPC_SLURM_CACHE_TTL=10s
+# 可选；留空时详情中的“查看内容”保持禁用
+OPENHPC_JOB_OUTPUT_ROOTS=
 ```
 
 必须把 `REPLACE_WITH_A_LONG_RANDOM_PASSWORD` 替换为真实密码。用户名长度为 1 到 64，密码长度至少为 12。不要在聊天记录、命令历史或仓库中保存真实密码。
+
+如需查看 `/home` 下的作业输出，将 `OPENHPC_JOB_OUTPUT_ROOTS` 设置为经过评估的最小绝对目录集合，并用 systemd drop-in 将 `ProtectHome` 改为 `read-only`。还需通过 ACL 或受限用户组只授予 `openhpc-web` 服务账号所需的目录遍历和文件读取权限，不要授予写权限。接口会再次校验文件位于作业工作目录内、文件 UID 与 Slurm 作业用户一致，并只读取最新 256 KiB。未完成这些权限配置时应保持该变量为空。
 
 再次固定权限：
 

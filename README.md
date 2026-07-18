@@ -1,6 +1,6 @@
 # OpenHPC Web
 
-面向单集群环境的轻量 HPC 管理平台。目前仓库已完成平台登录、安全会话、SQLite 审计、集群总览，以及 Slurm 节点、作业、账户、用户和 QoS 只读页面。模块导航、中英文和科研红/Slurm 蓝主题已接入；LDAP、文件和终端页面已经建立模块边界，真实系统适配器将在后续阶段接入。
+面向单集群环境的轻量 HPC 管理平台。目前仓库已完成平台登录、安全会话、SQLite 审计、集群总览，以及 Slurm 节点、分区、作业、账户、用户和 QoS 只读视图。模块导航、中英文和科研红/Slurm 蓝主题已接入；LDAP、文件和终端页面已经建立模块边界，真实系统适配器将在后续阶段接入。
 
 CentOS 7 的完整安装、升级和故障排查步骤见 [部署指南](docs/deployment-centos7.md)。
 
@@ -48,6 +48,8 @@ export OPENHPC_SLURM_BIN_DIR=/usr/local/bin
 export OPENHPC_SLURM_TIMEOUT=3s
 export OPENHPC_SLURM_MAX_OUTPUT=2097152
 export OPENHPC_SLURM_CACHE_TTL=10s
+# 默认关闭；启用前按部署指南配置最小只读目录权限
+export OPENHPC_JOB_OUTPUT_ROOTS=
 ```
 
 适配器只会执行：
@@ -60,7 +62,9 @@ export OPENHPC_SLURM_CACHE_TTL=10s
 /usr/local/bin/sacctmgr --json show qos
 ```
 
-命令通过 `exec.CommandContext` 直接执行，固定 C locale，禁止 shell 和调用方自定义参数。适配器只反序列化页面所需 JSON 字段，不展示命令、工作目录或输出路径。读取失败时保留页面和导航，但将实时数据标记为不可用。各类快照使用独立的 10 秒缓存与并发合并边界。
+命令通过 `exec.CommandContext` 直接执行，固定 C locale，禁止 shell 和调用方自定义参数。适配器只反序列化页面所需 JSON 字段。读取失败时保留页面和导航，但将实时数据标记为不可用。各类快照使用独立的 10 秒缓存与并发合并边界。分区容量和利用率由节点快照按分区聚合，与节点表复用同一次 `sinfo --Node --json` 缓存；分区和节点嵌入同一个“节点与分区”主页面，旧 `/slurm/partitions` 地址仅重定向到页面内分区区域。
+
+作业详情中的输出预览默认关闭。配置 `OPENHPC_JOB_OUTPUT_ROOTS` 后，服务端仅接受作业 ID 与 `stdout`/`stderr` 类型，文件路径由当前 Slurm 作业元数据决定；文件必须位于允许根目录及作业工作目录内、为非符号链接普通文件，且 UID 与作业用户一致。接口只返回最新 256 KiB 纯文本。服务账号还需要对应目录的只读权限。
 
 当前兼容基线已在 CentOS 7 管理节点、Slurm 25.05.4 上验证。CentOS 7 部署模板位于 `deploy/`。构建静态 Linux 二进制：
 
@@ -83,14 +87,14 @@ install -o root -g root -m 0644 deploy/openhpc-web.service /etc/systemd/system/o
 
 - 登录
 - 总览
+- slurm 节点与分区只读状态
 - ldap 管理
 - slurm 配置文件管理
-- slurm 分区管理
 - slurm 账户与用户只读目录
 - slurm 关联管理
 - slurm QoS 只读视图
 - slurm 核时管理
-- slurm 作业管理
+- slurm 作业只读详情与受限输出预览
 - 系统文件管理
 - 终端管理
 - 独立管理平台用户（和slurm用户关联）

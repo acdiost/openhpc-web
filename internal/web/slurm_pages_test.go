@@ -29,119 +29,45 @@ func TestSlurmNodesPageShowsLiveEscapedData(t *testing.T) {
 }
 
 func TestSlurmJobsPageShowsLiveEscapedData(t *testing.T) {
-	provider := &stubJobProvider{jobs: []cluster.Job{{ID: "32940", Name: "<script>alert(1)</script>", User: "liyuxiang", Account: "jfzx", State: "RUNNING", Elapsed: "45:53", TimeLimit: "UNLIMITED", NodeCount: 1, NodesOrReason: "node31"}}}
-	handler := newSlurmPageHandler(t, nil, provider)
-	response := getAuthenticated(t, handler, "/slurm/jobs", "en")
-	assertStatus(t, response, http.StatusOK)
-	for _, value := range []string{"Jobs", "32940", "&lt;script&gt;alert(1)&lt;/script&gt;", "liyuxiang", "RUNNING", "node31"} {
-		assertBodyContains(t, response, value)
-	}
-	assertBodyNotContains(t, response, "<script>alert(1)</script>")
-	assertBodyContains(t, response, `class="app-shell"`)
-	assertBodyContains(t, response, `href="/slurm/jobs/32940"`)
-}
-
-func TestSlurmJobDetailShowsEscapedData(t *testing.T) {
 	provider := &stubJobProvider{jobs: []cluster.Job{{
-		ID: "32940", Name: "<script>alert(1)</script>", User: "user<admin", Account: "a&b",
-		State: "RUNNING", Elapsed: "45:53", TimeLimit: "UNLIMITED", NodeCount: 2, NodesOrReason: "node<31",
+		ID: "32943", Name: "<script>Emilia</script>", User: "liyuxiang", UserID: 10001, Account: "jfzx", Partition: "GPU<fast>",
+		State: "RUNNING", CPUCount: 16, Elapsed: "02:14:45", TimeLimit: "UNLIMITED", NodeCount: 1, Nodes: "node31", NodesOrReason: "node31",
+		SubmitTime: "2026-07-18T13:34:41", EligibleTime: "2026-07-18T13:34:41", StartTime: "2026-07-18T13:34:41", EndTime: "Unknown",
+		WorkDir: "/home/liyuxiangjfzx/work/PVA-MPN/20", StdOut: "/home/liyuxiangjfzx/work/PVA-MPN/20/out_32943.log",
+		StdErr: "/home/liyuxiangjfzx/work/PVA-MPN/20/err_32943.log", Command: "/home/liyuxiangjfzx/work/PVA-MPN/20/md_gpu.slurm",
 	}}}
 	handler := newSlurmPageHandler(t, nil, provider)
-	response := getAuthenticated(t, handler, "/slurm/jobs/32940", "en")
-
+	response := getAuthenticated(t, handler, "/slurm/jobs", "zh")
 	assertStatus(t, response, http.StatusOK)
 	for _, value := range []string{
-		"Job details", "Back to jobs", "32940", "&lt;script&gt;alert(1)&lt;/script&gt;",
-		"user&lt;admin", "a&amp;b", "RUNNING", "45:53", "UNLIMITED", "node&lt;31", "Node count", "2",
-		`href="/slurm/jobs"`, `aria-current="page"`, `data-component="app-shell"`,
+		"作业管理", "分区", "CPU数", "操作", "详情", "32943", "&lt;script&gt;Emilia&lt;/script&gt;", "liyuxiang(10001)", "GPU&lt;fast&gt;", "RUNNING", "node31", "16",
+		"作业详细信息", "提交时间", "可调度时间=2026-07-18T13:34:41", "开始时间", "结束时间=未知", "工作目录",
+		"标准输出", "标准错误", "提交命令", "/home/liyuxiangjfzx/work/PVA-MPN/20/md_gpu.slurm", "查看内容",
 	} {
 		assertBodyContains(t, response, value)
 	}
-	for _, unsafe := range []string{"<script>alert(1)</script>", "user<admin", "node<31"} {
-		assertBodyNotContains(t, response, unsafe)
-	}
-	if provider.jobCalls != 1 || provider.lastJobID != 32940 {
-		t.Errorf("Job() calls/id = (%d, %d), want (1, 32940)", provider.jobCalls, provider.lastJobID)
-	}
-}
-
-func TestSlurmJobDetailRejectsInvalidIDsBeforeProviderLookup(t *testing.T) {
-	for _, jobID := range []string{"0", "-1", "abc", "1.2", "9223372036854775808", "0001"} {
-		t.Run(jobID, func(t *testing.T) {
-			provider := &stubJobProvider{}
-			handler := newSlurmPageHandler(t, nil, provider)
-			response := getAuthenticated(t, handler, "/slurm/jobs/"+jobID, "en")
-
-			assertStatus(t, response, http.StatusBadRequest)
-			assertBodyContains(t, response, "Invalid request")
-			if provider.jobCalls != 0 {
-				t.Errorf("Job() calls = %d, want 0", provider.jobCalls)
-			}
-		})
+	assertBodyNotContains(t, response, "<script>Emilia</script>")
+	assertBodyContains(t, response, `class="app-shell"`)
+	assertBodyContains(t, response, `<dialog id="job-detail-modal"`)
+	assertBodyContains(t, response, `aria-labelledby="job-detail-title"`)
+	assertBodyContains(t, response, `data-job-detail="job-detail-32943"`)
+	assertBodyContains(t, response, `aria-haspopup="dialog"`)
+	assertBodyContains(t, response, `aria-controls="job-detail-modal"`)
+	assertBodyContains(t, response, `aria-label="详情: 32943"`)
+	assertBodyContains(t, response, `aria-label="关闭"`)
+	assertBodyContains(t, response, `<tr><td><strong>32943</strong></td>`)
+	assertBodyContains(t, response, `class="job-detail-button"`)
+	assertBodyNotContains(t, response, `href="/slurm/jobs/32943"`)
+	if count := strings.Count(response.Body.String(), `<dialog id="job-detail-modal"`); count != 1 {
+		t.Errorf("job detail dialogs = %d, want 1", count)
 	}
 }
 
-func TestSlurmJobDetailShowsNotFoundState(t *testing.T) {
-	provider := &stubJobProvider{jobs: []cluster.Job{{ID: "32940", Name: "other-job", User: "user", State: "RUNNING"}}}
-	handler := newSlurmPageHandler(t, nil, provider)
-	response := getAuthenticated(t, handler, "/slurm/jobs/32941", "zh")
-
-	assertStatus(t, response, http.StatusNotFound)
-	assertBodyContains(t, response, "当前队列中未找到该作业")
-	assertBodyContains(t, response, `href="/slurm/jobs"`)
-	assertBodyNotContains(t, response, "other-job")
-}
-
-func TestSlurmJobDetailDegradesWithoutLeakingProviderErrors(t *testing.T) {
-	var logs bytes.Buffer
-	previousLogWriter := log.Writer()
-	log.SetOutput(&logs)
-	t.Cleanup(func() { log.SetOutput(previousLogWriter) })
-	provider := &stubJobProvider{err: errors.New("exec /secret/slurm: credential material")}
-	handler := newSlurmPageHandler(t, nil, provider)
-	response := getAuthenticated(t, handler, "/slurm/jobs/32940", "en")
-
-	assertStatus(t, response, http.StatusOK)
-	assertBodyContains(t, response, "Slurm data is temporarily unavailable")
-	assertBodyNotContains(t, response, "/secret/slurm")
-	assertBodyNotContains(t, response, "credential material")
-	if strings.Contains(logs.String(), "/secret/slurm") || strings.Contains(logs.String(), "credential material") {
-		t.Errorf("logs leaked provider error: %q", logs.String())
-	}
-}
-
-func TestSlurmJobDetailRejectsMismatchedProviderRecord(t *testing.T) {
-	handler := newSlurmPageHandler(t, nil, mismatchedJobProvider{})
-	response := getAuthenticated(t, handler, "/slurm/jobs/32940", "en")
-
-	assertStatus(t, response, http.StatusOK)
-	assertBodyContains(t, response, "Slurm data is temporarily unavailable")
-	assertBodyNotContains(t, response, "wrong-job")
-}
-
-func TestSlurmJobDetailShowsChineseCopyForValidJob(t *testing.T) {
-	const maxJobID = "9223372036854775807"
-	provider := &stubJobProvider{jobs: []cluster.Job{{
-		ID: maxJobID, Name: "训练任务", User: "researcher", Account: "jfzx", State: "PENDING",
-		Elapsed: "—", TimeLimit: "1:00:00", NodeCount: 1, NodesOrReason: "Resources",
-	}}}
-	handler := newSlurmPageHandler(t, nil, provider)
-	response := getAuthenticated(t, handler, "/slurm/jobs/"+maxJobID, "zh")
-
-	assertStatus(t, response, http.StatusOK)
-	for _, value := range []string{"作业详情", "返回作业列表", "名称", "用户", "账户", "状态", "已运行", "时间限制", "节点数", "节点 / 原因", maxJobID} {
-		assertBodyContains(t, response, value)
-	}
-}
-
-func TestSlurmJobDetailRequiresAuthentication(t *testing.T) {
+func TestSlurmJobDetailHasNoStandalonePage(t *testing.T) {
 	handler := newSlurmPageHandler(t, nil, &stubJobProvider{})
-	request := httptest.NewRequest(http.MethodGet, "/slurm/jobs/32940", nil)
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-
-	assertStatus(t, response, http.StatusFound)
-	assertHeader(t, response, "Location", "/login?next=%2Fslurm%2Fjobs%2F32940")
+	response := getAuthenticated(t, handler, "/slurm/jobs/32943", "zh")
+	assertStatus(t, response, http.StatusNotFound)
+	assertBodyNotContains(t, response, `data-component="app-shell"`)
 }
 
 func TestSlurmPagesUseLightApplicationTheme(t *testing.T) {
@@ -173,6 +99,23 @@ func TestSlurmPagesDegradeWithoutLeakingErrors(t *testing.T) {
 		assertBodyContains(t, response, "Slurm 数据暂不可用")
 		assertBodyNotContains(t, response, "/secret/slurm")
 		assertBodyNotContains(t, response, "credential material")
+	}
+}
+
+func TestSlurmJobsProviderErrorLogIsRedacted(t *testing.T) {
+	var output bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&output)
+	defer log.SetOutput(previous)
+
+	handler := newSlurmPageHandler(t, nil, &stubJobProvider{err: errors.New("/secret/slurm credential material")})
+	response := getAuthenticated(t, handler, "/slurm/jobs", "zh")
+	assertStatus(t, response, http.StatusOK)
+	if strings.Contains(output.String(), "/secret/slurm") || strings.Contains(output.String(), "credential material") {
+		t.Errorf("provider error leaked to logs: %q", output.String())
+	}
+	if !strings.Contains(output.String(), "Slurm jobs snapshot failed") {
+		t.Errorf("redacted failure log missing: %q", output.String())
 	}
 }
 

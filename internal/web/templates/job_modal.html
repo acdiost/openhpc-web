@@ -1,0 +1,26 @@
+{{define "job-detail-content"}}
+<template id="job-detail-{{.Job.ID}}">
+  <dl class="job-modal-details">
+    <div><dt>{{.Labels.JobID}}:</dt><dd>{{.Job.ID}}</dd></div>
+    <div><dt>{{.Labels.JobName}}:</dt><dd>{{.Job.Name}}</dd></div>
+    <div><dt>{{.Labels.User}}:</dt><dd>{{.Job.User}}{{if gt .Job.UserID 0}}({{.Job.UserID}}){{end}}</dd></div>
+    <div><dt>{{.Labels.Partition}}:</dt><dd>{{if .Job.Partition}}{{.Job.Partition}}{{else}}—{{end}}</dd></div>
+    <div><dt>{{.Labels.State}}:</dt><dd><span class="state-badge">{{.Job.State}}</span></dd></div>
+    <div><dt>{{.Labels.Node}}:</dt><dd>{{.Job.Nodes}}</dd></div>
+    <div><dt>{{.Labels.NodeCount}}:</dt><dd>{{.Job.NodeCount}}</dd></div>
+    <div><dt>{{.Labels.CPUCount}}:</dt><dd>{{.Job.CPUCount}}</dd></div>
+    <div><dt>{{.Labels.Elapsed}}:</dt><dd>{{.Job.Elapsed}}</dd></div>
+    <div><dt>{{.Labels.TimeLimit}}:</dt><dd>{{.Job.TimeLimit}}</dd></div>
+    <div class="modal-detail-wide"><dt>{{.Labels.SubmitTime}}:</dt><dd>{{.Job.SubmitTime}} <span>{{.Labels.EligibleTime}}={{.Job.EligibleTime}}</span></dd></div>
+    <div class="modal-detail-wide"><dt>{{.Labels.StartTime}}:</dt><dd>{{.Job.StartTime}} <span>{{.Labels.EndTime}}={{.EndTime}}</span></dd></div>
+    <div class="modal-detail-wide"><dt>{{.Labels.WorkDir}}:</dt><dd class="path-value">{{.Job.WorkDir}}</dd></div>
+    <div class="modal-detail-wide"><dt>{{.Labels.StdOut}}:</dt><dd class="path-value">{{.Job.StdOut}} <button type="button" class="inline-action" data-job-output data-job-id="{{.Job.ID}}" data-output-stream="stdout" data-output-label="{{.Labels.StdOut}}" {{if not .CanViewStdOut}}disabled aria-describedby="job-output-stdout-note-{{.Job.ID}}"{{end}}>{{.Labels.ViewContent}}</button>{{if not .CanViewStdOut}} <span class="output-unavailable-note" id="job-output-stdout-note-{{.Job.ID}}">{{.Labels.OutputPreviewUnavailable}}</span>{{end}}</dd></div>
+    <div class="modal-detail-wide"><dt>{{.Labels.StdErr}}:</dt><dd class="path-value">{{.Job.StdErr}} <button type="button" class="inline-action" data-job-output data-job-id="{{.Job.ID}}" data-output-stream="stderr" data-output-label="{{.Labels.StdErr}}" {{if not .CanViewStdErr}}disabled aria-describedby="job-output-stderr-note-{{.Job.ID}}"{{end}}>{{.Labels.ViewContent}}</button>{{if not .CanViewStdErr}} <span class="output-unavailable-note" id="job-output-stderr-note-{{.Job.ID}}">{{.Labels.OutputPreviewUnavailable}}</span>{{end}}</dd></div>
+    <div class="modal-detail-wide command-detail"><dt>{{.Labels.Command}}:</dt><dd><pre>{{.Job.Command}}</pre></dd></div>
+  </dl>
+  <section class="job-output-preview" data-job-output-preview hidden aria-live="polite">
+    <h3>{{.Labels.OutputPreview}}: <span data-job-output-title></span></h3>
+    <pre data-job-output-content tabindex="0"></pre>
+  </section>
+</template>
+{{end}}

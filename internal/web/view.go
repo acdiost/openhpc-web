@@ -63,10 +63,17 @@ type moduleView struct {
 
 type detailCopy struct {
 	Refresh, LiveData, EmptyNodes, EmptyJobs                 string
+	EmptyPartitions, PartitionStatus, NodeStatus             string
 	Node, Partition, State, CPUs, Memory, GRES, Availability string
+	OnlineNodes, CPUUtilization                              string
 	JobID, JobName, User, Account, Elapsed, TimeLimit        string
 	NodesOrReason, Online, Offline, NodeCount                string
-	JobDetails, BackToJobs, JobNotFound                      string
+	JobDetails, BackToJobs, JobNotFound, Close               string
+	CPUCount, SubmitTime, StartTime, WorkDir                 string
+	EligibleTime, EndTime, Unknown                           string
+	StdOut, StdErr, Command, ViewContent                     string
+	OutputPreviewUnavailable, OutputLoading, OutputError     string
+	OutputPreview, OutputTruncated, Details, Actions         string
 	Accounts, Users, Description, Organization               string
 	Coordinators, Associations, AdminLevel                   string
 	DefaultAccount, DefaultWCKey, Priority, UsageFactor      string
@@ -88,44 +95,62 @@ type qosView struct {
 
 type nodesView struct {
 	appChrome
-	Module module
-	Labels detailCopy
-	Nodes  []cluster.Node
+	Module              module
+	Labels              detailCopy
+	Nodes               []cluster.Node
+	Partitions          []cluster.Partition
+	NodesAvailable      bool
+	PartitionsAvailable bool
 }
 
 type jobsView struct {
 	appChrome
-	Module module
-	Labels detailCopy
-	Jobs   []cluster.Job
+	Module     module
+	Labels     detailCopy
+	Jobs       []cluster.Job
+	JobDetails []jobModalView
 }
 
-type jobDetailView struct {
-	appChrome
-	Module module
-	Labels detailCopy
-	Job    cluster.Job
-	Found  bool
+type jobModalView struct {
+	Labels        detailCopy
+	Job           cluster.Job
+	EndTime       string
+	CanViewStdOut bool
+	CanViewStdErr bool
 }
 
 func detailCopyFor(language string) detailCopy {
 	if language == "en" {
 		return detailCopy{
 			Refresh: "Refresh", LiveData: "Live Slurm data", EmptyNodes: "No nodes reported", EmptyJobs: "No jobs in the queue",
+			EmptyPartitions: "No partitions reported", PartitionStatus: "Partition status", NodeStatus: "Node status",
 			Node: "Node", Partition: "Partition", State: "State", CPUs: "CPUs", Memory: "Memory", GRES: "GRES", Availability: "Availability",
+			OnlineNodes: "Online nodes", CPUUtilization: "CPU utilization",
 			JobID: "Job ID", JobName: "Name", User: "User", Account: "Account", Elapsed: "Elapsed", TimeLimit: "Time limit",
 			NodesOrReason: "Nodes / reason", Online: "Online", Offline: "Unavailable", NodeCount: "Node count",
-			JobDetails: "Job details", BackToJobs: "Back to jobs", JobNotFound: "Job not found in the current queue",
+			JobDetails: "Job details", BackToJobs: "Back to jobs", JobNotFound: "Job not found in the current queue", Close: "Close",
+			CPUCount: "CPU count", SubmitTime: "Submit time", StartTime: "Start time", WorkDir: "Working directory",
+			EligibleTime: "EligibleTime", EndTime: "EndTime", Unknown: "Unknown",
+			StdOut: "Standard output", StdErr: "Standard error", Command: "Submit command", ViewContent: "View content",
+			OutputPreviewUnavailable: "Output preview is not enabled", OutputLoading: "Loading output...", OutputError: "Output could not be loaded",
+			OutputPreview: "Output preview", OutputTruncated: "latest 256 KiB only", Details: "Details", Actions: "Actions",
 			Accounts: "Accounts", Users: "Users", Description: "Description", Organization: "Organization", Coordinators: "Coordinators", Associations: "Associations", AdminLevel: "Admin level",
 			DefaultAccount: "Default account", DefaultWCKey: "Default WCKey", Priority: "Priority", UsageFactor: "Usage factor", MaxJobs: "Max jobs", Unlimited: "Unlimited",
 		}
 	}
 	return detailCopy{
 		Refresh: "刷新", LiveData: "Slurm 实时数据", EmptyNodes: "Slurm 未报告节点", EmptyJobs: "当前队列中没有作业",
+		EmptyPartitions: "Slurm 未报告分区", PartitionStatus: "分区状态", NodeStatus: "节点状态",
 		Node: "节点", Partition: "分区", State: "状态", CPUs: "CPU", Memory: "内存", GRES: "GRES", Availability: "可用性",
+		OnlineNodes: "在线节点", CPUUtilization: "CPU 利用率",
 		JobID: "作业 ID", JobName: "名称", User: "用户", Account: "账户", Elapsed: "已运行", TimeLimit: "时间限制",
 		NodesOrReason: "节点 / 原因", Online: "在线", Offline: "不可用", NodeCount: "节点数",
-		JobDetails: "作业详情", BackToJobs: "返回作业列表", JobNotFound: "当前队列中未找到该作业",
+		JobDetails: "作业详细信息", BackToJobs: "返回作业列表", JobNotFound: "当前队列中未找到该作业", Close: "关闭",
+		CPUCount: "CPU数", SubmitTime: "提交时间", StartTime: "开始时间", WorkDir: "工作目录",
+		EligibleTime: "可调度时间", EndTime: "结束时间", Unknown: "未知",
+		StdOut: "标准输出", StdErr: "标准错误", Command: "提交命令", ViewContent: "查看内容",
+		OutputPreviewUnavailable: "未启用输出内容预览", OutputLoading: "正在加载输出...", OutputError: "无法加载输出内容",
+		OutputPreview: "输出内容", OutputTruncated: "仅显示末尾 256 KiB", Details: "详情", Actions: "操作",
 		Accounts: "账户", Users: "用户", Description: "描述", Organization: "组织", Coordinators: "协调员", Associations: "关联数", AdminLevel: "管理员级别",
 		DefaultAccount: "默认账户", DefaultWCKey: "默认 WCKey", Priority: "优先级", UsageFactor: "使用因子", MaxJobs: "最大作业数", Unlimited: "无限制",
 	}

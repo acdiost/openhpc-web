@@ -2,6 +2,7 @@ package slurm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"reflect"
@@ -42,18 +43,18 @@ func TestClientJobsParsesSqueueJSON(t *testing.T) {
 	runner := &scriptedRunner{outputs: map[string][]byte{"squeue": []byte(`{
 		"errors": [], "warnings": [],
 		"jobs": [
-			{"job_id":32940,"name":"simulation|phase2","user_name":"liyuxiang","account":"jfzx","job_state":["RUNNING"],"start_time":{"set":true,"infinite":false,"number":1704067200},"time_limit":{"set":false,"infinite":true,"number":0},"node_count":{"set":true,"infinite":false,"number":1},"nodes":"node31","state_reason":"None"},
+			{"job_id":32940,"name":"simulation|phase2","user_name":"liyuxiang","user_id":{"set":true,"number":10001},"account":"jfzx","partition":"GPU","job_state":["RUNNING"],"cpus":{"set":true,"number":16},"submit_time":{"set":true,"number":1704060000},"eligible_time":{"set":true,"number":1704063600},"start_time":{"set":true,"infinite":false,"number":1704067200},"end_time":{"set":false,"number":0},"time_limit":{"set":false,"infinite":true,"number":0},"node_count":{"set":true,"infinite":false,"number":1},"nodes":"node31","state_reason":"None","current_working_directory":"/home/liyuxiang/work/PVA-MPN/20","standard_output":"/home/liyuxiang/work/PVA-MPN/20/out_32940.log","standard_error":"/home/liyuxiang/work/PVA-MPN/20/err_32940.log","command":"/home/liyuxiang/work/PVA-MPN/20/md_gpu.slurm"},
 			{"job_id":32941,"name":"wait","user_name":"user1","account":"jfzx","job_state":["PENDING"],"start_time":{"set":false,"infinite":false,"number":0},"time_limit":{"set":true,"infinite":false,"number":60},"node_count":{"set":true,"infinite":false,"number":2},"nodes":"","state_reason":"Resources"}
 		]}`)}}
 	client := newTestClient(t, runner)
-	client.now = func() time.Time { return time.Unix(1704070800, 0) }
+	client.now = func() time.Time { return time.Unix(1704070800, 0).UTC() }
 	jobs, err := client.Jobs(context.Background())
 	if err != nil {
 		t.Fatalf("Jobs() error = %v", err)
 	}
 	want := []cluster.Job{
-		{ID: "32940", Name: "simulation|phase2", User: "liyuxiang", Account: "jfzx", State: "RUNNING", Elapsed: "1:00:00", TimeLimit: "UNLIMITED", NodeCount: 1, NodesOrReason: "node31"},
-		{ID: "32941", Name: "wait", User: "user1", Account: "jfzx", State: "PENDING", Elapsed: "—", TimeLimit: "1:00:00", NodeCount: 2, NodesOrReason: "Resources"},
+		{ID: "32940", Name: "simulation|phase2", User: "liyuxiang", UserID: 10001, Account: "jfzx", Partition: "GPU", State: "RUNNING", CPUCount: 16, Elapsed: "1:00:00", TimeLimit: "UNLIMITED", NodeCount: 1, Nodes: "node31", NodesOrReason: "node31", SubmitTime: "2023-12-31T22:00:00", EligibleTime: "2023-12-31T23:00:00", StartTime: "2024-01-01T00:00:00", EndTime: "Unknown", WorkDir: "/home/liyuxiang/work/PVA-MPN/20", StdOut: "/home/liyuxiang/work/PVA-MPN/20/out_32940.log", StdErr: "/home/liyuxiang/work/PVA-MPN/20/err_32940.log", Command: "/home/liyuxiang/work/PVA-MPN/20/md_gpu.slurm"},
+		{ID: "32941", Name: "wait", User: "user1", Account: "jfzx", State: "PENDING", Elapsed: "—", TimeLimit: "1:00:00", NodeCount: 2, Nodes: "—", NodesOrReason: "Resources", SubmitTime: "—", EligibleTime: "—", StartTime: "—", EndTime: "Unknown", WorkDir: "—", StdOut: "—", StdErr: "—", Command: "—"},
 	}
 	if !reflect.DeepEqual(jobs, want) {
 		t.Errorf("Jobs() = %#v, want %#v", jobs, want)
@@ -115,6 +116,10 @@ func TestClientDetailsRejectInvalidJSON(t *testing.T) {
 		{name: "node CPU invalid", method: "nodes", output: `{"errors":[],"sinfo":[{"nodes":{"nodes":["n1"]},"partition":{"name":"GPU"},"node":{"state":["IDLE"]},"cpus":{"allocated":129,"total":128},"memory":{"maximum":1},"gres":{"total":""}}]}`},
 		{name: "job missing ID", method: "jobs", output: `{"errors":[],"jobs":[{"job_id":0,"user_name":"u","job_state":["RUNNING"],"node_count":{"set":true,"number":1}}]}`},
 		{name: "oversized job name", method: "jobs", output: `{"errors":[],"jobs":[{"job_id":1,"name":"` + strings.Repeat("x", 2048) + `","user_name":"u","job_state":["RUNNING"],"node_count":{"set":true,"number":1}}]}`},
+		{name: "negative user ID", method: "jobs", output: `{"errors":[],"jobs":[{"job_id":1,"user_name":"u","user_id":-1,"job_state":["RUNNING"],"node_count":1}]}`},
+		{name: "zero explicitly set user ID", method: "jobs", output: `{"errors":[],"jobs":[{"job_id":1,"user_name":"u","user_id":{"set":true,"number":0},"job_state":["RUNNING"],"node_count":1}]}`},
+		{name: "negative CPU count", method: "jobs", output: `{"errors":[],"jobs":[{"job_id":1,"user_name":"u","cpus":{"set":true,"number":-1},"job_state":["RUNNING"],"node_count":1}]}`},
+		{name: "oversized working directory", method: "jobs", output: `{"errors":[],"jobs":[{"job_id":1,"user_name":"u","job_state":["RUNNING"],"node_count":1,"current_working_directory":"/` + strings.Repeat("x", 2048) + `"}]}`},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -130,6 +135,35 @@ func TestClientDetailsRejectInvalidJSON(t *testing.T) {
 				t.Fatal("details error = nil, want parse error")
 			}
 		})
+	}
+}
+
+func TestSlurmNumberAcceptsScalarAndWrappedIntegers(t *testing.T) {
+	for _, test := range []struct {
+		json string
+		want slurmNumber
+	}{
+		{json: `16`, want: slurmNumber{Set: true, Number: 16}},
+		{json: `{"set":true,"infinite":false,"number":16}`, want: slurmNumber{Set: true, Number: 16}},
+		{json: `{"set":false,"infinite":true,"number":0}`, want: slurmNumber{Infinite: true}},
+	} {
+		var got slurmNumber
+		if err := json.Unmarshal([]byte(test.json), &got); err != nil {
+			t.Fatalf("Unmarshal(%s) error = %v", test.json, err)
+		}
+		if got != test.want {
+			t.Errorf("Unmarshal(%s) = %#v, want %#v", test.json, got, test.want)
+		}
+	}
+}
+
+func TestJobsIgnoreUnsetWrappedUserID(t *testing.T) {
+	jobs, err := parseJobsJSON([]byte(`{"errors":[],"jobs":[{"job_id":1,"user_name":"u","user_id":{"set":false,"number":10001},"job_state":["RUNNING"],"node_count":1}]}`), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if jobs[0].UserID != 0 {
+		t.Errorf("UserID = %d, want 0 for unset wrapper", jobs[0].UserID)
 	}
 }
 

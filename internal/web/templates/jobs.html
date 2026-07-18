@@ -15,10 +15,17 @@
           <div class="data-empty">{{.Labels.EmptyJobs}}</div>
         {{else}}
           <div class="data-table-wrap"><table class="data-table jobs-table">
-            <thead><tr><th>{{.Labels.JobID}}</th><th>{{.Labels.JobName}}</th><th>{{.Labels.User}}</th><th>{{.Labels.Account}}</th><th>{{.Labels.State}}</th><th>{{.Labels.Elapsed}}</th><th>{{.Labels.TimeLimit}}</th><th>{{.Labels.NodesOrReason}}</th></tr></thead>
-            <tbody>{{range .Jobs}}<tr><td><a class="job-link" href="/slurm/jobs/{{.ID}}"><strong>{{.ID}}</strong><span aria-hidden="true">→</span></a></td><td class="detail-value">{{.Name}}</td><td>{{.User}}</td><td>{{.Account}}</td><td><span class="state-badge">{{.State}}</span></td><td>{{.Elapsed}}</td><td>{{.TimeLimit}}</td><td class="detail-value">{{.NodesOrReason}}{{if gt .NodeCount 1}} ({{.NodeCount}}){{end}}</td></tr>{{end}}</tbody>
+            <thead><tr><th>{{.Labels.JobID}}</th><th>{{.Labels.JobName}}</th><th>{{.Labels.User}}</th><th>{{.Labels.Account}}</th><th>{{.Labels.Partition}}</th><th>{{.Labels.State}}</th><th>{{.Labels.CPUCount}}</th><th>{{.Labels.Elapsed}}</th><th>{{.Labels.TimeLimit}}</th><th>{{.Labels.NodesOrReason}}</th><th>{{.Labels.Actions}}</th></tr></thead>
+            <tbody>{{range .Jobs}}<tr><td><strong>{{.ID}}</strong></td><td class="detail-value">{{.Name}}</td><td>{{.User}}</td><td>{{.Account}}</td><td>{{if .Partition}}{{.Partition}}{{else}}—{{end}}</td><td><span class="state-badge">{{.State}}</span></td><td>{{.CPUCount}}</td><td>{{.Elapsed}}</td><td>{{.TimeLimit}}</td><td class="detail-value">{{.NodesOrReason}}{{if gt .NodeCount 1}} ({{.NodeCount}}){{end}}</td><td><button class="job-detail-button" type="button" data-job-detail="job-detail-{{.ID}}" aria-haspopup="dialog" aria-controls="job-detail-modal" aria-label="{{$.Labels.Details}}: {{.ID}}">{{$.Labels.Details}}</button></td></tr>{{end}}</tbody>
           </table></div>
         {{end}}
+        {{range .JobDetails}}{{template "job-detail-content" .}}{{end}}
+        <dialog id="job-detail-modal" class="job-modal" aria-modal="true" aria-labelledby="job-detail-title" data-output-loading="{{.Labels.OutputLoading}}" data-output-error="{{.Labels.OutputError}}" data-output-truncated="{{.Labels.OutputTruncated}}">
+          <div class="job-modal-surface">
+            <header><h2 id="job-detail-title">{{.Labels.JobDetails}}</h2><button type="button" class="modal-close" data-modal-close aria-label="{{.Labels.Close}}">×</button></header>
+            <div class="job-modal-body" data-job-modal-body></div>
+          </div>
+        </dialog>
       </main>
     </div>
   </div>

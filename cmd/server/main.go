@@ -33,6 +33,7 @@ func main() {
 	address := envOr("OPENHPC_ADDRESS", "127.0.0.1:8080")
 	secureCookies := os.Getenv("OPENHPC_SECURE_COOKIES") == "true"
 	trustedProxyCIDRs := splitList(os.Getenv("OPENHPC_TRUSTED_PROXY_CIDRS"))
+	jobOutputRoots := splitList(os.Getenv("OPENHPC_JOB_OUTPUT_ROOTS"))
 	if err := validateDeploymentConfig(address, secureCookies, trustedProxyCIDRs); err != nil {
 		log.Fatal(err)
 	}
@@ -46,6 +47,7 @@ func main() {
 	}
 	var metricsProvider cluster.Provider
 	var nodeProvider cluster.NodeProvider
+	var partitionProvider cluster.PartitionProvider
 	var jobProvider cluster.JobProvider
 	var accountingProvider cluster.AccountingProvider
 	if slurmEnabled {
@@ -54,7 +56,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("initialize Slurm integration: %v", err)
 		}
-		metricsProvider, nodeProvider, jobProvider, accountingProvider = client, client, client, client
+		metricsProvider, nodeProvider, partitionProvider, jobProvider, accountingProvider = client, client, client, client, client
 	}
 	handler, err := web.New(web.Config{
 		AdminUsername:      username,
@@ -64,7 +66,9 @@ func main() {
 		TrustedProxyCIDRs:  trustedProxyCIDRs,
 		MetricsProvider:    metricsProvider,
 		NodeProvider:       nodeProvider,
+		PartitionProvider:  partitionProvider,
 		JobProvider:        jobProvider,
+		JobOutputRoots:     jobOutputRoots,
 		AccountingProvider: accountingProvider,
 	})
 	if err != nil {

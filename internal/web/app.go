@@ -14,7 +14,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -45,7 +44,9 @@ type Config struct {
 	MetricsAvailable   bool
 	MetricsProvider    cluster.Provider
 	NodeProvider       cluster.NodeProvider
+	PartitionProvider  cluster.PartitionProvider
 	JobProvider        cluster.JobProvider
+	JobOutputRoots     []string
 	AccountingProvider cluster.AccountingProvider
 }
 
@@ -56,7 +57,10 @@ type application struct {
 	metricsAvailable   bool
 	metricsProvider    cluster.Provider
 	nodeProvider       cluster.NodeProvider
+	partitionProvider  cluster.PartitionProvider
 	jobProvider        cluster.JobProvider
+	jobOutputRoots     []jobOutputRoot
+	jobOutputSlots     chan struct{}
 	accountingProvider cluster.AccountingProvider
 	templates          *template.Template
 	audit              *platform.AuditStore
@@ -66,8 +70,9 @@ type application struct {
 }
 
 type Handler struct {
-	handler http.Handler
-	audit   *platform.AuditStore
+	handler        http.Handler
+	audit          *platform.AuditStore
+	jobOutputRoots []jobOutputRoot
 }
 
 func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
@@ -75,7 +80,7 @@ func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 }
 
 func (h *Handler) Close() error {
-	return h.audit.Close()
+	return errors.Join(h.audit.Close(), closeJobOutputRoots(h.jobOutputRoots))
 }
 
 type sessionStore struct {
@@ -123,6 +128,11 @@ func New(config Config) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+	jobOutputRoots, err := openJobOutputRoots(config.JobOutputRoots)
+	if err != nil {
+		_ = audit.Close()
+		return nil, err
+	}
 
 	app := &application{
 		username:           normalizedUsername,
@@ -131,7 +141,10 @@ func New(config Config) (http.Handler, error) {
 		metricsAvailable:   config.MetricsAvailable,
 		metricsProvider:    config.MetricsProvider,
 		nodeProvider:       config.NodeProvider,
+		partitionProvider:  config.PartitionProvider,
 		jobProvider:        config.JobProvider,
+		jobOutputRoots:     jobOutputRoots,
+		jobOutputSlots:     makeJobOutputSlots(jobOutputRoots),
 		accountingProvider: config.AccountingProvider,
 		templates:          templates,
 		audit:              audit,
@@ -145,6 +158,7 @@ func New(config Config) (http.Handler, error) {
 	e.HTTPErrorHandler = app.errorHandler
 	if err := configureIPExtractor(e, config.TrustedProxyCIDRs); err != nil {
 		_ = audit.Close()
+		_ = closeJobOutputRoots(jobOutputRoots)
 		return nil, err
 	}
 	e.Use(requestBodyLimit(16 << 10))
@@ -154,6 +168,7 @@ func New(config Config) (http.Handler, error) {
 	staticFiles, err := fs.Sub(assets, "static")
 	if err != nil {
 		_ = audit.Close()
+		_ = closeJobOutputRoots(jobOutputRoots)
 		return nil, fmt.Errorf("load static files: %w", err)
 	}
 	e.GET("/static/*", echo.WrapHandler(http.StripPrefix("/static/", http.FileServer(http.FS(staticFiles)))))
@@ -164,22 +179,25 @@ func New(config Config) (http.Handler, error) {
 	protected.GET("/", func(c echo.Context) error { return c.Redirect(http.StatusFound, "/dashboard") })
 	protected.GET("/dashboard", app.dashboard)
 	protected.GET("/slurm/nodes", app.slurmNodes)
+	protected.GET("/slurm/partitions", func(c echo.Context) error {
+		return c.Redirect(http.StatusFound, "/slurm/nodes#partitions")
+	})
 	protected.GET("/slurm/jobs", app.slurmJobs)
-	protected.GET("/slurm/jobs/:id", app.slurmJobDetail)
+	protected.GET("/slurm/jobs/:id/output/:stream", app.slurmJobOutput)
 	protected.GET("/slurm/accounts", app.slurmAccounts)
 	protected.GET("/slurm/qos", app.slurmQoS)
 	protected.POST("/preferences/language", app.setLanguage)
 	protected.POST("/preferences/theme", app.setTheme)
 	protected.POST("/logout", app.logout)
 	for _, path := range []string{
-		"/ldap", "/slurm/config", "/slurm/partitions", "/slurm/users",
+		"/ldap", "/slurm/config", "/slurm/users",
 		"/slurm/associations", "/slurm/core-hours",
 		"/system/files", "/terminal", "/platform/users", "/audit",
 	} {
 		protected.GET(path, app.modulePlaceholder)
 	}
 
-	return &Handler{handler: e, audit: audit}, nil
+	return &Handler{handler: e, audit: audit, jobOutputRoots: jobOutputRoots}, nil
 }
 
 func (a *application) slurmAccounts(c echo.Context) error {
@@ -233,23 +251,34 @@ func (a *application) slurmQoS(c echo.Context) error {
 func (a *application) slurmNodes(c echo.Context) error {
 	lang := language(c)
 	labels := detailCopyFor(lang)
+	var partitions []cluster.Partition
+	partitionsAvailable := false
+	if a.partitionProvider != nil {
+		livePartitions, err := a.partitionProvider.Partitions(c.Request().Context())
+		if err != nil {
+			log.Printf("Slurm partitions snapshot failed")
+		} else {
+			partitions, partitionsAvailable = livePartitions, true
+		}
+	}
 	var nodes []cluster.Node
-	available := false
+	nodesAvailable := false
 	if a.nodeProvider != nil {
 		liveNodes, err := a.nodeProvider.Nodes(c.Request().Context())
 		if err != nil {
 			log.Printf("Slurm nodes snapshot failed: %v", err)
 		} else {
-			nodes, available = liveNodes, true
+			nodes, nodesAvailable = liveNodes, true
 		}
 	}
 	currentModule := moduleByPath("/slurm/nodes", lang)
 	view := nodesView{
-		appChrome: a.newAppChrome(c, currentModule.Path, available, pageHeading{
+		appChrome: a.newAppChrome(c, currentModule.Path, nodesAvailable && partitionsAvailable, pageHeading{
 			Eyebrow: "OPENHPC / SLURM", Title: currentModule.Label, Description: labels.LiveData,
 			RefreshPath: currentModule.Path, RefreshLabel: labels.Refresh,
 		}),
-		Module: currentModule, Labels: labels, Nodes: nodes,
+		Module: currentModule, Labels: labels, Nodes: nodes, Partitions: partitions,
+		NodesAvailable: nodesAvailable, PartitionsAvailable: partitionsAvailable,
 	}
 	return a.render(c, http.StatusOK, "nodes.html", view)
 }
@@ -262,59 +291,32 @@ func (a *application) slurmJobs(c echo.Context) error {
 	if a.jobProvider != nil {
 		liveJobs, err := a.jobProvider.Jobs(c.Request().Context())
 		if err != nil {
-			log.Printf("Slurm jobs snapshot failed: %v", err)
+			log.Printf("Slurm jobs snapshot failed")
 		} else {
 			jobs, available = liveJobs, true
 		}
 	}
 	currentModule := moduleByPath("/slurm/jobs", lang)
+	jobDetails := make([]jobModalView, len(jobs))
+	for index, job := range jobs {
+		endTime := job.EndTime
+		if lang != "en" && strings.EqualFold(endTime, "Unknown") {
+			endTime = labels.Unknown
+		}
+		jobDetails[index] = jobModalView{
+			Labels: labels, Job: job, EndTime: endTime,
+			CanViewStdOut: canViewJobOutputMetadata(job, job.StdOut, a.jobOutputRoots),
+			CanViewStdErr: canViewJobOutputMetadata(job, job.StdErr, a.jobOutputRoots),
+		}
+	}
 	view := jobsView{
 		appChrome: a.newAppChrome(c, currentModule.Path, available, pageHeading{
 			Eyebrow: "OPENHPC / SLURM", Title: currentModule.Label, Description: labels.LiveData,
 			RefreshPath: currentModule.Path, RefreshLabel: labels.Refresh,
 		}),
-		Module: currentModule, Labels: labels, Jobs: jobs,
+		Module: currentModule, Labels: labels, Jobs: jobs, JobDetails: jobDetails,
 	}
 	return a.render(c, http.StatusOK, "jobs.html", view)
-}
-
-func (a *application) slurmJobDetail(c echo.Context) error {
-	rawID := c.Param("id")
-	jobID, err := strconv.ParseInt(rawID, 10, 64)
-	if err != nil || jobID <= 0 || strconv.FormatInt(jobID, 10) != rawID {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid job ID")
-	}
-
-	lang := language(c)
-	labels := detailCopyFor(lang)
-	currentModule := moduleByPath("/slurm/jobs", lang)
-	job := cluster.Job{}
-	found := false
-	available := false
-	if a.jobProvider != nil {
-		job, found, err = a.jobProvider.Job(c.Request().Context(), jobID)
-		if err != nil {
-			log.Printf("Slurm job detail snapshot failed for job %d", jobID)
-		} else if found && job.ID != strconv.FormatInt(jobID, 10) {
-			log.Printf("Slurm job detail returned an inconsistent ID for job %d", jobID)
-			job, found = cluster.Job{}, false
-		} else {
-			available = true
-		}
-	}
-
-	view := jobDetailView{
-		appChrome: a.newAppChrome(c, currentModule.Path, available, pageHeading{
-			Eyebrow: "OPENHPC / SLURM", Title: labels.JobDetails,
-			Description: labels.JobID + " " + rawID, RefreshPath: "/slurm/jobs/" + strconv.FormatInt(jobID, 10), RefreshLabel: labels.Refresh,
-		}),
-		Module: currentModule, Labels: labels, Job: job, Found: found,
-	}
-	status := http.StatusOK
-	if available && !found {
-		status = http.StatusNotFound
-	}
-	return a.render(c, status, "job_detail.html", view)
 }
 
 func (a *application) loginPage(c echo.Context) error {

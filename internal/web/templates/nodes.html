@@ -9,16 +9,32 @@
       {{template "app-topbar" .}}
       <main class="content data-content">
         {{template "page-heading" .}}
-        {{if not .Available}}
-          <div class="data-warning" role="status">{{.Copy.SlurmUnavailable}}</div>
-        {{else if not .Nodes}}
-          <div class="data-empty">{{.Labels.EmptyNodes}}</div>
-        {{else}}
-          <div class="data-table-wrap"><table class="data-table">
+        <section class="data-section" id="partitions">
+          <h2>{{.Labels.PartitionStatus}}</h2>
+          {{if not .PartitionsAvailable}}
+            <div class="data-warning" role="status">{{.Copy.SlurmUnavailable}}</div>
+          {{else if not .Partitions}}
+            <div class="data-empty">{{.Labels.EmptyPartitions}}</div>
+          {{else}}
+            <div class="data-table-wrap"><table class="data-table partition-table">
+              <thead><tr><th>{{.Labels.Partition}}</th><th>{{.Labels.OnlineNodes}}</th><th>{{.Labels.CPUs}}</th><th>{{.Labels.CPUUtilization}}</th><th>{{.Labels.Memory}}</th></tr></thead>
+              <tbody>{{range .Partitions}}<tr><td><strong>{{.Name}}</strong></td><td>{{.OnlineNodes}} / {{.NodeCount}}</td><td>{{.AllocatedCPUs}} / {{.TotalCPUs}}</td><td>{{.CPUUtilization}}%</td><td>{{.MemoryMB}} MB</td></tr>{{end}}</tbody>
+            </table></div>
+          {{end}}
+        </section>
+        <section class="data-section" id="nodes">
+          <h2>{{.Labels.NodeStatus}}</h2>
+          {{if not .NodesAvailable}}
+            <div class="data-warning" role="status">{{.Copy.SlurmUnavailable}}</div>
+          {{else if not .Nodes}}
+            <div class="data-empty">{{.Labels.EmptyNodes}}</div>
+          {{else}}
+            <div class="data-table-wrap"><table class="data-table">
             <thead><tr><th>{{.Labels.Node}}</th><th>{{.Labels.Partition}}</th><th>{{.Labels.State}}</th><th>{{.Labels.CPUs}}</th><th>{{.Labels.Memory}}</th><th>{{.Labels.GRES}}</th><th>{{.Labels.Availability}}</th></tr></thead>
             <tbody>{{range .Nodes}}<tr><td><strong>{{.Name}}</strong></td><td>{{.Partition}}</td><td><span class="state-badge">{{.State}}</span></td><td>{{.AllocatedCPUs}} / {{.TotalCPUs}}</td><td>{{.MemoryMB}} MB</td><td class="detail-value">{{if .GRES}}{{.GRES}}{{else}}—{{end}}</td><td><span class="availability{{if not .Online}} offline{{end}}"><i></i>{{if .Online}}{{$.Labels.Online}}{{else}}{{$.Labels.Offline}}{{end}}</span></td></tr>{{end}}</tbody>
-          </table></div>
-        {{end}}
+            </table></div>
+          {{end}}
+        </section>
       </main>
     </div>
   </div>
