@@ -31,4 +31,5 @@ type NodeProvider interface {
 
 type JobProvider interface {
 	Jobs(context.Context) ([]Job, error)
+	Job(context.Context, int64) (Job, bool, error)
 }

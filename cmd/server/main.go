@@ -47,23 +47,25 @@ func main() {
 	var metricsProvider cluster.Provider
 	var nodeProvider cluster.NodeProvider
 	var jobProvider cluster.JobProvider
+	var accountingProvider cluster.AccountingProvider
 	if slurmEnabled {
 		client, clientErr := slurm.New(slurmConfig)
 		err = clientErr
 		if err != nil {
 			log.Fatalf("initialize Slurm integration: %v", err)
 		}
-		metricsProvider, nodeProvider, jobProvider = client, client, client
+		metricsProvider, nodeProvider, jobProvider, accountingProvider = client, client, client, client
 	}
 	handler, err := web.New(web.Config{
-		AdminUsername:     username,
-		AdminPassword:     password,
-		DatabasePath:      databasePath,
-		SecureCookies:     secureCookies,
-		TrustedProxyCIDRs: trustedProxyCIDRs,
-		MetricsProvider:   metricsProvider,
-		NodeProvider:      nodeProvider,
-		JobProvider:       jobProvider,
+		AdminUsername:      username,
+		AdminPassword:      password,
+		DatabasePath:       databasePath,
+		SecureCookies:      secureCookies,
+		TrustedProxyCIDRs:  trustedProxyCIDRs,
+		MetricsProvider:    metricsProvider,
+		NodeProvider:       nodeProvider,
+		JobProvider:        jobProvider,
+		AccountingProvider: accountingProvider,
 	})
 	if err != nil {
 		log.Fatalf("initialize server: %v", err)

@@ -1,0 +1,6 @@
+{{define "qos.html"}}
+<!doctype html><html lang="{{.Language}}" data-theme="{{.Theme}}">{{template "document-head" .}}<body>
+<div class="app-shell" data-component="app-shell">{{template "app-sidebar" .}}<div class="main-area">{{template "app-topbar" .}}<main class="content data-content">
+{{template "page-heading" .}}
+{{if not .Available}}<div class="data-warning" role="status">{{.Copy.SlurmUnavailable}}</div>{{else if not .QoS}}<div class="data-empty">—</div>{{else}}<div class="data-table-wrap"><table class="data-table"><thead><tr><th>QoS</th><th>{{.Labels.Description}}</th><th>{{.Labels.Priority}}</th><th>{{.Labels.UsageFactor}}</th><th>{{.Labels.MaxJobs}}</th></tr></thead><tbody>{{range .QoS}}<tr><td><strong>{{.Name}}</strong></td><td>{{.Description}}</td><td>{{.Priority}}</td><td>{{.UsageFactor}}</td><td>{{if .MaxJobsUnlimited}}{{$.Labels.Unlimited}}{{else}}{{.MaxJobs}}{{end}}</td></tr>{{end}}</tbody></table></div>{{end}}
+</main></div></div></body></html>{{end}}

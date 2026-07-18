@@ -39,6 +39,8 @@ type Client struct {
 	refreshing     chan struct{}
 	nodesCache     valueCache[[]cluster.Node]
 	jobsCache      valueCache[[]cluster.Job]
+	accountCache   valueCache[cluster.AccountDirectory]
+	qosCache       valueCache[[]cluster.QoS]
 	now            func() time.Time
 }
 
@@ -67,7 +69,7 @@ func New(config Config) (*Client, error) {
 	}
 	runner := config.Runner
 	if runner == nil {
-		for _, command := range []string{"sinfo", "squeue"} {
+		for _, command := range []string{"sinfo", "squeue", "sacctmgr"} {
 			path := filepath.Join(config.BinaryDir, command)
 			if err := validateRootOwnedExecutable(path); err != nil {
 				return nil, err
@@ -78,9 +80,11 @@ func New(config Config) (*Client, error) {
 	return &Client{
 		binaryDir: config.BinaryDir, timeout: config.Timeout,
 		maxOutputBytes: config.MaxOutputBytes, runner: runner, cacheTTL: config.CacheTTL,
-		nodesCache: valueCache[[]cluster.Node]{ttl: config.CacheTTL},
-		jobsCache:  valueCache[[]cluster.Job]{ttl: config.CacheTTL},
-		now:        time.Now,
+		nodesCache:   valueCache[[]cluster.Node]{ttl: config.CacheTTL},
+		jobsCache:    valueCache[[]cluster.Job]{ttl: config.CacheTTL},
+		accountCache: valueCache[cluster.AccountDirectory]{ttl: config.CacheTTL},
+		qosCache:     valueCache[[]cluster.QoS]{ttl: config.CacheTTL},
+		now:          time.Now,
 	}, nil
 }
 

@@ -64,6 +64,33 @@ func TestClientJobsParsesSqueueJSON(t *testing.T) {
 	}
 }
 
+func TestClientJobFindsJobFromCachedSnapshot(t *testing.T) {
+	runner := &scriptedRunner{outputs: map[string][]byte{"squeue": []byte(`{
+		"errors": [],
+		"jobs": [{"job_id":32940,"name":"train-model","user_name":"user","account":"research","job_state":["RUNNING"],"node_count":{"set":true,"number":1},"nodes":"node31"}]
+	}`)}}
+	client := newTestClient(t, runner)
+
+	job, found, err := client.Job(context.Background(), 32940)
+	if err != nil {
+		t.Fatalf("Job() error = %v", err)
+	}
+	if !found || job.ID != "32940" || job.Name != "train-model" {
+		t.Errorf("Job() = (%#v, %v), want matching job", job, found)
+	}
+	_, found, err = client.Job(context.Background(), 32941)
+	if err != nil {
+		t.Fatalf("Job(missing) error = %v", err)
+	}
+	if found {
+		t.Error("Job(missing) found = true, want false")
+	}
+	wantCalls := []commandCall{{path: filepath.Join("/opt/slurm/bin", "squeue"), args: []string{"--json"}}}
+	if !reflect.DeepEqual(runner.calls, wantCalls) {
+		t.Errorf("runner calls = %#v, want one cached squeue call %#v", runner.calls, wantCalls)
+	}
+}
+
 func TestClientDetailsCacheAvoidsRepeatedCommands(t *testing.T) {
 	runner := &scriptedRunner{outputs: map[string][]byte{"sinfo": []byte(`{"errors":[],"sinfo":[]}`), "squeue": []byte(`{"errors":[],"jobs":[]}`)}}
 	client := newTestClient(t, runner)

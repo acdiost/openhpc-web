@@ -16,7 +16,7 @@
         {{else}}
           <div class="data-table-wrap"><table class="data-table jobs-table">
             <thead><tr><th>{{.Labels.JobID}}</th><th>{{.Labels.JobName}}</th><th>{{.Labels.User}}</th><th>{{.Labels.Account}}</th><th>{{.Labels.State}}</th><th>{{.Labels.Elapsed}}</th><th>{{.Labels.TimeLimit}}</th><th>{{.Labels.NodesOrReason}}</th></tr></thead>
-            <tbody>{{range .Jobs}}<tr><td><strong>{{.ID}}</strong></td><td class="detail-value">{{.Name}}</td><td>{{.User}}</td><td>{{.Account}}</td><td><span class="state-badge">{{.State}}</span></td><td>{{.Elapsed}}</td><td>{{.TimeLimit}}</td><td class="detail-value">{{.NodesOrReason}}{{if gt .NodeCount 1}} ({{.NodeCount}}){{end}}</td></tr>{{end}}</tbody>
+            <tbody>{{range .Jobs}}<tr><td><a class="job-link" href="/slurm/jobs/{{.ID}}"><strong>{{.ID}}</strong><span aria-hidden="true">→</span></a></td><td class="detail-value">{{.Name}}</td><td>{{.User}}</td><td>{{.Account}}</td><td><span class="state-badge">{{.State}}</span></td><td>{{.Elapsed}}</td><td>{{.TimeLimit}}</td><td class="detail-value">{{.NodesOrReason}}{{if gt .NodeCount 1}} ({{.NodeCount}}){{end}}</td></tr>{{end}}</tbody>
           </table></div>
         {{end}}
       </main>

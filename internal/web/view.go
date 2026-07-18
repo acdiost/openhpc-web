@@ -65,7 +65,25 @@ type detailCopy struct {
 	Refresh, LiveData, EmptyNodes, EmptyJobs                 string
 	Node, Partition, State, CPUs, Memory, GRES, Availability string
 	JobID, JobName, User, Account, Elapsed, TimeLimit        string
-	NodesOrReason, Online, Offline                           string
+	NodesOrReason, Online, Offline, NodeCount                string
+	JobDetails, BackToJobs, JobNotFound                      string
+	Accounts, Users, Description, Organization               string
+	Coordinators, Associations, AdminLevel                   string
+	DefaultAccount, DefaultWCKey, Priority, UsageFactor      string
+	MaxJobs, Unlimited                                       string
+}
+
+type accountsView struct {
+	appChrome
+	Module    module
+	Labels    detailCopy
+	Directory cluster.AccountDirectory
+}
+type qosView struct {
+	appChrome
+	Module module
+	Labels detailCopy
+	QoS    []cluster.QoS
 }
 
 type nodesView struct {
@@ -82,20 +100,34 @@ type jobsView struct {
 	Jobs   []cluster.Job
 }
 
+type jobDetailView struct {
+	appChrome
+	Module module
+	Labels detailCopy
+	Job    cluster.Job
+	Found  bool
+}
+
 func detailCopyFor(language string) detailCopy {
 	if language == "en" {
 		return detailCopy{
 			Refresh: "Refresh", LiveData: "Live Slurm data", EmptyNodes: "No nodes reported", EmptyJobs: "No jobs in the queue",
 			Node: "Node", Partition: "Partition", State: "State", CPUs: "CPUs", Memory: "Memory", GRES: "GRES", Availability: "Availability",
 			JobID: "Job ID", JobName: "Name", User: "User", Account: "Account", Elapsed: "Elapsed", TimeLimit: "Time limit",
-			NodesOrReason: "Nodes / reason", Online: "Online", Offline: "Unavailable",
+			NodesOrReason: "Nodes / reason", Online: "Online", Offline: "Unavailable", NodeCount: "Node count",
+			JobDetails: "Job details", BackToJobs: "Back to jobs", JobNotFound: "Job not found in the current queue",
+			Accounts: "Accounts", Users: "Users", Description: "Description", Organization: "Organization", Coordinators: "Coordinators", Associations: "Associations", AdminLevel: "Admin level",
+			DefaultAccount: "Default account", DefaultWCKey: "Default WCKey", Priority: "Priority", UsageFactor: "Usage factor", MaxJobs: "Max jobs", Unlimited: "Unlimited",
 		}
 	}
 	return detailCopy{
 		Refresh: "刷新", LiveData: "Slurm 实时数据", EmptyNodes: "Slurm 未报告节点", EmptyJobs: "当前队列中没有作业",
 		Node: "节点", Partition: "分区", State: "状态", CPUs: "CPU", Memory: "内存", GRES: "GRES", Availability: "可用性",
 		JobID: "作业 ID", JobName: "名称", User: "用户", Account: "账户", Elapsed: "已运行", TimeLimit: "时间限制",
-		NodesOrReason: "节点 / 原因", Online: "在线", Offline: "不可用",
+		NodesOrReason: "节点 / 原因", Online: "在线", Offline: "不可用", NodeCount: "节点数",
+		JobDetails: "作业详情", BackToJobs: "返回作业列表", JobNotFound: "当前队列中未找到该作业",
+		Accounts: "账户", Users: "用户", Description: "描述", Organization: "组织", Coordinators: "协调员", Associations: "关联数", AdminLevel: "管理员级别",
+		DefaultAccount: "默认账户", DefaultWCKey: "默认 WCKey", Priority: "优先级", UsageFactor: "使用因子", MaxJobs: "最大作业数", Unlimited: "无限制",
 	}
 }
 

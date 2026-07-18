@@ -1,0 +1,8 @@
+{{define "accounts.html"}}
+<!doctype html><html lang="{{.Language}}" data-theme="{{.Theme}}">{{template "document-head" .}}<body>
+<div class="app-shell" data-component="app-shell">{{template "app-sidebar" .}}<div class="main-area">{{template "app-topbar" .}}<main class="content data-content">
+{{template "page-heading" .}}
+{{if not .Available}}<div class="data-warning" role="status">{{.Copy.SlurmUnavailable}}</div>{{else}}
+<section class="data-section"><h2>{{.Labels.Accounts}}</h2>{{if not .Directory.Accounts}}<div class="data-empty">—</div>{{else}}<div class="data-table-wrap"><table class="data-table"><thead><tr><th>{{.Labels.Account}}</th><th>{{.Labels.Description}}</th><th>{{.Labels.Organization}}</th><th>{{.Labels.Coordinators}}</th><th>{{.Labels.Associations}}</th></tr></thead><tbody>{{range .Directory.Accounts}}<tr><td><strong>{{.Name}}</strong></td><td>{{.Description}}</td><td>{{.Organization}}</td><td>{{.CoordinatorCount}}</td><td>{{.AssociationCount}}</td></tr>{{end}}</tbody></table></div>{{end}}</section>
+<section class="data-section"><h2>{{.Labels.Users}}</h2>{{if not .Directory.Users}}<div class="data-empty">—</div>{{else}}<div class="data-table-wrap"><table class="data-table"><thead><tr><th>{{.Labels.User}}</th><th>{{.Labels.AdminLevel}}</th><th>{{.Labels.DefaultAccount}}</th><th>{{.Labels.DefaultWCKey}}</th><th>{{.Labels.Associations}}</th></tr></thead><tbody>{{range .Directory.Users}}<tr><td><strong>{{.Name}}</strong></td><td>{{.AdministratorLevel}}</td><td>{{.DefaultAccount}}</td><td>{{if .DefaultWCKey}}{{.DefaultWCKey}}{{else}}—{{end}}</td><td>{{.AssociationCount}}</td></tr>{{end}}</tbody></table></div>{{end}}</section>{{end}}
+</main></div></div></body></html>{{end}}

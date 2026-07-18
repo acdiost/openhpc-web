@@ -95,6 +95,20 @@ func (c *Client) Jobs(parent context.Context) ([]cluster.Job, error) {
 	return append([]cluster.Job(nil), jobs...), err
 }
 
+func (c *Client) Job(parent context.Context, id int64) (cluster.Job, bool, error) {
+	jobs, err := c.Jobs(parent)
+	if err != nil {
+		return cluster.Job{}, false, err
+	}
+	wantedID := strconv.FormatInt(id, 10)
+	for _, job := range jobs {
+		if job.ID == wantedID {
+			return job, true, nil
+		}
+	}
+	return cluster.Job{}, false, nil
+}
+
 func parseNodesJSON(output []byte) ([]cluster.Node, error) {
 	var response sinfoJSON
 	if err := json.Unmarshal(output, &response); err != nil {

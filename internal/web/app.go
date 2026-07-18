@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/subtle"
 	"embed"
@@ -13,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -34,31 +36,33 @@ var assets embed.FS
 type DashboardMetrics = cluster.Metrics
 
 type Config struct {
-	AdminUsername     string
-	AdminPassword     string
-	DatabasePath      string
-	SecureCookies     bool
-	TrustedProxyCIDRs []string
-	Metrics           DashboardMetrics
-	MetricsAvailable  bool
-	MetricsProvider   cluster.Provider
-	NodeProvider      cluster.NodeProvider
-	JobProvider       cluster.JobProvider
+	AdminUsername      string
+	AdminPassword      string
+	DatabasePath       string
+	SecureCookies      bool
+	TrustedProxyCIDRs  []string
+	Metrics            DashboardMetrics
+	MetricsAvailable   bool
+	MetricsProvider    cluster.Provider
+	NodeProvider       cluster.NodeProvider
+	JobProvider        cluster.JobProvider
+	AccountingProvider cluster.AccountingProvider
 }
 
 type application struct {
-	username         string
-	passwordHash     []byte
-	metrics          DashboardMetrics
-	metricsAvailable bool
-	metricsProvider  cluster.Provider
-	nodeProvider     cluster.NodeProvider
-	jobProvider      cluster.JobProvider
-	templates        *template.Template
-	audit            *platform.AuditStore
-	sessions         *sessionStore
-	loginAttempts    *loginAttemptStore
-	secureCookies    bool
+	username           string
+	passwordHash       []byte
+	metrics            DashboardMetrics
+	metricsAvailable   bool
+	metricsProvider    cluster.Provider
+	nodeProvider       cluster.NodeProvider
+	jobProvider        cluster.JobProvider
+	accountingProvider cluster.AccountingProvider
+	templates          *template.Template
+	audit              *platform.AuditStore
+	sessions           *sessionStore
+	loginAttempts      *loginAttemptStore
+	secureCookies      bool
 }
 
 type Handler struct {
@@ -121,18 +125,19 @@ func New(config Config) (http.Handler, error) {
 	}
 
 	app := &application{
-		username:         normalizedUsername,
-		passwordHash:     passwordHash,
-		metrics:          config.Metrics,
-		metricsAvailable: config.MetricsAvailable,
-		metricsProvider:  config.MetricsProvider,
-		nodeProvider:     config.NodeProvider,
-		jobProvider:      config.JobProvider,
-		templates:        templates,
-		audit:            audit,
-		sessions:         &sessionStore{tokens: map[string]sessionData{}},
-		loginAttempts:    &loginAttemptStore{attempts: map[string]loginAttempt{}},
-		secureCookies:    config.SecureCookies,
+		username:           normalizedUsername,
+		passwordHash:       passwordHash,
+		metrics:            config.Metrics,
+		metricsAvailable:   config.MetricsAvailable,
+		metricsProvider:    config.MetricsProvider,
+		nodeProvider:       config.NodeProvider,
+		jobProvider:        config.JobProvider,
+		accountingProvider: config.AccountingProvider,
+		templates:          templates,
+		audit:              audit,
+		sessions:           &sessionStore{tokens: map[string]sessionData{}},
+		loginAttempts:      &loginAttemptStore{attempts: map[string]loginAttempt{}},
+		secureCookies:      config.SecureCookies,
 	}
 
 	e := echo.New()
@@ -160,18 +165,69 @@ func New(config Config) (http.Handler, error) {
 	protected.GET("/dashboard", app.dashboard)
 	protected.GET("/slurm/nodes", app.slurmNodes)
 	protected.GET("/slurm/jobs", app.slurmJobs)
+	protected.GET("/slurm/jobs/:id", app.slurmJobDetail)
+	protected.GET("/slurm/accounts", app.slurmAccounts)
+	protected.GET("/slurm/qos", app.slurmQoS)
 	protected.POST("/preferences/language", app.setLanguage)
 	protected.POST("/preferences/theme", app.setTheme)
 	protected.POST("/logout", app.logout)
 	for _, path := range []string{
-		"/ldap", "/slurm/config", "/slurm/partitions", "/slurm/accounts", "/slurm/users",
-		"/slurm/associations", "/slurm/qos", "/slurm/core-hours",
+		"/ldap", "/slurm/config", "/slurm/partitions", "/slurm/users",
+		"/slurm/associations", "/slurm/core-hours",
 		"/system/files", "/terminal", "/platform/users", "/audit",
 	} {
 		protected.GET(path, app.modulePlaceholder)
 	}
 
 	return &Handler{handler: e, audit: audit}, nil
+}
+
+func (a *application) slurmAccounts(c echo.Context) error {
+	lang := language(c)
+	labels := detailCopyFor(lang)
+	currentModule := moduleByPath("/slurm/accounts", lang)
+	var directory cluster.AccountDirectory
+	available := false
+	if a.accountingProvider != nil {
+		liveDirectory, err := a.accountingProvider.AccountDirectory(c.Request().Context())
+		if err != nil {
+			log.Printf("Slurm account directory failed: %v", err)
+		} else {
+			directory, available = liveDirectory, true
+		}
+	}
+	view := accountsView{
+		appChrome: a.newAppChrome(c, currentModule.Path, available, pageHeading{
+			Eyebrow: "OPENHPC / SLURM", Title: currentModule.Label, Description: labels.LiveData,
+			RefreshPath: currentModule.Path, RefreshLabel: labels.Refresh,
+		}),
+		Module: currentModule, Labels: labels, Directory: directory,
+	}
+	return a.render(c, http.StatusOK, "accounts.html", view)
+}
+
+func (a *application) slurmQoS(c echo.Context) error {
+	lang := language(c)
+	labels := detailCopyFor(lang)
+	currentModule := moduleByPath("/slurm/qos", lang)
+	var qos []cluster.QoS
+	available := false
+	if a.accountingProvider != nil {
+		liveQoS, err := a.accountingProvider.QoS(c.Request().Context())
+		if err != nil {
+			log.Printf("Slurm QoS snapshot failed: %v", err)
+		} else {
+			qos, available = liveQoS, true
+		}
+	}
+	view := qosView{
+		appChrome: a.newAppChrome(c, currentModule.Path, available, pageHeading{
+			Eyebrow: "OPENHPC / SLURM", Title: currentModule.Label, Description: labels.LiveData,
+			RefreshPath: currentModule.Path, RefreshLabel: labels.Refresh,
+		}),
+		Module: currentModule, Labels: labels, QoS: qos,
+	}
+	return a.render(c, http.StatusOK, "qos.html", view)
 }
 
 func (a *application) slurmNodes(c echo.Context) error {
@@ -220,6 +276,45 @@ func (a *application) slurmJobs(c echo.Context) error {
 		Module: currentModule, Labels: labels, Jobs: jobs,
 	}
 	return a.render(c, http.StatusOK, "jobs.html", view)
+}
+
+func (a *application) slurmJobDetail(c echo.Context) error {
+	rawID := c.Param("id")
+	jobID, err := strconv.ParseInt(rawID, 10, 64)
+	if err != nil || jobID <= 0 || strconv.FormatInt(jobID, 10) != rawID {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid job ID")
+	}
+
+	lang := language(c)
+	labels := detailCopyFor(lang)
+	currentModule := moduleByPath("/slurm/jobs", lang)
+	job := cluster.Job{}
+	found := false
+	available := false
+	if a.jobProvider != nil {
+		job, found, err = a.jobProvider.Job(c.Request().Context(), jobID)
+		if err != nil {
+			log.Printf("Slurm job detail snapshot failed for job %d", jobID)
+		} else if found && job.ID != strconv.FormatInt(jobID, 10) {
+			log.Printf("Slurm job detail returned an inconsistent ID for job %d", jobID)
+			job, found = cluster.Job{}, false
+		} else {
+			available = true
+		}
+	}
+
+	view := jobDetailView{
+		appChrome: a.newAppChrome(c, currentModule.Path, available, pageHeading{
+			Eyebrow: "OPENHPC / SLURM", Title: labels.JobDetails,
+			Description: labels.JobID + " " + rawID, RefreshPath: "/slurm/jobs/" + strconv.FormatInt(jobID, 10), RefreshLabel: labels.Refresh,
+		}),
+		Module: currentModule, Labels: labels, Job: job, Found: found,
+	}
+	status := http.StatusOK
+	if available && !found {
+		status = http.StatusNotFound
+	}
+	return a.render(c, status, "job_detail.html", view)
 }
 
 func (a *application) loginPage(c echo.Context) error {
@@ -415,9 +510,11 @@ func (a *application) requireCSRF(next echo.HandlerFunc) echo.HandlerFunc {
 }
 
 func (a *application) render(c echo.Context, status int, name string, data any) error {
-	c.Response().Header().Set(echo.HeaderContentType, echo.MIMETextHTMLCharsetUTF8)
-	c.Response().WriteHeader(status)
-	return a.templates.ExecuteTemplate(c.Response(), name, data)
+	var output bytes.Buffer
+	if err := a.templates.ExecuteTemplate(&output, name, data); err != nil {
+		return err
+	}
+	return c.HTMLBlob(status, output.Bytes())
 }
 
 func (a *application) errorHandler(err error, c echo.Context) {
