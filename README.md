@@ -1,12 +1,12 @@
 # OpenHPC Web
 
-面向单集群环境的轻量 HPC 管理平台。目前仓库已完成平台登录、安全会话、可查询的 SQLite 只读审计日志、集群总览，以及 Slurm 节点、分区、作业、账户、用户、关联和 QoS 只读视图。模块导航、中英文和科研红/Slurm 蓝主题已接入；LDAP、文件和终端页面已经建立模块边界，真实系统适配器将在后续阶段接入。
+面向单集群环境的轻量 HPC 管理平台。目前仓库已完成平台登录、安全会话、可查询的 SQLite 只读审计日志、集群总览，Slurm 节点、分区、作业、账户、用户、关联和 QoS 只读视图，以及 RFC2307 LDAP 用户/组目录搜索与详情。模块导航、中英文和科研红/Slurm 蓝主题已接入；文件和终端页面已经建立模块边界，真实系统适配器将在后续阶段接入。
 
 CentOS 7 的完整安装、升级和故障排查步骤见 [部署指南](docs/deployment-centos7.md)。
 
 ## 快速启动
 
-需要 Go 1.24 或更高版本。
+需要 Go 1.25.12 或更高的安全修订版本；`go.mod` 固定该工具链以包含 `html/template`、TLS 和 X.509 的安全修复。
 
 ```bash
 export OPENHPC_ADMIN_USERNAME=admin
@@ -75,6 +75,25 @@ export OPENHPC_JOB_OUTPUT_ROOTS=
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o dist/openhpc-web-linux-amd64 ./cmd/server
 ```
 
+## LDAP 只读目录
+
+LDAP 集成默认关闭。启用后只读取 RFC2307 `posixAccount` 和 `posixGroup`，支持按 UID、姓名、邮箱、组名和描述搜索，并提供用户/组详情；不接管平台登录，不提供创建、修改、改密或删除操作。
+
+```bash
+export OPENHPC_LDAP_ENABLED=true
+export OPENHPC_LDAP_URL=ldaps://ldap.example.com:636
+export OPENHPC_LDAP_BASE_DN=dc=example,dc=com
+export OPENHPC_LDAP_USER_BASE_DN=ou=People,dc=example,dc=com
+export OPENHPC_LDAP_GROUP_BASE_DN=ou=Group,dc=example,dc=com
+export OPENHPC_LDAP_BIND_DN=cn=openhpc-reader,dc=example,dc=com
+export OPENHPC_LDAP_BIND_PASSWORD=REPLACE_WITH_A_READ_ONLY_BIND_PASSWORD
+export OPENHPC_LDAP_CA_FILE=/etc/pki/ca-trust/source/anchors/openhpc-ldap-ca.pem
+export OPENHPC_LDAP_TIMEOUT=3s
+export OPENHPC_LDAP_MAX_RESULTS=200
+```
+
+只允许 `ldaps://`，最低 TLS 1.2，启用完整证书链和主机名验证。查询过滤器和属性由服务端固定，浏览器不能提交原始 LDAP filter；搜索值使用 RFC4515 转义。单次最多返回 500 条，Web 层最多并发 4 次目录读取。详细 CA、Bind ACL 和验证步骤见部署指南。
+
 部署前必须由 root 创建受限目录和环境文件；systemd 会在启动程序前进入工作目录，因此不能依赖应用自行创建 `/var/lib/openhpc-web`：
 
 ```bash
@@ -91,7 +110,7 @@ install -o root -g root -m 0644 deploy/openhpc-web.service /etc/systemd/system/o
 - 登录
 - 总览
 - slurm 节点与分区只读状态
-- ldap 管理
+- ldap 用户/组只读目录
 - slurm 配置文件管理
 - slurm 账户与用户只读目录
 - slurm 关联只读明细

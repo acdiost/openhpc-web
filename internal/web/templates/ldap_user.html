@@ -1,0 +1,5 @@
+{{define "ldap_user.html"}}
+<!doctype html><html lang="{{.Language}}" data-theme="{{.Theme}}">{{template "document-head" .}}<body><div class="app-shell" data-component="app-shell">{{template "app-sidebar" .}}<div class="main-area">{{template "app-topbar" .}}<main class="content data-content">{{template "page-heading" .}}
+<a class="back-link" href="/ldap">← {{.Labels.Back}}</a>
+{{if not .LDAPAvailable}}<div class="data-warning" role="status">{{.Labels.Unavailable}}</div>{{else}}<dl class="directory-details"><div><dt>{{.Labels.UID}}</dt><dd>{{.User.UID}}</dd></div><div><dt>{{.Labels.Name}}</dt><dd>{{.User.Name}}</dd></div><div><dt>{{.Labels.Email}}</dt><dd>{{if .User.Email}}{{.User.Email}}{{else}}—{{end}}</dd></div><div><dt>{{.Labels.UIDNumber}}</dt><dd>{{.User.UIDNumber}}</dd></div><div><dt>{{.Labels.GIDNumber}}</dt><dd>{{.User.GIDNumber}}</dd></div><div><dt>{{.Labels.HomeDirectory}}</dt><dd>{{if .User.HomeDirectory}}{{.User.HomeDirectory}}{{else}}—{{end}}</dd></div><div><dt>{{.Labels.LoginShell}}</dt><dd>{{if .User.LoginShell}}{{.User.LoginShell}}{{else}}—{{end}}</dd></div></dl>{{end}}
+</main></div></div></body></html>{{end}}

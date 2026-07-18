@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"embed"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/openhpc-web/openhpc-web/internal/cluster"
+	"github.com/openhpc-web/openhpc-web/internal/directory"
 	"github.com/openhpc-web/openhpc-web/internal/platform"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -51,6 +53,7 @@ type Config struct {
 	JobOutputRoots      []string
 	AccountingProvider  cluster.AccountingProvider
 	AssociationProvider cluster.AssociationProvider
+	DirectoryProvider   directory.Provider
 }
 
 type application struct {
@@ -68,6 +71,8 @@ type application struct {
 	jobOutputSlots      chan struct{}
 	accountingProvider  cluster.AccountingProvider
 	associationProvider cluster.AssociationProvider
+	directoryProvider   directory.Provider
+	directorySlots      chan struct{}
 	templates           *template.Template
 	audit               *platform.AuditStore
 	sessions            *sessionStore
@@ -155,6 +160,8 @@ func New(config Config) (http.Handler, error) {
 		jobOutputSlots:      makeJobOutputSlots(jobOutputRoots),
 		accountingProvider:  config.AccountingProvider,
 		associationProvider: config.AssociationProvider,
+		directoryProvider:   config.DirectoryProvider,
+		directorySlots:      make(chan struct{}, maxConcurrentDirectoryReads),
 		templates:           templates,
 		audit:               audit,
 		sessions:            &sessionStore{tokens: map[string]sessionData{}},
@@ -199,12 +206,16 @@ func New(config Config) (http.Handler, error) {
 		return c.Redirect(http.StatusFound, "/slurm/accounts#associations")
 	})
 	protected.GET("/slurm/qos", app.slurmQoS)
+	protected.GET("/ldap", app.ldapDirectory)
+	protected.POST("/ldap/search", app.ldapDirectorySearch)
+	protected.GET("/ldap/users/:uid", app.ldapUser)
+	protected.GET("/ldap/groups/:name", app.ldapGroup)
 	protected.GET("/audit", app.auditLog)
 	protected.POST("/preferences/language", app.setLanguage)
 	protected.POST("/preferences/theme", app.setTheme)
 	protected.POST("/logout", app.logout)
 	for _, path := range []string{
-		"/ldap", "/slurm/config", "/slurm/users", "/slurm/core-hours",
+		"/slurm/config", "/slurm/users", "/slurm/core-hours",
 		"/system/files", "/terminal", "/platform/users",
 	} {
 		protected.GET(path, app.modulePlaceholder)
@@ -536,16 +547,7 @@ func (a *application) modulePlaceholder(c echo.Context) error {
 	lang := language(c)
 	localizedCopy := copyFor(lang)
 	currentModule := moduleByPath(c.Path(), lang)
-	available := a.metricsAvailable
-	if a.metricsProvider != nil {
-		_, err := a.metricsProvider.Snapshot(c.Request().Context())
-		if err != nil {
-			log.Printf("Slurm metrics health check failed: %v", err)
-			available = false
-		} else {
-			available = true
-		}
-	}
+	available := a.slurmHealth(c.Request().Context())
 	view := moduleView{
 		appChrome: a.newAppChrome(c, currentModule.Path, available, pageHeading{
 			Eyebrow: "OPENHPC / " + currentModule.Group, Title: currentModule.Label,
@@ -554,6 +556,18 @@ func (a *application) modulePlaceholder(c echo.Context) error {
 		Module: currentModule,
 	}
 	return a.render(c, http.StatusOK, "module.html", view)
+}
+
+func (a *application) slurmHealth(ctx context.Context) bool {
+	available := a.metricsAvailable
+	if a.metricsProvider == nil {
+		return available
+	}
+	if _, err := a.metricsProvider.Snapshot(ctx); err != nil {
+		log.Printf("Slurm metrics health check failed")
+		return false
+	}
+	return true
 }
 
 func (a *application) newAppChrome(c echo.Context, activePath string, available bool, heading pageHeading) appChrome {

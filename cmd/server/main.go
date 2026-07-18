@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/openhpc-web/openhpc-web/internal/cluster"
+	"github.com/openhpc-web/openhpc-web/internal/directory"
+	"github.com/openhpc-web/openhpc-web/internal/ldapdirectory"
 	"github.com/openhpc-web/openhpc-web/internal/slurm"
 	"github.com/openhpc-web/openhpc-web/internal/web"
 )
@@ -45,6 +47,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	ldapEnabled, ldapConfig, err := parseLDAPConfigFromEnv()
+	if err != nil {
+		log.Fatal(err)
+	}
 	var metricsProvider cluster.Provider
 	var nodeProvider cluster.NodeProvider
 	var partitionProvider cluster.PartitionProvider
@@ -52,6 +58,7 @@ func main() {
 	var jobResourceProvider cluster.JobResourceProvider
 	var accountingProvider cluster.AccountingProvider
 	var associationProvider cluster.AssociationProvider
+	var directoryProvider directory.Provider
 	if slurmEnabled {
 		client, clientErr := slurm.New(slurmConfig)
 		err = clientErr
@@ -59,6 +66,12 @@ func main() {
 			log.Fatalf("initialize Slurm integration: %v", err)
 		}
 		metricsProvider, nodeProvider, partitionProvider, jobProvider, jobResourceProvider, accountingProvider, associationProvider = client, client, client, client, client, client, client
+	}
+	if ldapEnabled {
+		directoryProvider, err = ldapdirectory.New(ldapConfig)
+		if err != nil {
+			log.Fatalf("initialize LDAP integration: %v", err)
+		}
 	}
 	handler, err := web.New(web.Config{
 		AdminUsername:       username,
@@ -74,6 +87,7 @@ func main() {
 		JobOutputRoots:      jobOutputRoots,
 		AccountingProvider:  accountingProvider,
 		AssociationProvider: associationProvider,
+		DirectoryProvider:   directoryProvider,
 	})
 	if err != nil {
 		log.Fatalf("initialize server: %v", err)
@@ -137,6 +151,35 @@ func parseSlurmConfigFromEnv() (bool, slurm.Config, error) {
 		MaxOutputBytes: maxOutput,
 		CacheTTL:       cacheTTL,
 	}, nil
+}
+
+func parseLDAPConfigFromEnv() (bool, ldapdirectory.Config, error) {
+	if os.Getenv("OPENHPC_LDAP_ENABLED") != "true" {
+		return false, ldapdirectory.Config{}, nil
+	}
+	endpoint := strings.TrimSpace(os.Getenv("OPENHPC_LDAP_URL"))
+	baseDN := strings.TrimSpace(os.Getenv("OPENHPC_LDAP_BASE_DN"))
+	if endpoint == "" || baseDN == "" {
+		return false, ldapdirectory.Config{}, errors.New("OPENHPC_LDAP_URL and OPENHPC_LDAP_BASE_DN are required")
+	}
+	timeout, err := time.ParseDuration(envOr("OPENHPC_LDAP_TIMEOUT", "3s"))
+	if err != nil {
+		return false, ldapdirectory.Config{}, fmt.Errorf("parse OPENHPC_LDAP_TIMEOUT: %w", err)
+	}
+	maxResults, err := strconv.Atoi(envOr("OPENHPC_LDAP_MAX_RESULTS", "200"))
+	if err != nil {
+		return false, ldapdirectory.Config{}, fmt.Errorf("parse OPENHPC_LDAP_MAX_RESULTS: %w", err)
+	}
+	config := ldapdirectory.Config{
+		URL: endpoint, BaseDN: baseDN,
+		UserBaseDN: strings.TrimSpace(os.Getenv("OPENHPC_LDAP_USER_BASE_DN")), GroupBaseDN: strings.TrimSpace(os.Getenv("OPENHPC_LDAP_GROUP_BASE_DN")),
+		BindDN: strings.TrimSpace(os.Getenv("OPENHPC_LDAP_BIND_DN")), BindPassword: os.Getenv("OPENHPC_LDAP_BIND_PASSWORD"),
+		CAFile: strings.TrimSpace(os.Getenv("OPENHPC_LDAP_CA_FILE")), Timeout: timeout, MaxResults: maxResults,
+	}
+	if err := ldapdirectory.ValidateConfig(config); err != nil {
+		return false, ldapdirectory.Config{}, fmt.Errorf("validate LDAP configuration: %w", err)
+	}
+	return true, config, nil
 }
 
 func envOr(name, fallback string) string {
