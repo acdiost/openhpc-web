@@ -1,0 +1,13 @@
+{{define "module.html"}}
+<!doctype html>
+<html lang="{{.Language}}" data-theme="{{.Theme}}">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>OpenHPC Web · {{.Module.Label}}</title><link rel="stylesheet" href="/static/app.css"></head>
+<body class="module-page">
+  <main class="module-shell">
+    <a href="/dashboard" class="back-link">← {{.Copy.Overview}}</a>
+    <div class="brand compact"><div class="brand-mark small"><span></span><span></span><span></span></div><div><strong>OpenHPC</strong><span>WEB CONSOLE</span></div></div>
+    <section class="module-content" data-module-path="{{.Module.Path}}"><p>{{.Module.Group}}</p><h1>{{.Module.Label}}</h1><div class="module-state"><span class="nav-icon icon-{{.Module.Icon}}"></span><h2>{{.Copy.ComingSoon}}</h2><p>{{.Copy.ComingSoonDetail}}</p></div></section>
+  </main>
+</body>
+</html>
+{{end}}

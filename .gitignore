@@ -1,0 +1,8 @@
+.Ds_Stroe
+/openhpc-web
+/*.db
+/*.db-shm
+/*.db-wal
+/coverage.out
+/dist/
+/state/

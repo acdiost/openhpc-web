@@ -1,0 +1,22 @@
+[Unit]
+Description=OpenHPC Web Console
+After=network-online.target munge.service slurmctld.service slurmdbd.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=openhpc-web
+Group=openhpc-web
+WorkingDirectory=/var/lib/openhpc-web
+EnvironmentFile=/etc/openhpc-web/openhpc-web.env
+ExecStart=/usr/local/sbin/openhpc-web
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

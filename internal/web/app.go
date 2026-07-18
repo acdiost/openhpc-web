@@ -1,0 +1,547 @@
+package web
+
+import (
+	"crypto/rand"
+	"crypto/subtle"
+	"embed"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"html/template"
+	"io/fs"
+	"log"
+	"net"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/labstack/echo/v4"
+	"github.com/openhpc-web/openhpc-web/internal/cluster"
+	"github.com/openhpc-web/openhpc-web/internal/platform"
+	"golang.org/x/crypto/bcrypt"
+)
+
+const (
+	sessionCookie = "openhpc_session"
+	csrfCookie    = "openhpc_csrf"
+)
+
+//go:embed templates/*.html static/*
+var assets embed.FS
+
+type DashboardMetrics = cluster.Metrics
+
+type Config struct {
+	AdminUsername     string
+	AdminPassword     string
+	DatabasePath      string
+	SecureCookies     bool
+	TrustedProxyCIDRs []string
+	Metrics           DashboardMetrics
+	MetricsAvailable  bool
+	MetricsProvider   cluster.Provider
+}
+
+type application struct {
+	username         string
+	passwordHash     []byte
+	metrics          DashboardMetrics
+	metricsAvailable bool
+	metricsProvider  cluster.Provider
+	templates        *template.Template
+	audit            *platform.AuditStore
+	sessions         *sessionStore
+	loginAttempts    *loginAttemptStore
+	secureCookies    bool
+}
+
+type Handler struct {
+	handler http.Handler
+	audit   *platform.AuditStore
+}
+
+func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
+	h.handler.ServeHTTP(response, request)
+}
+
+func (h *Handler) Close() error {
+	return h.audit.Close()
+}
+
+type sessionStore struct {
+	mu     sync.RWMutex
+	tokens map[string]sessionData
+}
+
+type sessionData struct {
+	ExpiresAt time.Time
+	CSRFToken string
+}
+
+type loginAttemptStore struct {
+	mu       sync.Mutex
+	attempts map[string]loginAttempt
+}
+
+type loginAttempt struct {
+	Count       int
+	WindowStart time.Time
+}
+
+func New(config Config) (http.Handler, error) {
+	normalizedUsername := strings.TrimSpace(config.AdminUsername)
+	if normalizedUsername == "" || len(normalizedUsername) > 64 || len(config.AdminPassword) < 12 {
+		return nil, errors.New("admin username and password are required")
+	}
+	if config.Metrics.CPUUsage < 0 || config.Metrics.CPUUsage > 100 {
+		return nil, errors.New("CPU usage must be between 0 and 100")
+	}
+
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(config.AdminPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, fmt.Errorf("hash admin password: %w", err)
+	}
+	templates, err := template.ParseFS(assets, "templates/*.html")
+	if err != nil {
+		return nil, fmt.Errorf("parse templates: %w", err)
+	}
+	databasePath := config.DatabasePath
+	if databasePath == "" {
+		databasePath = ":memory:"
+	}
+	audit, err := platform.OpenAuditStore(databasePath)
+	if err != nil {
+		return nil, err
+	}
+
+	app := &application{
+		username:         normalizedUsername,
+		passwordHash:     passwordHash,
+		metrics:          config.Metrics,
+		metricsAvailable: config.MetricsAvailable,
+		metricsProvider:  config.MetricsProvider,
+		templates:        templates,
+		audit:            audit,
+		sessions:         &sessionStore{tokens: map[string]sessionData{}},
+		loginAttempts:    &loginAttemptStore{attempts: map[string]loginAttempt{}},
+		secureCookies:    config.SecureCookies,
+	}
+
+	e := echo.New()
+	e.HideBanner = true
+	e.HTTPErrorHandler = app.errorHandler
+	if err := configureIPExtractor(e, config.TrustedProxyCIDRs); err != nil {
+		_ = audit.Close()
+		return nil, err
+	}
+	e.Use(requestBodyLimit(16 << 10))
+	e.Use(securityHeaders)
+	e.GET("/login", app.loginPage)
+	e.POST("/login", app.login)
+	staticFiles, err := fs.Sub(assets, "static")
+	if err != nil {
+		_ = audit.Close()
+		return nil, fmt.Errorf("load static files: %w", err)
+	}
+	e.GET("/static/*", echo.WrapHandler(http.StripPrefix("/static/", http.FileServer(http.FS(staticFiles)))))
+
+	protected := e.Group("")
+	protected.Use(app.requireAuthentication)
+	protected.Use(app.requireCSRF)
+	protected.GET("/", func(c echo.Context) error { return c.Redirect(http.StatusFound, "/dashboard") })
+	protected.GET("/dashboard", app.dashboard)
+	protected.POST("/preferences/language", app.setLanguage)
+	protected.POST("/preferences/theme", app.setTheme)
+	protected.POST("/logout", app.logout)
+	for _, path := range []string{
+		"/ldap", "/slurm/config", "/slurm/partitions", "/slurm/accounts", "/slurm/users",
+		"/slurm/associations", "/slurm/qos", "/slurm/core-hours", "/slurm/jobs", "/slurm/nodes",
+		"/system/files", "/terminal", "/platform/users", "/audit",
+	} {
+		protected.GET(path, app.modulePlaceholder)
+	}
+
+	return &Handler{handler: e, audit: audit}, nil
+}
+
+func (a *application) loginPage(c echo.Context) error {
+	return a.render(c, http.StatusOK, "login.html", loginView{Language: language(c), Next: safeNext(c.QueryParam("next"))})
+}
+
+func (a *application) login(c echo.Context) error {
+	username := strings.TrimSpace(c.FormValue("username"))
+	password := c.FormValue("password")
+	next := safeNext(c.FormValue("next"))
+	if username == "" || len(username) > 64 || password == "" || len(password) > 256 {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid credentials format")
+	}
+	clientKey := c.RealIP()
+	if !a.loginAttempts.reserve(clientKey, time.Now()) {
+		return echo.NewHTTPError(http.StatusTooManyRequests, "too many login attempts")
+	}
+	usernameMatches := subtle.ConstantTimeCompare([]byte(username), []byte(a.username)) == 1
+	passwordMatches := bcrypt.CompareHashAndPassword(a.passwordHash, []byte(password)) == nil
+	if !usernameMatches || !passwordMatches {
+		if err := a.recordAudit(c, platform.AuditEvent{Actor: username, Action: "auth.login", Outcome: "denied", CreatedAt: time.Now()}); err != nil {
+			return echo.NewHTTPError(http.StatusServiceUnavailable)
+		}
+		errorMessage := "用户名或密码错误"
+		if language(c) == "en" {
+			errorMessage = "Invalid username or password"
+		}
+		return a.render(c, http.StatusUnauthorized, "login.html", loginView{Language: language(c), Next: next, Error: errorMessage})
+	}
+
+	token, err := randomToken()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError)
+	}
+	csrfToken, err := randomToken()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError)
+	}
+	if err := a.recordAudit(c, platform.AuditEvent{Actor: username, Action: "auth.login", Outcome: "success", CreatedAt: time.Now()}); err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable)
+	}
+	a.loginAttempts.reset(clientKey)
+	a.sessions.add(token, sessionData{ExpiresAt: time.Now().Add(12 * time.Hour), CSRFToken: csrfToken})
+	http.SetCookie(c.Response(), &http.Cookie{
+		Name: sessionCookie, Value: token, Path: "/", MaxAge: 12 * 60 * 60,
+		HttpOnly: true, Secure: a.secureCookies, SameSite: http.SameSiteLaxMode,
+	})
+	http.SetCookie(c.Response(), &http.Cookie{
+		Name: csrfCookie, Value: csrfToken, Path: "/", MaxAge: 12 * 60 * 60,
+		HttpOnly: true, Secure: a.secureCookies, SameSite: http.SameSiteStrictMode,
+	})
+	return c.Redirect(http.StatusSeeOther, next)
+}
+
+func (a *application) dashboard(c echo.Context) error {
+	metrics := a.metrics
+	metricsAvailable := a.metricsAvailable
+	if a.metricsProvider != nil {
+		liveMetrics, err := a.metricsProvider.Snapshot(c.Request().Context())
+		if err != nil {
+			log.Printf("Slurm metrics snapshot failed: %v", err)
+			metrics = DashboardMetrics{}
+			metricsAvailable = false
+		} else {
+			metrics = liveMetrics
+			metricsAvailable = true
+		}
+	}
+	view := dashboardView{
+		Language: language(c), Theme: theme(c), Username: a.username,
+		Metrics: metrics, MetricsAvailable: metricsAvailable,
+		Copy: copyFor(language(c)), Modules: modulesFor(language(c)), CSRFToken: a.csrfToken(c),
+	}
+	return a.render(c, http.StatusOK, "dashboard.html", view)
+}
+
+func (a *application) modulePlaceholder(c echo.Context) error {
+	lang := language(c)
+	view := moduleView{
+		Language: lang, Theme: theme(c), Username: a.username, Copy: copyFor(lang),
+		Module: moduleByPath(c.Path(), lang),
+	}
+	return a.render(c, http.StatusOK, "module.html", view)
+}
+
+func (a *application) setLanguage(c echo.Context) error {
+	value := c.FormValue("language")
+	if value != "zh" && value != "en" {
+		return echo.NewHTTPError(http.StatusBadRequest, "unsupported language")
+	}
+	a.setPreferenceCookie(c, "openhpc_language", value)
+	return c.Redirect(http.StatusSeeOther, "/dashboard")
+}
+
+func (a *application) setTheme(c echo.Context) error {
+	value := c.FormValue("theme")
+	if value != "research-red" && value != "slurm-blue" {
+		return echo.NewHTTPError(http.StatusBadRequest, "unsupported theme")
+	}
+	a.setPreferenceCookie(c, "openhpc_theme", value)
+	return c.Redirect(http.StatusSeeOther, "/dashboard")
+}
+
+func (a *application) logout(c echo.Context) error {
+	if cookie, err := c.Cookie(sessionCookie); err == nil {
+		a.sessions.remove(cookie.Value)
+	}
+	http.SetCookie(c.Response(), &http.Cookie{
+		Name: sessionCookie, Value: "", Path: "/", MaxAge: -1,
+		HttpOnly: true, Secure: a.secureCookies, SameSite: http.SameSiteLaxMode,
+	})
+	http.SetCookie(c.Response(), &http.Cookie{
+		Name: csrfCookie, Value: "", Path: "/", MaxAge: -1,
+		HttpOnly: true, Secure: a.secureCookies, SameSite: http.SameSiteStrictMode,
+	})
+	if err := a.recordAudit(c, platform.AuditEvent{Actor: a.username, Action: "auth.logout", Outcome: "success", CreatedAt: time.Now()}); err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable)
+	}
+	return c.Redirect(http.StatusSeeOther, "/login")
+}
+
+func (a *application) requireAuthentication(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		cookie, err := c.Cookie(sessionCookie)
+		if err != nil || !a.sessions.valid(cookie.Value, time.Now()) {
+			return c.Redirect(http.StatusFound, "/login?next="+url.QueryEscape(c.Request().URL.Path))
+		}
+		return next(c)
+	}
+}
+
+func (a *application) requireCSRF(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		request := c.Request()
+		if request.Method == http.MethodGet || request.Method == http.MethodHead || request.Method == http.MethodOptions {
+			return next(c)
+		}
+		session, sessionErr := c.Cookie(sessionCookie)
+		csrf, csrfErr := c.Cookie(csrfCookie)
+		if sessionErr != nil || csrfErr != nil {
+			return echo.NewHTTPError(http.StatusForbidden, "invalid CSRF token")
+		}
+		storedToken, exists := a.sessions.csrf(session.Value, time.Now())
+		formToken := c.FormValue("_csrf")
+		if !exists || !constantTimeEqual(storedToken, csrf.Value) || !constantTimeEqual(storedToken, formToken) {
+			return echo.NewHTTPError(http.StatusForbidden, "invalid CSRF token")
+		}
+		return next(c)
+	}
+}
+
+func (a *application) render(c echo.Context, status int, name string, data any) error {
+	c.Response().Header().Set(echo.HeaderContentType, echo.MIMETextHTMLCharsetUTF8)
+	c.Response().WriteHeader(status)
+	return a.templates.ExecuteTemplate(c.Response(), name, data)
+}
+
+func (a *application) errorHandler(err error, c echo.Context) {
+	code := http.StatusInternalServerError
+	var httpError *echo.HTTPError
+	if errors.As(err, &httpError) {
+		code = httpError.Code
+	}
+	if !c.Response().Committed {
+		http.Error(c.Response(), publicErrorMessage(code, language(c)), code)
+	}
+}
+
+func publicErrorMessage(code int, lang string) string {
+	if lang == "en" {
+		switch code {
+		case http.StatusBadRequest:
+			return "Invalid request"
+		case http.StatusForbidden:
+			return "Request denied"
+		case http.StatusRequestEntityTooLarge:
+			return "Request is too large"
+		case http.StatusTooManyRequests:
+			return "Too many requests. Try again later."
+		default:
+			return "Request could not be completed"
+		}
+	}
+	switch code {
+	case http.StatusBadRequest:
+		return "请求参数无效"
+	case http.StatusForbidden:
+		return "请求已被拒绝"
+	case http.StatusRequestEntityTooLarge:
+		return "请求内容过大"
+	case http.StatusTooManyRequests:
+		return "请求过于频繁，请稍后重试"
+	default:
+		return "请求处理失败"
+	}
+}
+
+func (a *application) recordAudit(c echo.Context, event platform.AuditEvent) error {
+	if err := a.audit.Record(c.Request().Context(), event); err != nil {
+		log.Printf("audit write failed for action %s: %v", event.Action, err)
+		return err
+	}
+	return nil
+}
+
+func securityHeaders(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		header := c.Response().Header()
+		header.Set("Content-Security-Policy", "default-src 'self'; style-src 'self'; img-src 'self' data:; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+		header.Set("Referrer-Policy", "no-referrer")
+		header.Set("X-Content-Type-Options", "nosniff")
+		header.Set("X-Frame-Options", "DENY")
+		if !strings.HasPrefix(c.Request().URL.Path, "/static/") {
+			header.Set("Cache-Control", "no-store")
+		}
+		return next(c)
+	}
+}
+
+func requestBodyLimit(limit int64) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			request := c.Request()
+			if request.ContentLength > limit {
+				return echo.NewHTTPError(http.StatusRequestEntityTooLarge)
+			}
+			request.Body = http.MaxBytesReader(c.Response(), request.Body, limit)
+			return next(c)
+		}
+	}
+}
+
+func randomToken() (string, error) {
+	buffer := make([]byte, 32)
+	if _, err := rand.Read(buffer); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(buffer), nil
+}
+
+func (s *sessionStore) add(token string, data sessionData) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	updated := make(map[string]sessionData, len(s.tokens)+1)
+	for key, value := range s.tokens {
+		if time.Now().Before(value.ExpiresAt) {
+			updated[key] = value
+		}
+	}
+	updated[token] = data
+	s.tokens = updated
+}
+
+func (s *sessionStore) remove(token string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	updated := make(map[string]sessionData, len(s.tokens))
+	for key, value := range s.tokens {
+		if key != token {
+			updated[key] = value
+		}
+	}
+	s.tokens = updated
+}
+
+func (s *sessionStore) valid(token string, now time.Time) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	data, exists := s.tokens[token]
+	return exists && now.Before(data.ExpiresAt)
+}
+
+func (s *sessionStore) csrf(token string, now time.Time) (string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	data, exists := s.tokens[token]
+	return data.CSRFToken, exists && now.Before(data.ExpiresAt)
+}
+
+func (a *application) csrfToken(c echo.Context) string {
+	session, err := c.Cookie(sessionCookie)
+	if err != nil {
+		return ""
+	}
+	token, _ := a.sessions.csrf(session.Value, time.Now())
+	return token
+}
+
+func constantTimeEqual(left, right string) bool {
+	return len(left) == len(right) && subtle.ConstantTimeCompare([]byte(left), []byte(right)) == 1
+}
+
+func (s *loginAttemptStore) reserve(key string, now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, exists := s.attempts[key]
+	if !exists || now.Sub(current.WindowStart) >= 15*time.Minute {
+		current = loginAttempt{WindowStart: now}
+	}
+	if current.Count >= 5 {
+		return false
+	}
+	updated := make(map[string]loginAttempt, len(s.attempts)+1)
+	for attemptKey, attempt := range s.attempts {
+		if now.Sub(attempt.WindowStart) < 15*time.Minute {
+			updated[attemptKey] = attempt
+		}
+	}
+	updated[key] = loginAttempt{Count: current.Count + 1, WindowStart: current.WindowStart}
+	if len(updated) > 4096 {
+		oldestKey := key
+		oldestTime := now
+		for attemptKey, attempt := range updated {
+			if attemptKey != key && !attempt.WindowStart.After(oldestTime) {
+				oldestKey = attemptKey
+				oldestTime = attempt.WindowStart
+			}
+		}
+		delete(updated, oldestKey)
+	}
+	s.attempts = updated
+	return true
+}
+
+func (s *loginAttemptStore) reset(key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	updated := make(map[string]loginAttempt, len(s.attempts))
+	for attemptKey, attempt := range s.attempts {
+		if attemptKey != key {
+			updated[attemptKey] = attempt
+		}
+	}
+	s.attempts = updated
+}
+
+func configureIPExtractor(e *echo.Echo, cidrs []string) error {
+	if len(cidrs) == 0 {
+		e.IPExtractor = echo.ExtractIPDirect()
+		return nil
+	}
+	options := []echo.TrustOption{
+		echo.TrustLoopback(false),
+		echo.TrustLinkLocal(false),
+		echo.TrustPrivateNet(false),
+	}
+	for _, cidr := range cidrs {
+		_, trustedRange, err := net.ParseCIDR(strings.TrimSpace(cidr))
+		if err != nil {
+			return fmt.Errorf("parse trusted proxy CIDR %q: %w", cidr, err)
+		}
+		options = append(options, echo.TrustIPRange(trustedRange))
+	}
+	e.IPExtractor = echo.ExtractIPFromXFFHeader(options...)
+	return nil
+}
+
+func language(c echo.Context) string {
+	if cookie, err := c.Cookie("openhpc_language"); err == nil && cookie.Value == "en" {
+		return "en"
+	}
+	return "zh"
+}
+
+func theme(c echo.Context) string {
+	if cookie, err := c.Cookie("openhpc_theme"); err == nil && cookie.Value == "slurm-blue" {
+		return "slurm-blue"
+	}
+	return "research-red"
+}
+
+func (a *application) setPreferenceCookie(c echo.Context, name, value string) {
+	http.SetCookie(c.Response(), &http.Cookie{Name: name, Value: value, Path: "/", MaxAge: 365 * 24 * 60 * 60, HttpOnly: true, Secure: a.secureCookies, SameSite: http.SameSiteLaxMode})
+}
+
+func safeNext(value string) string {
+	if value != "" && strings.HasPrefix(value, "/") && !strings.HasPrefix(value, "//") && !strings.Contains(value, `\`) {
+		return value
+	}
+	return "/dashboard"
+}

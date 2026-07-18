@@ -1,0 +1,50 @@
+{{define "login.html"}}
+<!doctype html>
+<html lang="{{.Language}}" data-theme="research-red">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenHPC Web · {{if eq .Language "en"}}Sign in{{else}}登录{{end}}</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="login-page">
+  <main class="login-shell">
+    <section class="login-brand" aria-label="OpenHPC Web">
+      <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+      <div>
+        <strong>OpenHPC</strong>
+        <span>WEB CONSOLE</span>
+      </div>
+    </section>
+    <section class="login-panel">
+      <div class="login-heading">
+        <span class="status-dot"></span>
+        <span>{{if eq .Language "en"}}CLUSTER MANAGEMENT{{else}}集群管理平台{{end}}</span>
+      </div>
+      <h1>{{if eq .Language "en"}}Welcome back{{else}}欢迎回来{{end}}</h1>
+      <p>{{if eq .Language "en"}}Sign in with your platform administrator account.{{else}}使用平台管理员账户登录{{end}}</p>
+      {{if .Error}}<div class="form-error" role="alert">{{.Error}}</div>{{end}}
+      <form action="/login" method="post" class="login-form">
+        <input type="hidden" name="next" value="{{.Next}}">
+        <label for="username">{{if eq .Language "en"}}Username{{else}}用户名{{end}}</label>
+        <div class="input-wrap">
+          <span aria-hidden="true">◎</span>
+          <input id="username" name="username" autocomplete="username" required autofocus>
+        </div>
+        <label for="password">{{if eq .Language "en"}}Password{{else}}密码{{end}}</label>
+        <div class="input-wrap">
+          <span aria-hidden="true">⌁</span>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+        </div>
+        <button type="submit" class="primary-button">{{if eq .Language "en"}}Sign in{{else}}登录平台{{end}} <span aria-hidden="true">→</span></button>
+      </form>
+      <div class="login-meta">
+        <span><i class="status-dot"></i>{{if eq .Language "en"}}Secure access{{else}}安全访问{{end}}</span>
+        <span>Slurm 25.05</span>
+      </div>
+    </section>
+    <footer>OpenHPC Web Console <span>·</span> CentOS 7</footer>
+  </main>
+</body>
+</html>
+{{end}}

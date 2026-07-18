@@ -1,0 +1,90 @@
+{{define "dashboard.html"}}
+<!doctype html>
+<html lang="{{.Language}}" data-theme="{{.Theme}}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenHPC Web · {{.Copy.Overview}}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script defer src="/static/app.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="/dashboard">
+        <div class="brand-mark small" aria-hidden="true"><span></span><span></span><span></span></div>
+        <div><strong>OpenHPC</strong><span>WEB CONSOLE</span></div>
+      </a>
+      <nav aria-label="{{.Copy.Navigation}}">
+        {{$group := ""}}
+        {{range .Modules}}
+          {{if ne .Group $group}}<div class="nav-group">{{.Group}}</div>{{$group = .Group}}{{end}}
+          <a href="{{.Path}}" class="nav-item{{if eq .Path "/dashboard"}} active{{end}}"><span class="nav-icon icon-{{.Icon}}" aria-hidden="true"></span><span>{{.Label}}</span>{{if eq .Path "/terminal"}}<b>SSH</b>{{end}}</a>
+        {{end}}
+      </nav>
+      <div class="sidebar-foot">
+        <span class="status-dot{{if not .MetricsAvailable}} unavailable{{end}}"></span>
+        <div><strong>{{.Copy.SlurmController}}</strong><span>{{if .MetricsAvailable}}{{.Copy.CurrentSnapshot}}{{else}}{{.Copy.SlurmUnavailable}}{{end}}</span></div>
+      </div>
+    </aside>
+    <div class="main-area">
+      <header class="topbar">
+        <button type="button" class="icon-button menu-button" data-menu aria-label="{{.Copy.Menu}}">☰</button>
+        <div class="search"><span aria-hidden="true">⌕</span><input type="search" placeholder="{{.Copy.Search}}" aria-label="{{.Copy.Search}}"><kbd>⌘ K</kbd></div>
+        <div class="top-actions">
+          <details class="popover">
+            <summary class="icon-button" aria-label="{{.Copy.Language}}">文</summary>
+            <form action="/preferences/language" method="post" class="menu-form">
+              <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+              <button name="language" value="zh" type="submit">简体中文</button>
+              <button name="language" value="en" type="submit">English</button>
+            </form>
+          </details>
+          <details class="popover">
+            <summary class="icon-button" aria-label="{{.Copy.Theme}}">◐</summary>
+            <form action="/preferences/theme" method="post" class="menu-form themes">
+              <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+              <button name="theme" value="research-red" type="submit"><i class="swatch red"></i>Research red</button>
+              <button name="theme" value="slurm-blue" type="submit"><i class="swatch blue"></i>Slurm blue</button>
+            </form>
+          </details>
+          <button type="button" class="icon-button notification-button" aria-label="{{.Copy.Notifications}}">♢<i></i></button>
+          <details class="popover user-popover">
+            <summary class="user-block"><span class="avatar">AD</span><div><strong>{{.Username}}</strong><span>{{.Copy.PlatformAdmin}}</span></div><span>⌄</span></summary>
+            <form action="/logout" method="post" class="menu-form"><input type="hidden" name="_csrf" value="{{.CSRFToken}}"><button type="submit">{{.Copy.SignOut}}</button></form>
+          </details>
+        </div>
+      </header>
+      <main class="content">
+        <section class="page-heading">
+          <div><p>OPENHPC / {{.Copy.DashboardLabel}}</p><h1>{{.Copy.Overview}}</h1><span>{{.Copy.UpdatedNow}}</span></div>
+          <div class="health-pill"><i class="status-dot{{if not .MetricsAvailable}} unavailable{{end}}"></i>{{if .MetricsAvailable}}{{.Copy.SystemHealthy}}{{else}}{{.Copy.SlurmUnavailable}}{{end}}</div>
+        </section>
+        {{if not .MetricsAvailable}}<div class="data-warning" role="status">{{.Copy.SlurmUnavailable}}</div>{{end}}
+        <section class="metric-grid" aria-label="{{.Copy.ClusterStatus}}">
+          <article class="metric"><div><span class="metric-icon nodes">▦</span></div><strong>{{if .MetricsAvailable}}{{.Metrics.OnlineNodes}}{{else}}—{{end}}</strong><p>{{.Copy.OnlineNodes}}</p><small>{{.Copy.ReportedBySlurm}}</small></article>
+          <article class="metric"><div><span class="metric-icon jobs">▷</span></div><strong>{{if .MetricsAvailable}}{{.Metrics.RunningJobs}}{{else}}—{{end}}</strong><p>{{.Copy.RunningJobs}}</p><small>{{.Copy.CurrentSnapshot}}</small></article>
+          <article class="metric"><div><span class="metric-icon queued">≡</span></div><strong>{{if .MetricsAvailable}}{{.Metrics.QueuedJobs}}{{else}}—{{end}}</strong><p>{{.Copy.QueuedJobs}}</p><small>{{.Copy.CurrentSnapshot}}</small></article>
+          <article class="metric"><div><span class="metric-icon cpu">⌁</span></div><strong>{{if .MetricsAvailable}}{{.Metrics.CPUUsage}}%{{else}}—{{end}}</strong><p>{{.Copy.CPUUsage}}</p><small>{{.Copy.CurrentAverage}}</small></article>
+        </section>
+        <section class="dashboard-grid">
+          <div class="panel utilization-panel">
+            <div class="panel-heading"><div><p>{{.Copy.ClusterStatus}}</p><h2>{{.Copy.Utilization}}</h2></div><span class="live-badge">LIVE</span></div>
+            <div class="instant-utilization" role="img" aria-label="{{.Copy.ChartLabel}}">
+              <b>{{if .MetricsAvailable}}{{.Metrics.CPUUsage}}%{{else}}—{{end}}</b>
+              <progress max="100" value="{{if .MetricsAvailable}}{{.Metrics.CPUUsage}}{{else}}0{{end}}">{{if .MetricsAvailable}}{{.Metrics.CPUUsage}}%{{else}}0%{{end}}</progress>
+              <div><span>0%</span><span>{{.Copy.NowLabel}}</span><span>100%</span></div>
+            </div>
+          </div>
+          <div class="panel queue-panel">
+            <div class="panel-heading"><div><p>SLURM</p><h2>{{.Copy.CurrentSnapshot}}</h2></div><a href="/slurm/jobs" aria-label="{{.Copy.RunningJobs}}">→</a></div>
+            <div class="queue-summary"><div><span>{{.Copy.RunningJobs}}</span><b>{{if .MetricsAvailable}}{{.Metrics.RunningJobs}}{{else}}—{{end}}</b></div><div><span>{{.Copy.QueuedJobs}}</span><b>{{if .MetricsAvailable}}{{.Metrics.QueuedJobs}}{{else}}—{{end}}</b></div></div>
+          </div>
+        </section>
+        <section class="quick-section"><div class="section-title"><p>{{.Copy.Operations}}</p><h2>{{.Copy.QuickAccess}}</h2></div><div class="quick-grid">{{range $index, $item := .Modules}}{{if and (ne $item.Path "/dashboard") (lt $index 7)}}<a href="{{$item.Path}}"><span class="nav-icon icon-{{$item.Icon}}"></span><strong>{{$item.Label}}</strong><i>→</i></a>{{end}}{{end}}</div></section>
+      </main>
+    </div>
+  </div>
+</body>
+</html>
+{{end}}
