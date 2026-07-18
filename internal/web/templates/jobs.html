@@ -1,17 +1,14 @@
 {{define "jobs.html"}}
 <!doctype html>
 <html lang="{{.Language}}" data-theme="{{.Theme}}">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="data:,"><title>OpenHPC Web · {{.Module.Label}}</title><link rel="stylesheet" href="/static/app.css"><script defer src="/static/app.js"></script></head>
+{{template "document-head" .}}
 <body>
-  <div class="app-shell">
-    {{template "data-sidebar" .}}
+  <div class="app-shell" data-component="app-shell">
+    {{template "app-sidebar" .}}
     <div class="main-area">
-      {{template "data-topbar" .}}
+      {{template "app-topbar" .}}
       <main class="content data-content">
-        <section class="page-heading data-heading">
-          <div><p>OPENHPC / SLURM</p><h1>{{.Module.Label}}</h1><span>{{.Labels.LiveData}}</span></div>
-          <a class="refresh-button" href="/slurm/jobs" title="{{.Labels.Refresh}}" aria-label="{{.Labels.Refresh}}">↻</a>
-        </section>
+        {{template "page-heading" .}}
         {{if not .Available}}
           <div class="data-warning" role="status">{{.Copy.SlurmUnavailable}}</div>
         {{else if not .Jobs}}

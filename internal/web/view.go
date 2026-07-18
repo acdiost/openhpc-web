@@ -3,9 +3,11 @@ package web
 import "github.com/openhpc-web/openhpc-web/internal/cluster"
 
 type loginView struct {
-	Language string
-	Next     string
-	Error    string
+	Language  string
+	Theme     string
+	PageTitle string
+	Next      string
+	Error     string
 }
 
 type copySet struct {
@@ -25,23 +27,38 @@ type module struct {
 	Path, Label, Group, Icon string
 }
 
+type pageHeading struct {
+	Eyebrow         string
+	Title           string
+	Description     string
+	RefreshPath     string
+	RefreshLabel    string
+	Status          string
+	StatusAvailable bool
+}
+
+type appChrome struct {
+	Language   string
+	Theme      string
+	Username   string
+	CSRFToken  string
+	PageTitle  string
+	ActivePath string
+	Available  bool
+	Copy       copySet
+	Modules    []module
+	Heading    pageHeading
+}
+
 type dashboardView struct {
-	Language         string
-	Theme            string
-	Username         string
-	CSRFToken        string
+	appChrome
 	Metrics          DashboardMetrics
 	MetricsAvailable bool
-	Copy             copySet
-	Modules          []module
 }
 
 type moduleView struct {
-	Language string
-	Theme    string
-	Username string
-	Copy     copySet
-	Module   module
+	appChrome
+	Module module
 }
 
 type detailCopy struct {
@@ -52,29 +69,17 @@ type detailCopy struct {
 }
 
 type nodesView struct {
-	Language  string
-	Theme     string
-	Username  string
-	CSRFToken string
-	Module    module
-	Modules   []module
-	Copy      copySet
-	Labels    detailCopy
-	Nodes     []cluster.Node
-	Available bool
+	appChrome
+	Module module
+	Labels detailCopy
+	Nodes  []cluster.Node
 }
 
 type jobsView struct {
-	Language  string
-	Theme     string
-	Username  string
-	CSRFToken string
-	Module    module
-	Modules   []module
-	Copy      copySet
-	Labels    detailCopy
-	Jobs      []cluster.Job
-	Available bool
+	appChrome
+	Module module
+	Labels detailCopy
+	Jobs   []cluster.Job
 }
 
 func detailCopyFor(language string) detailCopy {

@@ -176,40 +176,55 @@ func New(config Config) (http.Handler, error) {
 
 func (a *application) slurmNodes(c echo.Context) error {
 	lang := language(c)
-	view := nodesView{
-		Language: lang, Theme: theme(c), Username: a.username, CSRFToken: a.csrfToken(c),
-		Module: moduleByPath("/slurm/nodes", lang), Modules: modulesFor(lang), Copy: copyFor(lang), Labels: detailCopyFor(lang),
-	}
+	labels := detailCopyFor(lang)
+	var nodes []cluster.Node
+	available := false
 	if a.nodeProvider != nil {
-		nodes, err := a.nodeProvider.Nodes(c.Request().Context())
+		liveNodes, err := a.nodeProvider.Nodes(c.Request().Context())
 		if err != nil {
 			log.Printf("Slurm nodes snapshot failed: %v", err)
 		} else {
-			view.Nodes, view.Available = nodes, true
+			nodes, available = liveNodes, true
 		}
+	}
+	currentModule := moduleByPath("/slurm/nodes", lang)
+	view := nodesView{
+		appChrome: a.newAppChrome(c, currentModule.Path, available, pageHeading{
+			Eyebrow: "OPENHPC / SLURM", Title: currentModule.Label, Description: labels.LiveData,
+			RefreshPath: currentModule.Path, RefreshLabel: labels.Refresh,
+		}),
+		Module: currentModule, Labels: labels, Nodes: nodes,
 	}
 	return a.render(c, http.StatusOK, "nodes.html", view)
 }
 
 func (a *application) slurmJobs(c echo.Context) error {
 	lang := language(c)
-	view := jobsView{
-		Language: lang, Theme: theme(c), Username: a.username, CSRFToken: a.csrfToken(c),
-		Module: moduleByPath("/slurm/jobs", lang), Modules: modulesFor(lang), Copy: copyFor(lang), Labels: detailCopyFor(lang),
-	}
+	labels := detailCopyFor(lang)
+	var jobs []cluster.Job
+	available := false
 	if a.jobProvider != nil {
-		jobs, err := a.jobProvider.Jobs(c.Request().Context())
+		liveJobs, err := a.jobProvider.Jobs(c.Request().Context())
 		if err != nil {
 			log.Printf("Slurm jobs snapshot failed: %v", err)
 		} else {
-			view.Jobs, view.Available = jobs, true
+			jobs, available = liveJobs, true
 		}
+	}
+	currentModule := moduleByPath("/slurm/jobs", lang)
+	view := jobsView{
+		appChrome: a.newAppChrome(c, currentModule.Path, available, pageHeading{
+			Eyebrow: "OPENHPC / SLURM", Title: currentModule.Label, Description: labels.LiveData,
+			RefreshPath: currentModule.Path, RefreshLabel: labels.Refresh,
+		}),
+		Module: currentModule, Labels: labels, Jobs: jobs,
 	}
 	return a.render(c, http.StatusOK, "jobs.html", view)
 }
 
 func (a *application) loginPage(c echo.Context) error {
-	return a.render(c, http.StatusOK, "login.html", loginView{Language: language(c), Next: safeNext(c.QueryParam("next"))})
+	lang := language(c)
+	return a.render(c, http.StatusOK, "login.html", loginView{Language: lang, Theme: "research-red", PageTitle: signInTitle(lang), Next: safeNext(c.QueryParam("next"))})
 }
 
 func (a *application) login(c echo.Context) error {
@@ -233,7 +248,7 @@ func (a *application) login(c echo.Context) error {
 		if language(c) == "en" {
 			errorMessage = "Invalid username or password"
 		}
-		return a.render(c, http.StatusUnauthorized, "login.html", loginView{Language: language(c), Next: next, Error: errorMessage})
+		return a.render(c, http.StatusUnauthorized, "login.html", loginView{Language: language(c), Theme: "research-red", PageTitle: signInTitle(language(c)), Next: next, Error: errorMessage})
 	}
 
 	token, err := randomToken()
@@ -261,6 +276,8 @@ func (a *application) login(c echo.Context) error {
 }
 
 func (a *application) dashboard(c echo.Context) error {
+	lang := language(c)
+	localizedCopy := copyFor(lang)
 	metrics := a.metrics
 	metricsAvailable := a.metricsAvailable
 	if a.metricsProvider != nil {
@@ -275,20 +292,60 @@ func (a *application) dashboard(c echo.Context) error {
 		}
 	}
 	view := dashboardView{
-		Language: language(c), Theme: theme(c), Username: a.username,
+		appChrome: a.newAppChrome(c, "/dashboard", metricsAvailable, pageHeading{
+			Eyebrow: "OPENHPC / " + localizedCopy.DashboardLabel,
+			Title:   localizedCopy.Overview, Description: localizedCopy.UpdatedNow,
+			Status: func() string {
+				if metricsAvailable {
+					return localizedCopy.SystemHealthy
+				}
+				return localizedCopy.SlurmUnavailable
+			}(),
+			StatusAvailable: metricsAvailable,
+		}),
 		Metrics: metrics, MetricsAvailable: metricsAvailable,
-		Copy: copyFor(language(c)), Modules: modulesFor(language(c)), CSRFToken: a.csrfToken(c),
 	}
 	return a.render(c, http.StatusOK, "dashboard.html", view)
 }
 
 func (a *application) modulePlaceholder(c echo.Context) error {
 	lang := language(c)
+	localizedCopy := copyFor(lang)
+	currentModule := moduleByPath(c.Path(), lang)
+	available := a.metricsAvailable
+	if a.metricsProvider != nil {
+		_, err := a.metricsProvider.Snapshot(c.Request().Context())
+		if err != nil {
+			log.Printf("Slurm metrics health check failed: %v", err)
+			available = false
+		} else {
+			available = true
+		}
+	}
 	view := moduleView{
-		Language: lang, Theme: theme(c), Username: a.username, Copy: copyFor(lang),
-		Module: moduleByPath(c.Path(), lang),
+		appChrome: a.newAppChrome(c, currentModule.Path, available, pageHeading{
+			Eyebrow: "OPENHPC / " + currentModule.Group, Title: currentModule.Label,
+			Description: localizedCopy.ComingSoonDetail,
+		}),
+		Module: currentModule,
 	}
 	return a.render(c, http.StatusOK, "module.html", view)
+}
+
+func (a *application) newAppChrome(c echo.Context, activePath string, available bool, heading pageHeading) appChrome {
+	lang := language(c)
+	return appChrome{
+		Language: lang, Theme: theme(c), Username: a.username, CSRFToken: a.csrfToken(c),
+		PageTitle: heading.Title, ActivePath: activePath, Available: available,
+		Copy: copyFor(lang), Modules: modulesFor(lang), Heading: heading,
+	}
+}
+
+func signInTitle(language string) string {
+	if language == "en" {
+		return "Sign in"
+	}
+	return "登录"
 }
 
 func (a *application) setLanguage(c echo.Context) error {

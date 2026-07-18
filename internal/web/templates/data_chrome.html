@@ -1,14 +1,27 @@
-{{define "data-sidebar"}}
-<aside class="sidebar" id="sidebar">
-  <a class="brand" href="/dashboard">
-    <div class="brand-mark small" aria-hidden="true"><span></span><span></span><span></span></div>
-    <div><strong>OpenHPC</strong><span>WEB CONSOLE</span></div>
-  </a>
+{{define "document-head"}}
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>OpenHPC Web · {{.PageTitle}}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script defer src="/static/app.js"></script>
+</head>
+{{end}}
+
+{{define "brand"}}
+<div class="brand-mark small" aria-hidden="true"><span></span><span></span><span></span></div>
+<div><strong>OpenHPC</strong><span>WEB CONSOLE</span></div>
+{{end}}
+
+{{define "app-sidebar"}}
+<aside class="sidebar" id="sidebar" data-component="app-sidebar">
+  <a class="brand" href="/dashboard">{{template "brand" .}}</a>
   <nav aria-label="{{.Copy.Navigation}}">
-    {{$group := ""}}{{$active := .Module.Path}}
+    {{$group := ""}}{{$active := .ActivePath}}
     {{range .Modules}}
       {{if ne .Group $group}}<div class="nav-group">{{.Group}}</div>{{$group = .Group}}{{end}}
-      <a href="{{.Path}}" class="nav-item{{if eq .Path $active}} active{{end}}"><span class="nav-icon icon-{{.Icon}}" aria-hidden="true"></span><span>{{.Label}}</span>{{if eq .Path "/terminal"}}<b>SSH</b>{{end}}</a>
+      <a href="{{.Path}}" class="nav-item{{if eq .Path $active}} active{{end}}"{{if eq .Path $active}} aria-current="page"{{end}}><span class="nav-icon icon-{{.Icon}}" aria-hidden="true"></span><span>{{.Label}}</span>{{if eq .Path "/terminal"}}<b>SSH</b>{{end}}</a>
     {{end}}
   </nav>
   <div class="sidebar-foot">
@@ -18,9 +31,9 @@
 </aside>
 {{end}}
 
-{{define "data-topbar"}}
-<header class="topbar">
-  <button type="button" class="icon-button menu-button" data-menu aria-label="{{.Copy.Menu}}">☰</button>
+{{define "app-topbar"}}
+<header class="topbar" data-component="app-topbar">
+  <button type="button" class="icon-button menu-button" data-menu aria-label="{{.Copy.Menu}}" aria-controls="sidebar" aria-expanded="false">☰</button>
   <div class="search"><span aria-hidden="true">⌕</span><input type="search" placeholder="{{.Copy.Search}}" aria-label="{{.Copy.Search}}"><kbd>⌘ K</kbd></div>
   <div class="top-actions">
     <details class="popover">
@@ -46,4 +59,12 @@
     </details>
   </div>
 </header>
+{{end}}
+
+{{define "page-heading"}}
+<section class="page-heading" data-component="page-heading">
+  <div><p>{{.Heading.Eyebrow}}</p><h1>{{.Heading.Title}}</h1>{{if .Heading.Description}}<span>{{.Heading.Description}}</span>{{end}}</div>
+  {{if .Heading.RefreshPath}}<a class="refresh-button" href="{{.Heading.RefreshPath}}" title="{{.Heading.RefreshLabel}}" aria-label="{{.Heading.RefreshLabel}}">↻</a>{{end}}
+  {{if .Heading.Status}}<div class="health-pill{{if not .Heading.StatusAvailable}} unavailable{{end}}"><i class="status-dot{{if not .Heading.StatusAvailable}} unavailable{{end}}"></i>{{.Heading.Status}}</div>{{end}}
+</section>
 {{end}}

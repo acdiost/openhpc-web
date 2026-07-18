@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -336,6 +337,84 @@ func TestDashboardShowsCoreMetricsAndNavigation(t *testing.T) {
 	}
 	for _, untranslated := range []string{"Platform admin", "OPERATIONS", `aria-label="Primary"`, `aria-label="Menu"`, `aria-label="CPU and GPU utilization chart"`} {
 		assertBodyNotContains(t, response, untranslated)
+	}
+}
+
+func TestProtectedPagesShareApplicationChrome(t *testing.T) {
+	handler := newTestHandler(t)
+	session := login(t, handler)
+	tests := []struct {
+		path    string
+		heading string
+		active  string
+	}{
+		{path: "/dashboard", heading: "集群概览", active: "/dashboard"},
+		{path: "/slurm/nodes", heading: "节点与分区", active: "/slurm/nodes"},
+		{path: "/slurm/jobs", heading: "作业管理", active: "/slurm/jobs"},
+		{path: "/ldap", heading: "LDAP 目录", active: "/ldap"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.path, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, test.path, nil)
+			request.AddCookie(session)
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+
+			assertStatus(t, response, http.StatusOK)
+			for _, expected := range []string{
+				`data-component="app-shell"`,
+				`data-component="app-sidebar"`,
+				`data-component="app-topbar"`,
+				`data-component="page-heading"`,
+				`action="/logout"`,
+				`<title>OpenHPC Web · ` + test.heading + `</title>`,
+				`href="` + test.active + `" class="nav-item active" aria-current="page"`,
+				`aria-controls="sidebar" aria-expanded="false"`,
+				"<h1>" + test.heading + "</h1>",
+			} {
+				assertBodyContains(t, response, expected)
+			}
+			if csrfFields := regexp.MustCompile(`name="_csrf" value="[^"]+"`).FindAllString(response.Body.String(), -1); len(csrfFields) != 3 {
+				t.Errorf("populated CSRF fields = %d, want 3", len(csrfFields))
+			}
+		})
+	}
+}
+
+func TestModuleChromeReflectsMetricsProviderHealth(t *testing.T) {
+	tests := []struct {
+		name        string
+		provider    *stubMetricsProvider
+		status      string
+		unavailable bool
+	}{
+		{name: "available", provider: &stubMetricsProvider{metrics: cluster.Metrics{CPUUsage: 42}}, status: "当前调度快照"},
+		{name: "unavailable", provider: &stubMetricsProvider{err: errors.New("exec /secret/sinfo: provider failed")}, status: "Slurm 数据暂不可用", unavailable: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler, err := New(Config{AdminUsername: testUsername, AdminPassword: testPassword, MetricsProvider: test.provider})
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			cleanupHandler(t, handler)
+
+			response := getAuthenticated(t, handler, "/ldap", "zh")
+			assertStatus(t, response, http.StatusOK)
+			assertBodyContains(t, response, test.status)
+			if test.unavailable {
+				assertBodyContains(t, response, `<span class="status-dot unavailable"></span>`)
+				assertBodyNotContains(t, response, "/secret/sinfo")
+				assertBodyNotContains(t, response, "provider failed")
+			} else {
+				assertBodyNotContains(t, response, `<span class="status-dot unavailable"></span>`)
+			}
+			if test.provider.calls != 1 {
+				t.Errorf("Snapshot() calls = %d, want 1", test.provider.calls)
+			}
+		})
 	}
 }
 
