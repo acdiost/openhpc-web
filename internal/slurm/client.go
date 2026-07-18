@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,6 +25,7 @@ type Config struct {
 	MaxOutputBytes int
 	CacheTTL       time.Duration
 	Runner         Runner
+	Warning        func(string)
 }
 
 type Client struct {
@@ -70,10 +72,23 @@ func New(config Config) (*Client, error) {
 	}
 	runner := config.Runner
 	if runner == nil {
+		warning := config.Warning
+		if warning == nil {
+			warning = func(message string) { log.Print(message) }
+		}
+		reportedWarnings := make(map[string]struct{})
 		for _, command := range []string{"sinfo", "squeue", "sacct", "sacctmgr", "sstat"} {
 			path := filepath.Join(config.BinaryDir, command)
-			if err := validateRootOwnedExecutable(path); err != nil {
+			warnings, err := validateSlurmExecutable(path)
+			if err != nil {
 				return nil, err
+			}
+			for _, message := range warnings {
+				if _, reported := reportedWarnings[message]; reported {
+					continue
+				}
+				reportedWarnings[message] = struct{}{}
+				warning(message)
 			}
 		}
 		runner = &CommandRunner{MaxOutputBytes: config.MaxOutputBytes, Environment: allowedSlurmEnvironment(os.Environ())}
@@ -203,26 +218,40 @@ func allowedSlurmEnvironment(environment []string) []string {
 	return result
 }
 
-func validateRootOwnedExecutable(path string) error {
+func validateSlurmExecutable(path string) ([]string, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
-		return fmt.Errorf("inspect Slurm command %s: %w", path, err)
+		return nil, fmt.Errorf("inspect Slurm command %s: %w", path, err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
-		return fmt.Errorf("Slurm command %s must be a non-symlink executable file", path)
+		return nil, fmt.Errorf("Slurm command %s must be a non-symlink executable file", path)
 	}
+	warnings := make([]string, 0)
 	for current := path; ; current = filepath.Dir(current) {
 		entry, err := os.Lstat(current)
 		if err != nil {
-			return fmt.Errorf("inspect Slurm path %s: %w", current, err)
+			return nil, fmt.Errorf("inspect Slurm path %s: %w", current, err)
 		}
 		stat, ok := entry.Sys().(*syscall.Stat_t)
-		if !ok || stat.Uid != 0 || entry.Mode().Perm()&0o022 != 0 {
-			return fmt.Errorf("Slurm path %s must be root-owned and not group/world writable", current)
+		ownerUID := ^uint32(0)
+		if ok {
+			ownerUID = stat.Uid
 		}
+		warnings = append(warnings, slurmPathRiskWarnings(current, ownerUID, entry.Mode().Perm())...)
 		if current == "/" {
 			break
 		}
 	}
-	return nil
+	return warnings, nil
+}
+
+func slurmPathRiskWarnings(path string, ownerUID uint32, mode os.FileMode) []string {
+	warnings := make([]string, 0, 2)
+	if ownerUID != 0 {
+		warnings = append(warnings, fmt.Sprintf("WARNING: Slurm path %s owner is not root; relying on the running user's operating-system permissions", path))
+	}
+	if mode&0o022 != 0 {
+		warnings = append(warnings, fmt.Sprintf("WARNING: Slurm path %s is group/world writable; relying on the running user's operating-system permissions", path))
+	}
+	return warnings
 }

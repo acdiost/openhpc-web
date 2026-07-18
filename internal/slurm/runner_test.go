@@ -140,7 +140,6 @@ func TestNewDefaultRunnerValidatesCommands(t *testing.T) {
 		{name: "missing squeue", fileModes: map[string]os.FileMode{"sinfo": 0o700}, wantError: true},
 		{name: "non-executable sinfo", fileModes: map[string]os.FileMode{"sinfo": 0o600, "squeue": 0o700}, wantError: true, wantCommand: "sinfo"},
 		{name: "non-executable squeue", fileModes: map[string]os.FileMode{"sinfo": 0o700, "squeue": 0o600}, wantError: true},
-		{name: "non-root-owned executables", fileModes: map[string]os.FileMode{"sinfo": 0o700, "squeue": 0o700}, wantError: true},
 	}
 
 	for _, test := range tests {
@@ -172,6 +171,71 @@ func TestNewDefaultRunnerValidatesCommands(t *testing.T) {
 				t.Errorf("default runner = %T, want *CommandRunner", client.runner)
 			}
 		})
+	}
+}
+
+func TestNewDefaultRunnerAllowsOwnerAndWritableRisksWithWarnings(t *testing.T) {
+	directory := t.TempDir()
+	for _, command := range []string{"sinfo", "squeue", "sacct", "sacctmgr", "sstat"} {
+		path := filepath.Join(directory, command)
+		if err := os.WriteFile(path, []byte("test"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, 0o722); err != nil {
+			t.Fatal(err)
+		}
+	}
+	warnings := make([]string, 0)
+	client, err := New(Config{
+		BinaryDir: directory, Timeout: time.Second, MaxOutputBytes: 1024,
+		Warning: func(message string) { warnings = append(warnings, message) },
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v, want warning-only initialization", err)
+	}
+	if client == nil || len(warnings) == 0 {
+		t.Fatalf("client = %v, warnings = %q", client, warnings)
+	}
+}
+
+func TestValidateSlurmExecutableStillRejectsSymlinks(t *testing.T) {
+	directory := t.TempDir()
+	target := filepath.Join(directory, "target")
+	if err := os.WriteFile(target, []byte("test"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(directory, "sinfo")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := validateSlurmExecutable(link); err == nil {
+		t.Fatal("validateSlurmExecutable() error = nil, want symlink rejection")
+	}
+}
+
+func TestValidateSlurmExecutableWarnsForNonRootOwnedWritablePath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sinfo")
+	if err := os.WriteFile(path, []byte("test"), 0o722); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o722); err != nil {
+		t.Fatal(err)
+	}
+	warnings, err := validateSlurmExecutable(path)
+	if err != nil {
+		t.Fatalf("validateSlurmExecutable() error = %v, want warnings only", err)
+	}
+	joined := strings.Join(warnings, " ")
+	if !strings.Contains(joined, "writable") {
+		t.Fatalf("validateSlurmExecutable() warnings = %q", warnings)
+	}
+}
+
+func TestSlurmPathRiskWarningsReportsOwnerWithoutDependingOnTestUID(t *testing.T) {
+	warnings := slurmPathRiskWarnings("/opt/slurm/bin/sinfo", 1000, 0o722)
+	joined := strings.Join(warnings, " ")
+	if !strings.Contains(joined, "owner") || !strings.Contains(joined, "writable") {
+		t.Fatalf("slurmPathRiskWarnings() = %q", warnings)
 	}
 }
 

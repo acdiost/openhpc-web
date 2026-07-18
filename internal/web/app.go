@@ -49,6 +49,7 @@ type Config struct {
 	JobProvider         cluster.JobProvider
 	JobResourceProvider cluster.JobResourceProvider
 	JobOutputRoots      []string
+	Warning             func(string)
 	AccountingProvider  cluster.AccountingProvider
 	AssociationProvider cluster.AssociationProvider
 	CoreHourProvider    cluster.CoreHourProvider
@@ -140,6 +141,13 @@ func New(config Config) (http.Handler, error) {
 	if err != nil {
 		_ = audit.Close()
 		return nil, err
+	}
+	if len(jobOutputRoots) > 0 {
+		warning := config.Warning
+		if warning == nil {
+			warning = func(message string) { log.Print(message) }
+		}
+		warning("WARNING: job output preview is enabled; output files are read with the running user's operating-system permissions and Slurm job UID mismatches are not blocked.")
 	}
 
 	app := &application{

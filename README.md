@@ -19,14 +19,14 @@ go run ./cmd/server
 
 生产环境必须通过 loopback 上的本机 TLS 反向代理访问，并设置 `OPENHPC_SECURE_COOKIES=true`；服务会拒绝监听非 loopback 地址。
 反向代理还必须配置入口总速率限制，并通过 `OPENHPC_TRUSTED_PROXY_CIDRS` 指定其 CIDR（多个值用逗号分隔）；仅这些地址提供的 `X-Forwarded-For` 会被信任。
-SQLite 所在目录必须由服务账户持有且权限为 `0700`；数据库、WAL 和 SHM 文件会收紧为 `0600`。
+SQLite 目录建议使用 `0700`，数据库、WAL 和 SHM 文件建议使用 `0600`。属主或权限更宽时程序仅在启动阶段输出 WARNING；最终读写能力由运行用户的操作系统权限决定。
 
 ```bash
 go test ./... -cover
 go build ./cmd/server
 ```
 
-程序允许以 root 运行，并在启动日志输出安全警告。生产环境仍推荐使用专用非特权账户；root 模式会扩大 Slurm 子进程和文件读取功能的权限范围，仅应在确有跨用户查询等需求时启用。
+程序允许以任意用户（包括 root）运行。UID、目录属主、Slurm 命令属主和作业输出 UID 不作为应用授权边界；应用只在启动阶段输出风险 WARNING，进程最终拥有什么权限完全由操作系统和 systemd 决定。
 
 ## 当前结构
 
@@ -66,7 +66,7 @@ export OPENHPC_JOB_OUTPUT_ROOTS=
 
 命令通过 `exec.CommandContext` 直接执行，固定 C locale，禁止 shell 和调用方自定义参数。适配器只解析页面所需字段。读取失败时保留页面和导航，但将实时数据标记为不可用。各类快照使用独立的 10 秒缓存与并发合并边界。分区容量和利用率由节点快照按分区聚合，与节点表复用同一次 `sinfo --Node --json` 缓存；分区和节点嵌入同一个“节点与分区”主页面，旧 `/slurm/partitions` 地址仅重定向到页面内分区区域。作业资源弹窗每 5 秒串行采样一次 `sstat`，服务端最多同时执行 4 个资源采样，并展示总 CPU 时间、最大 RSS、近期曲线和 step 明细。核时统计内嵌在“QoS 与核时”页面，仅支持过去 24 小时、7 天和 30 天三个固定周期；口径为 allocation 分配 CPU 数乘以窗口内墙钟占用时间，不代表实际 CPU 利用率，也不包含 GPU/TRES 计费。
 
-作业详情中的输出预览默认关闭。配置 `OPENHPC_JOB_OUTPUT_ROOTS` 后，服务端仅接受作业 ID 与 `stdout`/`stderr` 类型，文件路径由当前 Slurm 作业元数据决定；文件必须位于允许根目录及作业工作目录内、为非符号链接普通文件，且 UID 与作业用户一致。接口只返回最新 256 KiB 纯文本。服务账号还需要对应目录的只读权限。
+作业详情中的输出预览默认关闭。配置 `OPENHPC_JOB_OUTPUT_ROOTS` 后，服务端仅接受作业 ID 与 `stdout`/`stderr` 类型，文件路径由当前 Slurm 作业元数据决定；文件必须位于允许根目录及作业工作目录内，并且是非符号链接普通文件。文件 UID 与作业用户不一致不会阻断读取，是否可读由进程权限决定；启用该功能时启动日志会输出风险 WARNING。接口只返回最新 256 KiB 纯文本。
 
 `sstat` 通常只允许作业所有者、root 或 SlurmUser 查询 step 数据。默认部署使用专用非特权账号，因此集群若执行 UID 校验，跨用户资源查询会返回不可用；以 root 运行可满足此类部署需求，但应评估权限扩大带来的风险。
 
@@ -87,14 +87,23 @@ install -o root -g root -m 0644 deploy/openhpc-web.service /etc/systemd/system/o
 
 将环境文件中的管理员密码替换为高强度随机值。仅通过 SSH 端口转发进行初次访问时保留 `OPENHPC_SECURE_COOKIES=false`；接入本机 TLS 反向代理后必须改为 `true`，并设置 `OPENHPC_TRUSTED_PROXY_CIDRS`。
 
-如需以 root 运行，systemd 覆盖配置可将 `User` 和 `Group` 设为 `root`，同时必须将状态目录调整为当前运行账户持有：
+如需以 root 运行，systemd 覆盖配置可将 `User` 和 `Group` 设为 `root`。程序不会要求状态目录必须属于 root：
 
 ```bash
-chown root:root /var/lib/openhpc-web
-chmod 0700 /var/lib/openhpc-web
+systemctl edit openhpc-web
 ```
 
-默认服务模板仍使用 `openhpc-web`，并保留 `NoNewPrivileges`、loopback 监听和目录权限检查等防护。
+```ini
+[Service]
+User=root
+Group=root
+NoNewPrivileges=false
+PrivateTmp=false
+ProtectSystem=false
+ProtectHome=false
+```
+
+默认服务模板仍使用 `openhpc-web` 并启用 systemd sandbox。如果需要进程拥有标准 root 文件系统权限，drop-in 还需覆盖 `NoNewPrivileges=false`、`PrivateTmp=false`、`ProtectSystem=false` 和 `ProtectHome=false`。loopback 监听、认证、固定 Slurm argv、禁止 shell、超时和输出上限仍保留。
 
 ## 功能
 

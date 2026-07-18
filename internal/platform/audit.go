@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"os"
+	"syscall"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -62,15 +64,34 @@ func OpenAuditStore(path string) (*AuditStore, error) {
 		return nil, fmt.Errorf("migrate audit database: %w", err)
 	}
 	if path != ":memory:" {
-		for _, candidate := range databaseFiles(path) {
-			if err := os.Chmod(candidate, 0o600); err != nil && !os.IsNotExist(err) {
-				_ = db.Close()
-				return nil, fmt.Errorf("secure audit database permissions: %w", err)
-			}
+		for _, warning := range auditFilePermissionWarnings(databaseFiles(path), os.Geteuid()) {
+			log.Print(warning)
 		}
 	}
 
 	return &AuditStore{db: db}, nil
+}
+
+func auditFilePermissionWarnings(paths []string, effectiveUID int) []string {
+	warnings := make([]string, 0)
+	for _, candidate := range paths {
+		info, err := os.Lstat(candidate)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			warnings = append(warnings, "WARNING: could not inspect audit database permissions; relying on the running user's operating-system permissions")
+			continue
+		}
+		if info.Mode().Perm()&0o077 != 0 {
+			warnings = append(warnings, "WARNING: audit database permissions are broader than 0600; relying on the running user's operating-system permissions")
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || int(stat.Uid) != effectiveUID {
+			warnings = append(warnings, "WARNING: audit database owner differs from the running user; relying on the running user's operating-system permissions")
+		}
+	}
+	return warnings
 }
 
 func databaseFiles(path string) []string {

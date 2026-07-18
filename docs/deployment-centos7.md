@@ -6,8 +6,8 @@
 
 - Web 服务默认使用专用的非 root 账户 `openhpc-web`；也允许按需以 root 运行，并在启动日志中输出警告。
 - Web 服务不通过 SSH root 调用 Slurm，也不直接修改 Slurm 数据库。
-- `/etc/openhpc-web/openhpc-web.env` 必须为 `root:root 0600`。
-- `/var/lib/openhpc-web` 必须为运行账户持有且权限为 `0700`；默认部署为 `openhpc-web:openhpc-web 0700`，root 模式为 `root:root 0700`。
+- `/etc/openhpc-web/openhpc-web.env` 建议为 `root:root 0600`，这是 systemd 环境文件保护建议，不是应用启动校验。
+- `/var/lib/openhpc-web` 推荐为运行账户持有且权限为 `0700`。属主或模式不一致时应用只在启动阶段输出 WARNING，实际读写权限由操作系统决定。
 - 首次访问使用 SSH 端口转发；公网或局域网发布前必须增加 TLS 反向代理。
 
 ## 2. 验证服务账户
@@ -41,7 +41,7 @@ runuser -u openhpc-web -- /usr/local/bin/sacctmgr \
 
 除 `sstat` 外的六个 Slurm 命令都必须成功。默认 Web 进程不需要 root、SlurmUser 或 MariaDB 直连权限；账户、用户、QoS 和核时页面只读取 SlurmDBD 已授权返回的数据。
 
-`sstat` 的 step RPC 通常校验调用者 UID。服务账号只能可靠查询自己拥有的作业；查询其他用户作业可能返回 `Invalid user id`。以 root 运行可提供跨用户查询，但这会扩大 Slurm 子进程及文件读取权限，应保留 `NoNewPrivileges=true`、loopback 监听和命令路径校验等防护。
+`sstat` 的 step RPC 通常校验调用者 UID。服务账号只能可靠查询自己拥有的作业；查询其他用户作业可能返回 `Invalid user id`。以 root 运行可提供跨用户查询，程序不会额外限制 root 的文件或 Slurm 权限，只输出风险警告。
 
 核时页面的统计口径为 allocation 分配 CPU 数乘以所选窗口内墙钟占用时间，仅支持过去 24 小时、7 天和 30 天。该值不是 CPU 实际利用时间，也不包含 GPU/TRES 计费。
 
@@ -114,12 +114,9 @@ install -o root -g root -m 0644 \
   /etc/systemd/system/openhpc-web.service
 ```
 
-如确需以 root 运行，先调整状态目录属主，再使用 systemd 覆盖配置变更运行账户：
+如需以完整 root 权限运行，使用 systemd 覆盖配置变更运行账户并关闭默认 sandbox 限制；无需为了通过应用校验而修改状态目录属主：
 
 ```bash
-chown root:root /var/lib/openhpc-web
-chmod 0700 /var/lib/openhpc-web
-
 systemctl edit openhpc-web
 ```
 
@@ -129,11 +126,13 @@ systemctl edit openhpc-web
 [Service]
 User=root
 Group=root
-CapabilityBoundingSet=
-AmbientCapabilities=
+NoNewPrivileges=false
+PrivateTmp=false
+ProtectSystem=false
+ProtectHome=false
 ```
 
-默认服务模板保持非特权账户；root 模式清空 capability 集，并仍保留模板中的 `NoNewPrivileges=true`、`PrivateTmp=true`、`ProtectSystem=full` 和 `ProtectHome=true`。除非确有受限文件预览需求，否则保持 `OPENHPC_JOB_OUTPUT_ROOTS` 为空。
+默认服务模板保持非特权账户和 systemd sandbox；上述 root drop-in 才会使进程按标准 root 权限访问主机。应用仍保留 loopback、认证、固定命令参数、禁止 shell、允许目录、普通文件、超时和输出上限。除非确有文件预览需求，否则保持 `OPENHPC_JOB_OUTPUT_ROOTS` 为空。
 
 ## 5. 配置环境文件
 
@@ -165,7 +164,7 @@ OPENHPC_JOB_OUTPUT_ROOTS=
 
 必须把 `REPLACE_WITH_A_LONG_RANDOM_PASSWORD` 替换为真实密码。用户名长度为 1 到 64，密码长度至少为 12。不要在聊天记录、命令历史或仓库中保存真实密码。
 
-如需查看 `/home` 下的作业输出，将 `OPENHPC_JOB_OUTPUT_ROOTS` 设置为经过评估的最小绝对目录集合，并用 systemd drop-in 将 `ProtectHome` 改为 `read-only`。还需通过 ACL 或受限用户组只授予 `openhpc-web` 服务账号所需的目录遍历和文件读取权限，不要授予写权限。接口会再次校验文件位于作业工作目录内、文件 UID 与 Slurm 作业用户一致，并只读取最新 256 KiB。未完成这些权限配置时应保持该变量为空。
+如需查看 `/home` 下的作业输出，将 `OPENHPC_JOB_OUTPUT_ROOTS` 设置为经过评估的最小绝对目录集合，并用 systemd drop-in 将 `ProtectHome` 改为 `read-only`。还需通过 ACL 或受限用户组授予运行账户所需的目录遍历和文件读取权限。接口仍校验文件位于作业工作目录内且为非符号链接普通文件；UID 不一致不阻断，实际读取能力由进程权限决定，并只读取最新 256 KiB。
 
 再次固定权限：
 
@@ -417,7 +416,7 @@ runuser -u openhpc-web -- /usr/local/bin/sacctmgr \
 journalctl -u openhpc-web -n 50 --no-pager
 ```
 
-确认 `/usr/local/bin/sinfo`、`/usr/local/bin/squeue`、`/usr/local/bin/sacct`、`/usr/local/bin/sstat`、`/usr/local/bin/sacctmgr` 及其父目录均由 root 持有，并且 group/other 不可写。应用会拒绝符号链接或可被普通用户替换的命令路径。
+建议 `/usr/local/bin/sinfo`、`/usr/local/bin/squeue`、`/usr/local/bin/sacct`、`/usr/local/bin/sstat`、`/usr/local/bin/sacctmgr` 及其父目录由 root 持有且 group/other 不可写。属主或可写位异常时应用只输出 WARNING；缺失、符号链接、非普通文件或无执行位仍会拒绝初始化。
 
 ### 服务启动但无法访问
 

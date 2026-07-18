@@ -38,13 +38,18 @@ func main() {
 		log.Fatal(err)
 	}
 	databasePath := envOr("OPENHPC_DATABASE_PATH", filepath.Join("state", "openhpc.db"))
-	if err := prepareStateDirectory(databasePath); err != nil {
+	stateWarnings, err := prepareStateDirectory(databasePath)
+	if err != nil {
 		log.Fatalf("prepare state directory: %v", err)
+	}
+	for _, warning := range stateWarnings {
+		log.Print(warning)
 	}
 	slurmEnabled, slurmConfig, err := parseSlurmConfigFromEnv()
 	if err != nil {
 		log.Fatal(err)
 	}
+	slurmConfig.Warning = func(message string) { log.Print(message) }
 	var metricsProvider cluster.Provider
 	var nodeProvider cluster.NodeProvider
 	var partitionProvider cluster.PartitionProvider
@@ -73,6 +78,7 @@ func main() {
 		JobProvider:         jobProvider,
 		JobResourceProvider: jobResourceProvider,
 		JobOutputRoots:      jobOutputRoots,
+		Warning:             func(message string) { log.Print(message) },
 		AccountingProvider:  accountingProvider,
 		AssociationProvider: associationProvider,
 		CoreHourProvider:    coreHourProvider,
@@ -118,7 +124,7 @@ func runtimeUserWarning(euid int) string {
 	if euid != 0 {
 		return ""
 	}
-	return "WARNING: OpenHPC Web is running as root; Slurm subprocesses and file reads inherit elevated access. Prefer a least-privilege service account when possible and retain all service hardening."
+	return "WARNING: OpenHPC Web is running as root; the application does not drop privileges or enforce owner/UID authorization. Slurm subprocesses and file reads use the running user's operating-system permissions."
 }
 
 func parseSlurmConfigFromEnv() (bool, slurm.Config, error) {
@@ -188,27 +194,32 @@ func validateDeploymentConfig(address string, secureCookies bool, trustedProxyCI
 	return nil
 }
 
-func prepareStateDirectory(databasePath string) error {
+func prepareStateDirectory(databasePath string) ([]string, error) {
 	if databasePath == ":memory:" {
-		return nil
+		return nil, nil
 	}
 	directory := filepath.Dir(databasePath)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return fmt.Errorf("create %s: %w", directory, err)
+		return nil, fmt.Errorf("create %s: %w", directory, err)
 	}
 	info, err := os.Lstat(directory)
 	if err != nil {
-		return fmt.Errorf("inspect %s: %w", directory, err)
+		return nil, fmt.Errorf("inspect %s: %w", directory, err)
 	}
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("%s must be a real directory", directory)
+		return nil, fmt.Errorf("%s must be a real directory", directory)
 	}
+	return stateDirectoryWarnings(info, os.Geteuid()), nil
+}
+
+func stateDirectoryWarnings(info os.FileInfo, effectiveUID int) []string {
+	warnings := make([]string, 0, 2)
 	if info.Mode().Perm()&0o077 != 0 {
-		return fmt.Errorf("%s permissions must be 0700", directory)
+		warnings = append(warnings, "WARNING: state directory permissions are broader than 0700; relying on the running user's operating-system permissions")
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || int(stat.Uid) != os.Geteuid() {
-		return fmt.Errorf("%s must be owned by the service account", directory)
+	if !ok || int(stat.Uid) != effectiveUID {
+		warnings = append(warnings, "WARNING: state directory owner differs from the running user; relying on the running user's operating-system permissions")
 	}
-	return nil
+	return warnings
 }

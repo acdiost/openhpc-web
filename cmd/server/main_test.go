@@ -23,7 +23,7 @@ func TestEnvOr(t *testing.T) {
 
 func TestRuntimeUserWarningAllowsRootWithExplicitRiskWarning(t *testing.T) {
 	warning := runtimeUserWarning(0)
-	for _, required := range []string{"WARNING", "root", "Slurm", "file", "least-privilege"} {
+	for _, required := range []string{"WARNING", "root", "does not drop privileges", "owner/UID", "operating-system permissions"} {
 		if !strings.Contains(warning, required) {
 			t.Errorf("runtimeUserWarning(0) = %q, want %q", warning, required)
 		}
@@ -113,8 +113,12 @@ func TestPrepareStateDirectoryCreatesDatabaseParentWithOwnerOnlyPermissions(t *t
 	databasePath := filepath.Join(t.TempDir(), "nested", "state", "openhpc.db")
 	directory := filepath.Dir(databasePath)
 
-	if err := prepareStateDirectory(databasePath); err != nil {
+	warnings, err := prepareStateDirectory(databasePath)
+	if err != nil {
 		t.Fatalf("prepareStateDirectory() error = %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("prepareStateDirectory() warnings = %q, want none", warnings)
 	}
 
 	info, err := os.Stat(directory)
@@ -132,7 +136,7 @@ func TestPrepareStateDirectoryCreatesDatabaseParentWithOwnerOnlyPermissions(t *t
 	}
 }
 
-func TestPrepareStateDirectoryRejectsGroupReadableParent(t *testing.T) {
+func TestPrepareStateDirectoryWarnsForPermissiveParent(t *testing.T) {
 	directory := filepath.Join(t.TempDir(), "state")
 	if err := os.Mkdir(directory, 0o700); err != nil {
 		t.Fatalf("Mkdir() error = %v", err)
@@ -141,15 +145,34 @@ func TestPrepareStateDirectoryRejectsGroupReadableParent(t *testing.T) {
 		t.Fatalf("Chmod() error = %v", err)
 	}
 
-	err := prepareStateDirectory(filepath.Join(directory, "openhpc.db"))
-	if err == nil {
-		t.Fatal("prepareStateDirectory() error = nil, want insecure permissions error")
+	warnings, err := prepareStateDirectory(filepath.Join(directory, "openhpc.db"))
+	if err != nil {
+		t.Fatalf("prepareStateDirectory() error = %v, want warning only", err)
+	}
+	if len(warnings) == 0 || !strings.Contains(warnings[0], "WARNING") {
+		t.Fatalf("prepareStateDirectory() warnings = %q, want permission warning", warnings)
+	}
+}
+
+func TestStateDirectoryWarningsReportOwnerMismatchWithoutBlocking(t *testing.T) {
+	directory := t.TempDir()
+	info, err := os.Stat(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	warnings := stateDirectoryWarnings(info, os.Geteuid()+1)
+	if len(warnings) == 0 || !strings.Contains(strings.Join(warnings, " "), "owner") {
+		t.Fatalf("stateDirectoryWarnings() = %q, want owner warning", warnings)
 	}
 }
 
 func TestPrepareStateDirectoryAllowsInMemoryDatabase(t *testing.T) {
-	if err := prepareStateDirectory(":memory:"); err != nil {
+	warnings, err := prepareStateDirectory(":memory:")
+	if err != nil {
 		t.Fatalf("prepareStateDirectory(:memory:) error = %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("prepareStateDirectory(:memory:) warnings = %q", warnings)
 	}
 }
 

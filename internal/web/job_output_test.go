@@ -115,6 +115,28 @@ func TestJobOutputIsDisabledWithoutAllowedRoots(t *testing.T) {
 	}
 }
 
+func TestJobOutputPreviewWarnsAtStartupAboutProcessPermissions(t *testing.T) {
+	root := t.TempDir()
+	warnings := make([]string, 0, 1)
+	handler, err := New(Config{
+		AdminUsername: testUsername, AdminPassword: testPassword,
+		JobOutputRoots: []string{root},
+		Warning:        func(message string) { warnings = append(warnings, message) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupHandler(t, handler)
+	if len(warnings) != 1 {
+		t.Fatalf("warnings = %q, want one startup warning", warnings)
+	}
+	for _, required := range []string{"WARNING", "running user's operating-system permissions", "UID mismatches are not blocked"} {
+		if !strings.Contains(warnings[0], required) {
+			t.Errorf("startup warning = %q, want %q", warnings[0], required)
+		}
+	}
+}
+
 func TestJobOutputRejectsPathsOutsideSecurityBoundary(t *testing.T) {
 	root := t.TempDir()
 	workDir := filepath.Join(root, "work")
@@ -150,7 +172,6 @@ func TestJobOutputRejectsPathsOutsideSecurityBoundary(t *testing.T) {
 		{name: "outside work directory", job: cluster.Job{ID: "32943", UserID: int64(os.Getuid()), WorkDir: workDir, StdOut: outsideWorkDir}},
 		{name: "symlink", job: cluster.Job{ID: "32943", UserID: int64(os.Getuid()), WorkDir: workDir, StdOut: symlink}},
 		{name: "named pipe", job: cluster.Job{ID: "32943", UserID: int64(os.Getuid()), WorkDir: workDir, StdOut: fifo}},
-		{name: "wrong owner", job: cluster.Job{ID: "32943", UserID: int64(os.Getuid()) + 1, WorkDir: workDir, StdOut: inside}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -158,6 +179,26 @@ func TestJobOutputRejectsPathsOutsideSecurityBoundary(t *testing.T) {
 			response := getAuthenticated(t, handler, "/slurm/jobs/32943/output/stdout", "zh")
 			assertStatus(t, response, http.StatusNotFound)
 			assertBodyNotContains(t, response, outsideRoot)
+		})
+	}
+}
+
+func TestJobOutputReliesOnProcessPermissionsInsteadOfJobUID(t *testing.T) {
+	root := t.TempDir()
+	workDir := filepath.Join(root, "work")
+	if err := os.Mkdir(workDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(workDir, "out.log")
+	if err := os.WriteFile(path, []byte("readable by service"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, userID := range []int64{0, int64(os.Getuid()) + 1} {
+		t.Run(strconv.FormatInt(userID, 10), func(t *testing.T) {
+			job := cluster.Job{ID: "32943", UserID: userID, WorkDir: workDir, StdOut: path}
+			response := getAuthenticated(t, newJobOutputHandler(t, &stubJobProvider{jobs: []cluster.Job{job}}, []string{root}), "/slurm/jobs/32943/output/stdout", "zh")
+			assertStatus(t, response, http.StatusOK)
+			assertBodyContains(t, response, "readable by service")
 		})
 	}
 }

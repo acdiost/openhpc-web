@@ -212,7 +212,7 @@ func readJobOutput(ctx context.Context, job cluster.Job, stream string, roots []
 	if stream == "stderr" {
 		path = job.StdErr
 	}
-	if job.UserID <= 0 || !pathWithin(job.WorkDir, path) {
+	if !pathWithin(job.WorkDir, path) {
 		return nil, false, errJobOutputUnavailable
 	}
 	root, relativePath, found := matchingOutputRoot(roots, job.WorkDir, path)
@@ -224,9 +224,6 @@ func readJobOutput(ctx context.Context, job cluster.Job, stream string, roots []
 		return nil, false, errJobOutputUnavailable
 	}
 	defer file.Close()
-	if int64(stat.Uid) != job.UserID {
-		return nil, false, errJobOutputUnavailable
-	}
 
 	offset := stat.Size - maxJobOutputBytes
 	truncated := offset > 0
@@ -255,7 +252,7 @@ func readJobOutput(ctx context.Context, job cluster.Job, stream string, roots []
 }
 
 func canViewJobOutputMetadata(job cluster.Job, path string, roots []jobOutputRoot) bool {
-	if job.UserID <= 0 || !pathWithin(job.WorkDir, path) {
+	if !pathWithin(job.WorkDir, path) {
 		return false
 	}
 	_, _, found := matchingOutputRoot(roots, job.WorkDir, path)

@@ -5,11 +5,51 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
 
-func TestAuditStoreDatabaseFilesUseOwnerOnlyPermissions(t *testing.T) {
+func TestAuditFilePermissionWarningsReportPermissiveFileWithoutChangingMode(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "audit.db")
+	if err := os.WriteFile(databasePath, []byte("test"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	warnings := auditFilePermissionWarnings([]string{databasePath}, os.Geteuid())
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "WARNING") {
+		t.Fatalf("warnings = %q, want permission warning", warnings)
+	}
+	info, err := os.Stat(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := info.Mode().Perm(), os.FileMode(0o644); got != want {
+		t.Fatalf("permissions = %04o, want unchanged %04o", got, want)
+	}
+}
+
+func TestAuditFilePermissionWarningsReportOwnerMismatchWithoutBlocking(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "audit.db")
+	if err := os.WriteFile(databasePath, []byte("test"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		t.Skip("file owner is unavailable on this platform")
+	}
+
+	warnings := auditFilePermissionWarnings([]string{databasePath}, int(stat.Uid)+1)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "owner") {
+		t.Fatalf("warnings = %q, want owner warning", warnings)
+	}
+}
+
+func TestAuditStoreDatabaseFilesAreOpenedWithoutPermissionEnforcement(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "audit.db")
 	store, err := OpenAuditStore(databasePath)
 	if err != nil {
@@ -31,18 +71,8 @@ func TestAuditStoreDatabaseFilesUseOwnerOnlyPermissions(t *testing.T) {
 		t.Fatalf("Record() error = %v", err)
 	}
 
-	for _, path := range []string{databasePath, databasePath + "-wal", databasePath + "-shm"} {
-		info, err := os.Stat(path)
-		if err != nil {
-			if os.IsNotExist(err) && path != databasePath {
-				continue
-			}
-			t.Errorf("Stat(%q) error = %v", path, err)
-			continue
-		}
-		if got, want := info.Mode().Perm(), os.FileMode(0o600); got != want {
-			t.Errorf("%s permissions = %04o, want %04o", filepath.Base(path), got, want)
-		}
+	if _, err := os.Stat(databasePath); err != nil {
+		t.Fatalf("audit database was not created: %v", err)
 	}
 }
 
