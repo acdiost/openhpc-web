@@ -191,6 +191,107 @@ func TestDatabaseFilesIncludesSQLiteSidecars(t *testing.T) {
 	}
 }
 
+func TestAuditStoreListUsesStableNewestFirstCursor(t *testing.T) {
+	store := openTestAuditStore(t)
+	createdAt := time.Date(2026, time.July, 18, 15, 0, 0, 0, time.UTC)
+	for _, actor := range []string{"first", "second", "third", "fourth"} {
+		if err := store.Record(context.Background(), AuditEvent{
+			Actor: actor, Action: "auth.login", Outcome: "success", CreatedAt: createdAt,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	page, err := store.List(context.Background(), 0, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Events) != 2 || page.Events[0].Actor != "fourth" || page.Events[1].Actor != "third" {
+		t.Fatalf("first page events = %#v", page.Events)
+	}
+	if !page.HasMore || page.NextBeforeID != page.Events[1].ID {
+		t.Fatalf("first page cursor = (%t, %d), events = %#v", page.HasMore, page.NextBeforeID, page.Events)
+	}
+
+	if err := store.Record(context.Background(), AuditEvent{
+		Actor: "new arrival", Action: "auth.logout", Outcome: "success", CreatedAt: createdAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	secondPage, err := store.List(context.Background(), page.NextBeforeID, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(secondPage.Events) != 2 || secondPage.Events[0].Actor != "second" || secondPage.Events[1].Actor != "first" {
+		t.Fatalf("second page events = %#v", secondPage.Events)
+	}
+	if secondPage.HasMore || secondPage.NextBeforeID != 0 {
+		t.Fatalf("second page cursor = (%t, %d)", secondPage.HasMore, secondPage.NextBeforeID)
+	}
+}
+
+func TestAuditStoreListReturnsEmptyPage(t *testing.T) {
+	page, err := openTestAuditStore(t).List(context.Background(), 0, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Events) != 0 || page.HasMore || page.NextBeforeID != 0 {
+		t.Fatalf("empty page = %#v", page)
+	}
+}
+
+func TestAuditStoreListValidatesBounds(t *testing.T) {
+	store := openTestAuditStore(t)
+	for _, test := range []struct {
+		name     string
+		beforeID int64
+		limit    int
+	}{
+		{name: "negative cursor", beforeID: -1, limit: 50},
+		{name: "zero limit", limit: 0},
+		{name: "limit too large", limit: 101},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := store.List(context.Background(), test.beforeID, test.limit); err == nil {
+				t.Fatal("List() error = nil, want validation error")
+			}
+		})
+	}
+}
+
+func TestAuditStoreListRejectsInvalidStoredTimestamp(t *testing.T) {
+	store := openTestAuditStore(t)
+	if _, err := store.db.Exec(
+		"INSERT INTO audit_events (actor, action, outcome, created_at) VALUES (?, ?, ?, ?)",
+		"admin", "auth.login", "success", "not-a-timestamp",
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.List(context.Background(), 0, 50); err == nil || !strings.Contains(err.Error(), "parse audit event timestamp") {
+		t.Fatalf("List() error = %v, want timestamp context", err)
+	}
+}
+
+func TestAuditStoreListHonorsCancellationAndClosedStore(t *testing.T) {
+	store := openTestAuditStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := store.List(ctx, 0, 50); err == nil || !strings.Contains(err.Error(), "list audit events") {
+		t.Fatalf("cancelled List() error = %v", err)
+	}
+
+	closedStore, err := OpenAuditStore(filepath.Join(t.TempDir(), "closed.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := closedStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := closedStore.List(context.Background(), 0, 50); err == nil || !strings.Contains(err.Error(), "list audit events") {
+		t.Fatalf("closed List() error = %v", err)
+	}
+}
+
 func openTestAuditStore(t *testing.T) *AuditStore {
 	t.Helper()
 

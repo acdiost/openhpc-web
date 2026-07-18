@@ -1,0 +1,11 @@
+{{define "audit.html"}}
+<!doctype html><html lang="{{.Language}}" data-theme="{{.Theme}}">{{template "document-head" .}}
+<body><div class="app-shell">{{template "app-sidebar" .}}<main class="main-area">{{template "app-topbar" .}}
+<div class="content data-content">{{template "page-heading" .}}
+{{if not .AuditAvailable}}<div class="data-warning" role="status">{{.Labels.Unavailable}}</div>
+{{else if not .Events}}<div class="data-empty">{{.Labels.Empty}}</div>
+{{else}}<div class="data-table-wrap"><table class="data-table audit-table"><thead><tr><th>{{.Labels.Time}}</th><th>{{.Labels.Actor}}</th><th>{{.Labels.Action}}</th><th>{{.Labels.Outcome}}</th></tr></thead><tbody>
+{{range .Events}}<tr><td><time datetime="{{.CreatedAt}}">{{.CreatedAt}}</time></td><td class="detail-value">{{.Actor}}</td><td class="detail-value"><code>{{.Action}}</code></td><td><span class="audit-outcome {{.OutcomeClass}}">{{.Outcome}}</span></td></tr>{{end}}
+</tbody></table></div>{{if .HasMore}}<nav class="audit-pagination" aria-label="{{.Labels.Older}}"><a href="/audit?before_id={{.NextBeforeID}}">{{.Labels.Older}} <span aria-hidden="true">→</span></a></nav>{{end}}{{end}}
+</div></main></div></body></html>
+{{end}}

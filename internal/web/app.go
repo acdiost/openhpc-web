@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -186,18 +187,69 @@ func New(config Config) (http.Handler, error) {
 	protected.GET("/slurm/jobs/:id/output/:stream", app.slurmJobOutput)
 	protected.GET("/slurm/accounts", app.slurmAccounts)
 	protected.GET("/slurm/qos", app.slurmQoS)
+	protected.GET("/audit", app.auditLog)
 	protected.POST("/preferences/language", app.setLanguage)
 	protected.POST("/preferences/theme", app.setTheme)
 	protected.POST("/logout", app.logout)
 	for _, path := range []string{
 		"/ldap", "/slurm/config", "/slurm/users",
 		"/slurm/associations", "/slurm/core-hours",
-		"/system/files", "/terminal", "/platform/users", "/audit",
+		"/system/files", "/terminal", "/platform/users",
 	} {
 		protected.GET(path, app.modulePlaceholder)
 	}
 
 	return &Handler{handler: e, audit: audit, jobOutputRoots: jobOutputRoots}, nil
+}
+
+const auditPageSize = 50
+
+func (a *application) auditLog(c echo.Context) error {
+	beforeID, err := parseAuditCursor(c.QueryParam("before_id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest)
+	}
+	lang := language(c)
+	labels := auditCopyFor(lang)
+	currentModule := moduleByPath("/audit", lang)
+	page, queryErr := a.audit.List(c.Request().Context(), beforeID, auditPageSize)
+	available := queryErr == nil
+	if queryErr != nil {
+		log.Printf("audit log query failed")
+		page = platform.AuditPage{}
+	}
+	events := make([]auditEventView, len(page.Events))
+	for index, event := range page.Events {
+		events[index] = newAuditEventView(event)
+	}
+	view := auditView{
+		appChrome: a.newAppChrome(c, currentModule.Path, a.metricsAvailable, pageHeading{
+			Eyebrow: "OPENHPC / " + currentModule.Group, Title: currentModule.Label,
+			Description: labels.Description, RefreshPath: "/audit", RefreshLabel: labels.Refresh,
+		}),
+		Labels: labels, Events: events, AuditAvailable: available,
+		HasMore: page.HasMore, NextBeforeID: page.NextBeforeID,
+	}
+	return a.render(c, http.StatusOK, "audit.html", view)
+}
+
+func parseAuditCursor(value string) (int64, error) {
+	if value == "" {
+		return 0, nil
+	}
+	if len(value) > 19 || value[0] == '0' {
+		return 0, errors.New("invalid audit cursor")
+	}
+	for _, character := range value {
+		if character < '0' || character > '9' {
+			return 0, errors.New("invalid audit cursor")
+		}
+	}
+	cursor, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || cursor <= 0 {
+		return 0, errors.New("invalid audit cursor")
+	}
+	return cursor, nil
 }
 
 func (a *application) slurmAccounts(c echo.Context) error {

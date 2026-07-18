@@ -12,10 +12,17 @@ import (
 )
 
 type AuditEvent struct {
+	ID        int64
 	Actor     string
 	Action    string
 	Outcome   string
 	CreatedAt time.Time
+}
+
+type AuditPage struct {
+	Events       []AuditEvent
+	NextBeforeID int64
+	HasMore      bool
 }
 
 type AuditStore struct {
@@ -92,6 +99,61 @@ func (s *AuditStore) Record(ctx context.Context, event AuditEvent) error {
 		return fmt.Errorf("record audit event: commit: %w", err)
 	}
 	return nil
+}
+
+func (s *AuditStore) List(ctx context.Context, beforeID int64, limit int) (AuditPage, error) {
+	if beforeID < 0 || limit < 1 || limit > 100 {
+		return AuditPage{}, errors.New("list audit events: invalid query bounds")
+	}
+	query := "SELECT id, actor, action, outcome, created_at FROM audit_events ORDER BY id DESC LIMIT ?"
+	arguments := []any{limit + 1}
+	if beforeID > 0 {
+		query = "SELECT id, actor, action, outcome, created_at FROM audit_events WHERE id < ? ORDER BY id DESC LIMIT ?"
+		arguments = []any{beforeID, limit + 1}
+	}
+	rows, err := s.db.QueryContext(ctx, query, arguments...)
+	if err != nil {
+		return AuditPage{}, fmt.Errorf("list audit events: %w", err)
+	}
+	defer rows.Close()
+
+	events := make([]AuditEvent, 0, limit+1)
+	for rows.Next() {
+		event, err := scanAuditEvent(rows)
+		if err != nil {
+			return AuditPage{}, err
+		}
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return AuditPage{}, fmt.Errorf("list audit events: iterate rows: %w", err)
+	}
+
+	page := AuditPage{Events: events}
+	if len(events) > limit {
+		page.Events = events[:limit]
+		page.HasMore = true
+		page.NextBeforeID = page.Events[len(page.Events)-1].ID
+	}
+	return page, nil
+}
+
+type auditEventScanner interface {
+	Scan(...any) error
+}
+
+func scanAuditEvent(scanner auditEventScanner) (AuditEvent, error) {
+	var event AuditEvent
+	var createdAt string
+	if err := scanner.Scan(&event.ID, &event.Actor, &event.Action, &event.Outcome, &createdAt); err != nil {
+		return AuditEvent{}, fmt.Errorf("list audit events: scan row: %w", err)
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, createdAt)
+	if err != nil {
+		return AuditEvent{}, fmt.Errorf("parse audit event timestamp: %w", err)
+	}
+	event.CreatedAt = parsed.UTC()
+	return event, nil
 }
 
 func (s *AuditStore) Close() error {

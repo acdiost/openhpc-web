@@ -1,6 +1,12 @@
 package web
 
-import "github.com/openhpc-web/openhpc-web/internal/cluster"
+import (
+	"strconv"
+	"time"
+
+	"github.com/openhpc-web/openhpc-web/internal/cluster"
+	"github.com/openhpc-web/openhpc-web/internal/platform"
+)
 
 type loginView struct {
 	Language  string
@@ -117,6 +123,60 @@ type jobModalView struct {
 	EndTime       string
 	CanViewStdOut bool
 	CanViewStdErr bool
+}
+
+type auditCopy struct {
+	Description, Refresh, Actor, Action, Outcome, Time string
+	Empty, Unavailable, Older                          string
+}
+
+type auditView struct {
+	appChrome
+	Labels         auditCopy
+	Events         []auditEventView
+	AuditAvailable bool
+	HasMore        bool
+	NextBeforeID   int64
+}
+
+type auditEventView struct {
+	ID, Actor, Action, Outcome, CreatedAt, OutcomeClass string
+}
+
+func newAuditEventView(event platform.AuditEvent) auditEventView {
+	return auditEventView{
+		ID: strconv.FormatInt(event.ID, 10), Actor: event.Actor, Action: event.Action,
+		Outcome: event.Outcome, CreatedAt: event.CreatedAt.UTC().Format(time.RFC3339),
+		OutcomeClass: auditOutcomeClass(event.Outcome),
+	}
+}
+
+func auditOutcomeClass(outcome string) string {
+	switch outcome {
+	case "success":
+		return "success"
+	case "denied", "rate_limited", "unavailable":
+		return "denied"
+	case "cancelled", "timeout":
+		return "warning"
+	default:
+		return "neutral"
+	}
+}
+
+func auditCopyFor(language string) auditCopy {
+	if language == "en" {
+		return auditCopy{
+			Description: "Recent security and operations events", Refresh: "Refresh",
+			Actor: "Actor", Action: "Action", Outcome: "Outcome", Time: "Time (UTC)",
+			Empty: "No audit events", Unavailable: "Audit log is temporarily unavailable", Older: "Older events",
+		}
+	}
+	return auditCopy{
+		Description: "最近的安全与运维事件", Refresh: "刷新",
+		Actor: "操作者", Action: "动作", Outcome: "结果", Time: "UTC 时间",
+		Empty: "暂无审计记录", Unavailable: "审计日志暂不可用", Older: "更早记录",
+	}
 }
 
 func detailCopyFor(language string) detailCopy {

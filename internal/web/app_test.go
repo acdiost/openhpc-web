@@ -851,7 +851,6 @@ func TestModulePlaceholderRoutes(t *testing.T) {
 		{path: "/system/files", label: "文件管理"},
 		{path: "/terminal", label: "终端"},
 		{path: "/platform/users", label: "平台用户"},
-		{path: "/audit", label: "审计日志"},
 	}
 
 	for _, test := range tests {
