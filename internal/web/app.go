@@ -42,6 +42,8 @@ type Config struct {
 	Metrics           DashboardMetrics
 	MetricsAvailable  bool
 	MetricsProvider   cluster.Provider
+	NodeProvider      cluster.NodeProvider
+	JobProvider       cluster.JobProvider
 }
 
 type application struct {
@@ -50,6 +52,8 @@ type application struct {
 	metrics          DashboardMetrics
 	metricsAvailable bool
 	metricsProvider  cluster.Provider
+	nodeProvider     cluster.NodeProvider
+	jobProvider      cluster.JobProvider
 	templates        *template.Template
 	audit            *platform.AuditStore
 	sessions         *sessionStore
@@ -122,6 +126,8 @@ func New(config Config) (http.Handler, error) {
 		metrics:          config.Metrics,
 		metricsAvailable: config.MetricsAvailable,
 		metricsProvider:  config.MetricsProvider,
+		nodeProvider:     config.NodeProvider,
+		jobProvider:      config.JobProvider,
 		templates:        templates,
 		audit:            audit,
 		sessions:         &sessionStore{tokens: map[string]sessionData{}},
@@ -152,18 +158,54 @@ func New(config Config) (http.Handler, error) {
 	protected.Use(app.requireCSRF)
 	protected.GET("/", func(c echo.Context) error { return c.Redirect(http.StatusFound, "/dashboard") })
 	protected.GET("/dashboard", app.dashboard)
+	protected.GET("/slurm/nodes", app.slurmNodes)
+	protected.GET("/slurm/jobs", app.slurmJobs)
 	protected.POST("/preferences/language", app.setLanguage)
 	protected.POST("/preferences/theme", app.setTheme)
 	protected.POST("/logout", app.logout)
 	for _, path := range []string{
 		"/ldap", "/slurm/config", "/slurm/partitions", "/slurm/accounts", "/slurm/users",
-		"/slurm/associations", "/slurm/qos", "/slurm/core-hours", "/slurm/jobs", "/slurm/nodes",
+		"/slurm/associations", "/slurm/qos", "/slurm/core-hours",
 		"/system/files", "/terminal", "/platform/users", "/audit",
 	} {
 		protected.GET(path, app.modulePlaceholder)
 	}
 
 	return &Handler{handler: e, audit: audit}, nil
+}
+
+func (a *application) slurmNodes(c echo.Context) error {
+	lang := language(c)
+	view := nodesView{
+		Language: lang, Theme: theme(c), Username: a.username, CSRFToken: a.csrfToken(c),
+		Module: moduleByPath("/slurm/nodes", lang), Modules: modulesFor(lang), Copy: copyFor(lang), Labels: detailCopyFor(lang),
+	}
+	if a.nodeProvider != nil {
+		nodes, err := a.nodeProvider.Nodes(c.Request().Context())
+		if err != nil {
+			log.Printf("Slurm nodes snapshot failed: %v", err)
+		} else {
+			view.Nodes, view.Available = nodes, true
+		}
+	}
+	return a.render(c, http.StatusOK, "nodes.html", view)
+}
+
+func (a *application) slurmJobs(c echo.Context) error {
+	lang := language(c)
+	view := jobsView{
+		Language: lang, Theme: theme(c), Username: a.username, CSRFToken: a.csrfToken(c),
+		Module: moduleByPath("/slurm/jobs", lang), Modules: modulesFor(lang), Copy: copyFor(lang), Labels: detailCopyFor(lang),
+	}
+	if a.jobProvider != nil {
+		jobs, err := a.jobProvider.Jobs(c.Request().Context())
+		if err != nil {
+			log.Printf("Slurm jobs snapshot failed: %v", err)
+		} else {
+			view.Jobs, view.Available = jobs, true
+		}
+	}
+	return a.render(c, http.StatusOK, "jobs.html", view)
 }
 
 func (a *application) loginPage(c echo.Context) error {

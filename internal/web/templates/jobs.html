@@ -1,0 +1,30 @@
+{{define "jobs.html"}}
+<!doctype html>
+<html lang="{{.Language}}" data-theme="{{.Theme}}">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="data:,"><title>OpenHPC Web · {{.Module.Label}}</title><link rel="stylesheet" href="/static/app.css"><script defer src="/static/app.js"></script></head>
+<body>
+  <div class="app-shell">
+    {{template "data-sidebar" .}}
+    <div class="main-area">
+      {{template "data-topbar" .}}
+      <main class="content data-content">
+        <section class="page-heading data-heading">
+          <div><p>OPENHPC / SLURM</p><h1>{{.Module.Label}}</h1><span>{{.Labels.LiveData}}</span></div>
+          <a class="refresh-button" href="/slurm/jobs" title="{{.Labels.Refresh}}" aria-label="{{.Labels.Refresh}}">↻</a>
+        </section>
+        {{if not .Available}}
+          <div class="data-warning" role="status">{{.Copy.SlurmUnavailable}}</div>
+        {{else if not .Jobs}}
+          <div class="data-empty">{{.Labels.EmptyJobs}}</div>
+        {{else}}
+          <div class="data-table-wrap"><table class="data-table jobs-table">
+            <thead><tr><th>{{.Labels.JobID}}</th><th>{{.Labels.JobName}}</th><th>{{.Labels.User}}</th><th>{{.Labels.Account}}</th><th>{{.Labels.State}}</th><th>{{.Labels.Elapsed}}</th><th>{{.Labels.TimeLimit}}</th><th>{{.Labels.NodesOrReason}}</th></tr></thead>
+            <tbody>{{range .Jobs}}<tr><td><strong>{{.ID}}</strong></td><td class="detail-value">{{.Name}}</td><td>{{.User}}</td><td>{{.Account}}</td><td><span class="state-badge">{{.State}}</span></td><td>{{.Elapsed}}</td><td>{{.TimeLimit}}</td><td class="detail-value">{{.NodesOrReason}}{{if gt .NodeCount 1}} ({{.NodeCount}}){{end}}</td></tr>{{end}}</tbody>
+          </table></div>
+        {{end}}
+      </main>
+    </div>
+  </div>
+</body>
+</html>
+{{end}}

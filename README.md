@@ -1,6 +1,6 @@
 # OpenHPC Web
 
-面向单集群环境的轻量 HPC 管理平台。目前仓库已完成第一阶段可运行 MVP：平台登录、安全会话、SQLite 审计、集群总览、模块导航、中英文和科研红/Slurm 蓝主题。Slurm、LDAP、文件和终端页面已经建立模块边界，真实系统适配器将在后续阶段接入。
+面向单集群环境的轻量 HPC 管理平台。目前仓库已完成平台登录、安全会话、SQLite 审计、集群总览、Slurm 节点与作业只读页面、模块导航、中英文和科研红/Slurm 蓝主题。LDAP、文件和终端页面已经建立模块边界，真实系统适配器将在后续阶段接入。
 
 CentOS 7 的完整安装、升级和故障排查步骤见 [部署指南](docs/deployment-centos7.md)。
 
@@ -53,11 +53,11 @@ export OPENHPC_SLURM_CACHE_TTL=10s
 适配器只会执行：
 
 ```text
-/usr/local/bin/sinfo --noheader --Node --format=%N|%T|%C
-/usr/local/bin/squeue --noheader --format=%T
+/usr/local/bin/sinfo --Node --json
+/usr/local/bin/squeue --json
 ```
 
-命令通过 `exec.CommandContext` 直接执行，固定 C locale，禁止 shell 和调用方自定义参数。Dashboard 读取失败时保留页面和导航，但将实时指标显示为不可用。
+命令通过 `exec.CommandContext` 直接执行，固定 C locale，禁止 shell 和调用方自定义参数。节点和作业只反序列化页面所需 JSON 字段，不展示命令、工作目录或输出路径。Dashboard、节点或作业读取失败时保留页面和导航，但将实时数据标记为不可用。节点和作业快照使用同一 10 秒缓存与并发合并边界。
 
 当前兼容基线已在 CentOS 7 管理节点、Slurm 25.05.4 上验证。CentOS 7 部署模板位于 `deploy/`。构建静态 Linux 二进制：
 

@@ -1,0 +1,30 @@
+{{define "nodes.html"}}
+<!doctype html>
+<html lang="{{.Language}}" data-theme="{{.Theme}}">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="data:,"><title>OpenHPC Web · {{.Module.Label}}</title><link rel="stylesheet" href="/static/app.css"><script defer src="/static/app.js"></script></head>
+<body>
+  <div class="app-shell">
+    {{template "data-sidebar" .}}
+    <div class="main-area">
+      {{template "data-topbar" .}}
+      <main class="content data-content">
+        <section class="page-heading data-heading">
+          <div><p>OPENHPC / SLURM</p><h1>{{.Module.Label}}</h1><span>{{.Labels.LiveData}}</span></div>
+          <a class="refresh-button" href="/slurm/nodes" title="{{.Labels.Refresh}}" aria-label="{{.Labels.Refresh}}">↻</a>
+        </section>
+        {{if not .Available}}
+          <div class="data-warning" role="status">{{.Copy.SlurmUnavailable}}</div>
+        {{else if not .Nodes}}
+          <div class="data-empty">{{.Labels.EmptyNodes}}</div>
+        {{else}}
+          <div class="data-table-wrap"><table class="data-table">
+            <thead><tr><th>{{.Labels.Node}}</th><th>{{.Labels.Partition}}</th><th>{{.Labels.State}}</th><th>{{.Labels.CPUs}}</th><th>{{.Labels.Memory}}</th><th>{{.Labels.GRES}}</th><th>{{.Labels.Availability}}</th></tr></thead>
+            <tbody>{{range .Nodes}}<tr><td><strong>{{.Name}}</strong></td><td>{{.Partition}}</td><td><span class="state-badge">{{.State}}</span></td><td>{{.AllocatedCPUs}} / {{.TotalCPUs}}</td><td>{{.MemoryMB}} MB</td><td class="detail-value">{{if .GRES}}{{.GRES}}{{else}}—{{end}}</td><td><span class="availability{{if not .Online}} offline{{end}}"><i></i>{{if .Online}}{{$.Labels.Online}}{{else}}{{$.Labels.Offline}}{{end}}</span></td></tr>{{end}}</tbody>
+          </table></div>
+        {{end}}
+      </main>
+    </div>
+  </div>
+</body>
+</html>
+{{end}}

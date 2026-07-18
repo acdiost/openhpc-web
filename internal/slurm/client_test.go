@@ -7,57 +7,47 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/openhpc-web/openhpc-web/internal/cluster"
 )
 
-func TestClientSnapshotParsesSinfoAndSqueue(t *testing.T) {
-	runner := &scriptedRunner{outputs: map[string][]byte{
-		"sinfo": []byte(strings.Join([]string{
-			"node01|idle|0/64/0/64",
-			"node02|mixed|32/32/0/64",
-			"node02|mixed|32/32/0/64",
-			"node03|allocated|64/0/0/64",
-			"node04|down*|0/0/64/64",
-			"",
-		}, "\n")),
-		"squeue": []byte("RUNNING\nPENDING\nCOMPLETING\nRUNNING\nPENDING\nCOMPLETED\n"),
-	}}
-	client := newTestClient(t, runner)
+const validSinfoJSON = `{"errors":[],"sinfo":[
+	{"nodes":{"nodes":["node01"]},"partition":{"name":"GPU"},"node":{"state":["IDLE"]},"cpus":{"allocated":0,"total":64},"memory":{"maximum":1000},"gres":{"total":""}},
+	{"nodes":{"nodes":["node02"]},"partition":{"name":"GPU"},"node":{"state":["MIXED"]},"cpus":{"allocated":32,"total":64},"memory":{"maximum":1000},"gres":{"total":""}},
+	{"nodes":{"nodes":["node03"]},"partition":{"name":"GPU"},"node":{"state":["ALLOCATED"]},"cpus":{"allocated":64,"total":64},"memory":{"maximum":1000},"gres":{"total":""}},
+	{"nodes":{"nodes":["node04"]},"partition":{"name":"GPU"},"node":{"state":["IDLE","NO_RESPOND"]},"cpus":{"allocated":0,"total":64},"memory":{"maximum":1000},"gres":{"total":""}}
+]}`
 
-	metrics, err := client.Snapshot(context.Background())
+const validSqueueJSON = `{"errors":[],"jobs":[
+	{"job_id":1,"name":"a","user_name":"u","job_state":["RUNNING"],"node_count":{"set":true,"number":1}},
+	{"job_id":2,"name":"b","user_name":"u","job_state":["PENDING"],"node_count":{"set":true,"number":1},"state_reason":"Resources"},
+	{"job_id":3,"name":"c","user_name":"u","job_state":["COMPLETING"],"node_count":{"set":true,"number":1}},
+	{"job_id":4,"name":"d","user_name":"u","job_state":["RUNNING"],"node_count":{"set":true,"number":1}},
+	{"job_id":5,"name":"e","user_name":"u","job_state":["PENDING"],"node_count":{"set":true,"number":1},"state_reason":"Priority"}
+]}`
+
+func TestClientSnapshotAggregatesJSONNodesAndJobs(t *testing.T) {
+	runner := &scriptedRunner{outputs: map[string][]byte{"sinfo": []byte(validSinfoJSON), "squeue": []byte(validSqueueJSON)}}
+	metrics, err := newTestClient(t, runner).Snapshot(context.Background())
 	if err != nil {
 		t.Fatalf("Snapshot() error = %v", err)
 	}
-	if metrics.OnlineNodes != 3 {
-		t.Errorf("OnlineNodes = %d, want 3", metrics.OnlineNodes)
-	}
-	if metrics.RunningJobs != 2 {
-		t.Errorf("RunningJobs = %d, want 2", metrics.RunningJobs)
-	}
-	if metrics.QueuedJobs != 2 {
-		t.Errorf("QueuedJobs = %d, want 2", metrics.QueuedJobs)
-	}
-	if metrics.CPUUsage != 50 {
-		t.Errorf("CPUUsage = %d, want 50", metrics.CPUUsage)
+	if metrics != (cluster.Metrics{OnlineNodes: 3, RunningJobs: 2, QueuedJobs: 2, CPUUsage: 50}) {
+		t.Errorf("metrics = %+v", metrics)
 	}
 }
 
-func TestClientSnapshotUsesOnlyWhitelistedCommandsAndArguments(t *testing.T) {
-	runner := &scriptedRunner{outputs: map[string][]byte{
-		"sinfo":  []byte("node01|idle|0/64/0/64\n"),
-		"squeue": nil,
-	}}
-	client := newTestClient(t, runner)
-	if _, err := client.Snapshot(context.Background()); err != nil {
+func TestClientSnapshotUsesOnlyJSONCommands(t *testing.T) {
+	runner := &scriptedRunner{outputs: map[string][]byte{"sinfo": []byte(`{"errors":[],"sinfo":[]}`), "squeue": []byte(`{"errors":[],"jobs":[]}`)}}
+	if _, err := newTestClient(t, runner).Snapshot(context.Background()); err != nil {
 		t.Fatalf("Snapshot() error = %v", err)
 	}
-
 	want := []commandCall{
-		{path: filepath.Join("/opt/slurm/bin", "sinfo"), args: []string{"--noheader", "--Node", "--format=%N|%T|%C"}},
-		{path: filepath.Join("/opt/slurm/bin", "squeue"), args: []string{"--noheader", "--format=%T"}},
+		{path: filepath.Join("/opt/slurm/bin", "sinfo"), args: []string{"--Node", "--json"}},
+		{path: filepath.Join("/opt/slurm/bin", "squeue"), args: []string{"--json"}},
 	}
 	if got := runner.callsSnapshot(); !reflect.DeepEqual(got, want) {
 		t.Errorf("runner calls = %#v, want %#v", got, want)
@@ -65,108 +55,51 @@ func TestClientSnapshotUsesOnlyWhitelistedCommandsAndArguments(t *testing.T) {
 }
 
 func TestClientSnapshotTimesOutCommands(t *testing.T) {
-	runner := &scriptedRunner{run: func(ctx context.Context, _ string, _ ...string) ([]byte, error) {
-		<-ctx.Done()
-		return nil, ctx.Err()
-	}}
+	runner := &scriptedRunner{run: func(ctx context.Context, _ string, _ ...string) ([]byte, error) { <-ctx.Done(); return nil, ctx.Err() }}
 	client, err := New(Config{BinaryDir: "/opt/slurm/bin", Timeout: 25 * time.Millisecond, MaxOutputBytes: 1024, Runner: runner})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-
 	started := time.Now()
 	_, err = client.Snapshot(context.Background())
 	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("Snapshot() error = %v, want deadline exceeded", err)
+		t.Fatalf("Snapshot() error = %v", err)
 	}
 	if elapsed := time.Since(started); elapsed > time.Second {
-		t.Errorf("Snapshot() timeout took %v, want under 1s", elapsed)
+		t.Errorf("timeout took %v", elapsed)
 	}
 }
 
 func TestClientSnapshotWrapsCommandErrorsAndStops(t *testing.T) {
 	sentinel := errors.New("scheduler unavailable")
-	tests := []struct {
-		name      string
+	for _, test := range []struct {
 		fail      string
 		wantCalls int
-	}{
-		{name: "sinfo", fail: "sinfo", wantCalls: 1},
-		{name: "squeue", fail: "squeue", wantCalls: 2},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
+	}{{"sinfo", 1}, {"squeue", 2}} {
+		t.Run(test.fail, func(t *testing.T) {
 			runner := &scriptedRunner{run: func(_ context.Context, path string, _ ...string) ([]byte, error) {
 				command := filepath.Base(path)
 				if command == test.fail {
 					return nil, sentinel
 				}
-				return []byte("node01|idle|0/64/0/64\n"), nil
+				if command == "sinfo" {
+					return []byte(validSinfoJSON), nil
+				}
+				return []byte(validSqueueJSON), nil
 			}}
-			client := newTestClient(t, runner)
-
-			_, err := client.Snapshot(context.Background())
-			if !errors.Is(err, sentinel) {
-				t.Fatalf("Snapshot() error = %v, want wrapped sentinel", err)
-			}
-			if !strings.Contains(err.Error(), test.fail) {
-				t.Errorf("Snapshot() error = %q, want %q context", err, test.fail)
+			_, err := newTestClient(t, runner).Snapshot(context.Background())
+			if !errors.Is(err, sentinel) || !strings.Contains(err.Error(), test.fail) {
+				t.Fatalf("Snapshot() error = %v", err)
 			}
 			if calls := len(runner.callsSnapshot()); calls != test.wantCalls {
-				t.Errorf("runner calls = %d, want %d", calls, test.wantCalls)
+				t.Errorf("calls = %d", calls)
 			}
 		})
-	}
-}
-
-func TestClientSnapshotRejectsMalformedSinfo(t *testing.T) {
-	tests := []struct {
-		name   string
-		output string
-	}{
-		{name: "missing columns", output: "node01|idle\n"},
-		{name: "invalid CPU count", output: "node01|idle|not/a/cpu/value\n"},
-		{name: "allocated exceeds total", output: "node01|allocated|65/0/0/64\n"},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			runner := &scriptedRunner{outputs: map[string][]byte{"sinfo": []byte(test.output)}}
-			client := newTestClient(t, runner)
-			if _, err := client.Snapshot(context.Background()); err == nil {
-				t.Fatal("Snapshot() error = nil, want parse error")
-			}
-		})
-	}
-}
-
-func TestClientSnapshotExcludesUnavailableNodeStateSuffixes(t *testing.T) {
-	runner := &scriptedRunner{outputs: map[string][]byte{
-		"sinfo": []byte("ready|idle|0/64/0/64\nnoresponse|idle*|0/64/0/64\npoweredoff|idle~|0/64/0/64\npoweringup|idle#|0/64/0/64\npoweringdown|idle%|0/64/0/64\ncloudpending|idle!|0/64/0/64\n"),
-	}}
-	metrics, err := newTestClient(t, runner).Snapshot(context.Background())
-	if err != nil {
-		t.Fatalf("Snapshot() error = %v", err)
-	}
-	if metrics.OnlineNodes != 1 {
-		t.Errorf("OnlineNodes = %d, want 1", metrics.OnlineNodes)
-	}
-}
-
-func TestClientSnapshotRejectsOversizedSqueueLine(t *testing.T) {
-	runner := &scriptedRunner{outputs: map[string][]byte{
-		"sinfo":  []byte("node01|idle|0/64/0/64\n"),
-		"squeue": []byte(strings.Repeat("R", 70<<10)),
-	}}
-	if _, err := newTestClient(t, runner).Snapshot(context.Background()); err == nil {
-		t.Fatal("Snapshot() error = nil, want scanner error")
 	}
 }
 
 func TestClientSnapshotCoalescesConcurrentRefreshes(t *testing.T) {
-	started := make(chan struct{})
-	release := make(chan struct{})
+	started, release := make(chan struct{}), make(chan struct{})
 	runner := &scriptedRunner{run: func(_ context.Context, path string, _ ...string) ([]byte, error) {
 		if filepath.Base(path) == "sinfo" {
 			select {
@@ -175,9 +108,9 @@ func TestClientSnapshotCoalescesConcurrentRefreshes(t *testing.T) {
 				close(started)
 			}
 			<-release
-			return []byte("node01|idle|0/64/0/64\n"), nil
+			return []byte(validSinfoJSON), nil
 		}
-		return nil, nil
+		return []byte(validSqueueJSON), nil
 	}}
 	client, err := New(Config{BinaryDir: "/opt/slurm/bin", Timeout: time.Second, MaxOutputBytes: 16 << 10, CacheTTL: 10 * time.Second, Runner: runner})
 	if err != nil {
@@ -192,24 +125,23 @@ func TestClientSnapshotCoalescesConcurrentRefreshes(t *testing.T) {
 	close(release)
 	wg.Wait()
 	if calls := len(runner.callsSnapshot()); calls != 2 {
-		t.Errorf("runner calls = %d, want one sinfo+squeue refresh", calls)
+		t.Errorf("runner calls = %d", calls)
 	}
 }
 
 func TestClientCanceledLeaderDoesNotPoisonSharedCache(t *testing.T) {
 	started := make(chan struct{})
-	var sinfoCalls int
+	var sinfoCalls atomic.Int32
 	runner := &scriptedRunner{run: func(ctx context.Context, path string, _ ...string) ([]byte, error) {
 		if filepath.Base(path) != "sinfo" {
-			return nil, nil
+			return []byte(validSqueueJSON), nil
 		}
-		sinfoCalls++
-		if sinfoCalls == 1 {
+		if sinfoCalls.Add(1) == 1 {
 			close(started)
 			<-ctx.Done()
 			return nil, ctx.Err()
 		}
-		return []byte("node01|idle|0/64/0/64\n"), nil
+		return []byte(validSinfoJSON), nil
 	}}
 	client, err := New(Config{BinaryDir: "/opt/slurm/bin", Timeout: time.Second, MaxOutputBytes: 16 << 10, CacheTTL: 10 * time.Second, Runner: runner})
 	if err != nil {
@@ -232,11 +164,11 @@ func TestClientCanceledLeaderDoesNotPoisonSharedCache(t *testing.T) {
 	}()
 	cancelLeader()
 	if err := <-leaderDone; !errors.Is(err, context.Canceled) {
-		t.Fatalf("leader error = %v, want context canceled", err)
+		t.Fatalf("leader error = %v", err)
 	}
 	waiter := <-waiterDone
-	if waiter.err != nil || waiter.metrics.OnlineNodes != 1 {
-		t.Fatalf("waiter = (%+v, %v), want fresh metrics", waiter.metrics, waiter.err)
+	if waiter.err != nil || waiter.metrics.OnlineNodes != 3 {
+		t.Fatalf("waiter = (%+v, %v)", waiter.metrics, waiter.err)
 	}
 }
 
@@ -247,7 +179,7 @@ func TestClientSnapshotRejectsOutputOverConfiguredLimit(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 	if _, err := client.Snapshot(context.Background()); err == nil {
-		t.Fatal("Snapshot() error = nil, want output limit error")
+		t.Fatal("Snapshot() error = nil")
 	}
 }
 

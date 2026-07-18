@@ -6,3 +6,5 @@
 /coverage.out
 /dist/
 /state/
+/.playwright-cli/
+/output/

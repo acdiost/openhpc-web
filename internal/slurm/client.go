@@ -1,13 +1,11 @@
 package slurm
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -39,6 +37,9 @@ type Client struct {
 	lastMetrics    cluster.Metrics
 	lastErr        error
 	refreshing     chan struct{}
+	nodesCache     valueCache[[]cluster.Node]
+	jobsCache      valueCache[[]cluster.Job]
+	now            func() time.Time
 }
 
 const (
@@ -77,6 +78,9 @@ func New(config Config) (*Client, error) {
 	return &Client{
 		binaryDir: config.BinaryDir, timeout: config.Timeout,
 		maxOutputBytes: config.MaxOutputBytes, runner: runner, cacheTTL: config.CacheTTL,
+		nodesCache: valueCache[[]cluster.Node]{ttl: config.CacheTTL},
+		jobsCache:  valueCache[[]cluster.Job]{ttl: config.CacheTTL},
+		now:        time.Now,
 	}, nil
 }
 
@@ -120,22 +124,49 @@ func (c *Client) snapshot(parent context.Context) (cluster.Metrics, error) {
 	ctx, cancel := context.WithTimeout(parent, c.timeout)
 	defer cancel()
 
-	sinfo, err := c.run(ctx, "sinfo", "--noheader", "--Node", "--format=%N|%T|%C")
+	nodes, err := c.Nodes(ctx)
 	if err != nil {
-		return cluster.Metrics{}, fmt.Errorf("read sinfo snapshot: %w", err)
+		return cluster.Metrics{}, fmt.Errorf("read node snapshot: %w", err)
 	}
-	metrics, err := parseSinfo(sinfo)
+	jobs, err := c.Jobs(ctx)
 	if err != nil {
-		return cluster.Metrics{}, fmt.Errorf("parse sinfo snapshot: %w", err)
+		return cluster.Metrics{}, fmt.Errorf("read job snapshot: %w", err)
 	}
+	return aggregateMetrics(nodes, jobs)
+}
 
-	squeue, err := c.run(ctx, "squeue", "--noheader", "--format=%T")
-	if err != nil {
-		return cluster.Metrics{}, fmt.Errorf("read squeue snapshot: %w", err)
+func aggregateMetrics(nodes []cluster.Node, jobs []cluster.Job) (cluster.Metrics, error) {
+	uniqueNodes := make(map[string]cluster.Node, len(nodes))
+	for _, node := range nodes {
+		if existing, found := uniqueNodes[node.Name]; found {
+			if existing.State != node.State || existing.AllocatedCPUs != node.AllocatedCPUs || existing.TotalCPUs != node.TotalCPUs || existing.Online != node.Online {
+				return cluster.Metrics{}, fmt.Errorf("node %s has conflicting JSON records", node.Name)
+			}
+			continue
+		}
+		uniqueNodes[node.Name] = node
 	}
-	metrics.RunningJobs, metrics.QueuedJobs, err = parseSqueue(squeue)
-	if err != nil {
-		return cluster.Metrics{}, fmt.Errorf("parse squeue snapshot: %w", err)
+	metrics := cluster.Metrics{}
+	totalOnlineCPUs := 0
+	allocatedOnlineCPUs := 0
+	for _, node := range uniqueNodes {
+		if !node.Online {
+			continue
+		}
+		metrics.OnlineNodes++
+		totalOnlineCPUs += node.TotalCPUs
+		allocatedOnlineCPUs += node.AllocatedCPUs
+	}
+	if totalOnlineCPUs > 0 {
+		metrics.CPUUsage = (allocatedOnlineCPUs*100 + totalOnlineCPUs/2) / totalOnlineCPUs
+	}
+	for _, job := range jobs {
+		switch strings.ToUpper(job.State) {
+		case "RUNNING":
+			metrics.RunningJobs++
+		case "PENDING":
+			metrics.QueuedJobs++
+		}
 	}
 	return metrics, nil
 }
@@ -149,113 +180,6 @@ func (c *Client) run(ctx context.Context, command string, args ...string) ([]byt
 		return nil, fmt.Errorf("run %s: %w", command, ErrOutputLimit)
 	}
 	return output, nil
-}
-
-type nodeMetrics struct {
-	state     string
-	allocated int
-	total     int
-	online    bool
-}
-
-func parseSinfo(output []byte) (cluster.Metrics, error) {
-	nodes := make(map[string]nodeMetrics)
-	scanner := bufio.NewScanner(strings.NewReader(string(output)))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		parts := strings.Split(line, "|")
-		if len(parts) != 3 {
-			return cluster.Metrics{}, fmt.Errorf("expected 3 sinfo columns, got %d", len(parts))
-		}
-		name := strings.TrimSpace(parts[0])
-		state := normalizeNodeState(parts[1])
-		if name == "" || state == "" {
-			return cluster.Metrics{}, errors.New("sinfo node name and state are required")
-		}
-		allocated, total, err := parseCPUCounts(parts[2])
-		if err != nil {
-			return cluster.Metrics{}, fmt.Errorf("node %s CPU counts: %w", name, err)
-		}
-		hasUnavailableMarker := strings.ContainsAny(strings.TrimSpace(parts[1]), "*~#%!")
-		node := nodeMetrics{state: state, allocated: allocated, total: total, online: !hasUnavailableMarker && isOnlineState(state)}
-		if existing, found := nodes[name]; found {
-			if existing != node {
-				return cluster.Metrics{}, fmt.Errorf("node %s has conflicting sinfo records", name)
-			}
-			continue
-		}
-		nodes[name] = node
-	}
-	if err := scanner.Err(); err != nil {
-		return cluster.Metrics{}, fmt.Errorf("scan sinfo output: %w", err)
-	}
-
-	metrics := cluster.Metrics{}
-	totalOnlineCPUs := 0
-	allocatedOnlineCPUs := 0
-	for _, node := range nodes {
-		if !node.online {
-			continue
-		}
-		metrics.OnlineNodes++
-		totalOnlineCPUs += node.total
-		allocatedOnlineCPUs += node.allocated
-	}
-	if totalOnlineCPUs > 0 {
-		metrics.CPUUsage = (allocatedOnlineCPUs*100 + totalOnlineCPUs/2) / totalOnlineCPUs
-	}
-	return metrics, nil
-}
-
-func parseCPUCounts(value string) (int, int, error) {
-	parts := strings.Split(strings.TrimSpace(value), "/")
-	if len(parts) != 4 {
-		return 0, 0, errors.New("expected allocated/idle/other/total")
-	}
-	counts := make([]int, len(parts))
-	for index, part := range parts {
-		count, err := strconv.Atoi(strings.TrimSpace(part))
-		if err != nil || count < 0 {
-			return 0, 0, errors.New("CPU counts must be non-negative integers")
-		}
-		counts[index] = count
-	}
-	if counts[3] <= 0 || counts[0] > counts[3] {
-		return 0, 0, errors.New("allocated CPUs must not exceed positive total CPUs")
-	}
-	return counts[0], counts[3], nil
-}
-
-func normalizeNodeState(value string) string {
-	return strings.ToLower(strings.TrimRight(strings.TrimSpace(value), "*~#+%!"))
-}
-
-func isOnlineState(state string) bool {
-	for _, prefix := range []string{"down", "fail", "unknown", "future", "power_down", "powering_down"} {
-		if strings.HasPrefix(state, prefix) {
-			return false
-		}
-	}
-	return true
-}
-
-func parseSqueue(output []byte) (running, queued int, err error) {
-	scanner := bufio.NewScanner(strings.NewReader(string(output)))
-	for scanner.Scan() {
-		switch strings.ToUpper(strings.TrimSpace(scanner.Text())) {
-		case "R", "RUNNING":
-			running++
-		case "PD", "PENDING":
-			queued++
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return 0, 0, fmt.Errorf("scan squeue output: %w", err)
-	}
-	return running, queued, nil
 }
 
 func allowedSlurmEnvironment(environment []string) []string {

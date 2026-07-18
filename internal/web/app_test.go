@@ -772,8 +772,6 @@ func TestModulePlaceholderRoutes(t *testing.T) {
 		{path: "/slurm/associations", label: "/slurm/associations"},
 		{path: "/slurm/qos", label: "QoS 与核时"},
 		{path: "/slurm/core-hours", label: "/slurm/core-hours"},
-		{path: "/slurm/jobs", label: "作业管理"},
-		{path: "/slurm/nodes", label: "节点与分区"},
 		{path: "/system/files", label: "文件管理"},
 		{path: "/terminal", label: "终端"},
 		{path: "/platform/users", label: "平台用户"},

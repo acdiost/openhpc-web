@@ -45,11 +45,15 @@ func main() {
 		log.Fatal(err)
 	}
 	var metricsProvider cluster.Provider
+	var nodeProvider cluster.NodeProvider
+	var jobProvider cluster.JobProvider
 	if slurmEnabled {
-		metricsProvider, err = slurm.New(slurmConfig)
+		client, clientErr := slurm.New(slurmConfig)
+		err = clientErr
 		if err != nil {
 			log.Fatalf("initialize Slurm integration: %v", err)
 		}
+		metricsProvider, nodeProvider, jobProvider = client, client, client
 	}
 	handler, err := web.New(web.Config{
 		AdminUsername:     username,
@@ -58,6 +62,8 @@ func main() {
 		SecureCookies:     secureCookies,
 		TrustedProxyCIDRs: trustedProxyCIDRs,
 		MetricsProvider:   metricsProvider,
+		NodeProvider:      nodeProvider,
+		JobProvider:       jobProvider,
 	})
 	if err != nil {
 		log.Fatalf("initialize server: %v", err)

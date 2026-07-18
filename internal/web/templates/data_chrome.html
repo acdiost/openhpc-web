@@ -1,0 +1,49 @@
+{{define "data-sidebar"}}
+<aside class="sidebar" id="sidebar">
+  <a class="brand" href="/dashboard">
+    <div class="brand-mark small" aria-hidden="true"><span></span><span></span><span></span></div>
+    <div><strong>OpenHPC</strong><span>WEB CONSOLE</span></div>
+  </a>
+  <nav aria-label="{{.Copy.Navigation}}">
+    {{$group := ""}}{{$active := .Module.Path}}
+    {{range .Modules}}
+      {{if ne .Group $group}}<div class="nav-group">{{.Group}}</div>{{$group = .Group}}{{end}}
+      <a href="{{.Path}}" class="nav-item{{if eq .Path $active}} active{{end}}"><span class="nav-icon icon-{{.Icon}}" aria-hidden="true"></span><span>{{.Label}}</span>{{if eq .Path "/terminal"}}<b>SSH</b>{{end}}</a>
+    {{end}}
+  </nav>
+  <div class="sidebar-foot">
+    <span class="status-dot{{if not .Available}} unavailable{{end}}"></span>
+    <div><strong>{{.Copy.SlurmController}}</strong><span>{{if .Available}}{{.Copy.CurrentSnapshot}}{{else}}{{.Copy.SlurmUnavailable}}{{end}}</span></div>
+  </div>
+</aside>
+{{end}}
+
+{{define "data-topbar"}}
+<header class="topbar">
+  <button type="button" class="icon-button menu-button" data-menu aria-label="{{.Copy.Menu}}">☰</button>
+  <div class="search"><span aria-hidden="true">⌕</span><input type="search" placeholder="{{.Copy.Search}}" aria-label="{{.Copy.Search}}"><kbd>⌘ K</kbd></div>
+  <div class="top-actions">
+    <details class="popover">
+      <summary class="icon-button" aria-label="{{.Copy.Language}}">文</summary>
+      <form action="/preferences/language" method="post" class="menu-form">
+        <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+        <button name="language" value="zh" type="submit">简体中文</button>
+        <button name="language" value="en" type="submit">English</button>
+      </form>
+    </details>
+    <details class="popover">
+      <summary class="icon-button" aria-label="{{.Copy.Theme}}">◐</summary>
+      <form action="/preferences/theme" method="post" class="menu-form themes">
+        <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+        <button name="theme" value="research-red" type="submit"><i class="swatch red"></i>Research red</button>
+        <button name="theme" value="slurm-blue" type="submit"><i class="swatch blue"></i>Slurm blue</button>
+      </form>
+    </details>
+    <button type="button" class="icon-button notification-button" aria-label="{{.Copy.Notifications}}">♢<i></i></button>
+    <details class="popover user-popover">
+      <summary class="user-block"><span class="avatar">AD</span><div><strong>{{.Username}}</strong><span>{{.Copy.PlatformAdmin}}</span></div><span>⌄</span></summary>
+      <form action="/logout" method="post" class="menu-form"><input type="hidden" name="_csrf" value="{{.CSRFToken}}"><button type="submit">{{.Copy.SignOut}}</button></form>
+    </details>
+  </div>
+</header>
+{{end}}

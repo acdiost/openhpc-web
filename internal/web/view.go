@@ -1,5 +1,7 @@
 package web
 
+import "github.com/openhpc-web/openhpc-web/internal/cluster"
+
 type loginView struct {
 	Language string
 	Next     string
@@ -40,6 +42,56 @@ type moduleView struct {
 	Username string
 	Copy     copySet
 	Module   module
+}
+
+type detailCopy struct {
+	Refresh, LiveData, EmptyNodes, EmptyJobs                 string
+	Node, Partition, State, CPUs, Memory, GRES, Availability string
+	JobID, JobName, User, Account, Elapsed, TimeLimit        string
+	NodesOrReason, Online, Offline                           string
+}
+
+type nodesView struct {
+	Language  string
+	Theme     string
+	Username  string
+	CSRFToken string
+	Module    module
+	Modules   []module
+	Copy      copySet
+	Labels    detailCopy
+	Nodes     []cluster.Node
+	Available bool
+}
+
+type jobsView struct {
+	Language  string
+	Theme     string
+	Username  string
+	CSRFToken string
+	Module    module
+	Modules   []module
+	Copy      copySet
+	Labels    detailCopy
+	Jobs      []cluster.Job
+	Available bool
+}
+
+func detailCopyFor(language string) detailCopy {
+	if language == "en" {
+		return detailCopy{
+			Refresh: "Refresh", LiveData: "Live Slurm data", EmptyNodes: "No nodes reported", EmptyJobs: "No jobs in the queue",
+			Node: "Node", Partition: "Partition", State: "State", CPUs: "CPUs", Memory: "Memory", GRES: "GRES", Availability: "Availability",
+			JobID: "Job ID", JobName: "Name", User: "User", Account: "Account", Elapsed: "Elapsed", TimeLimit: "Time limit",
+			NodesOrReason: "Nodes / reason", Online: "Online", Offline: "Unavailable",
+		}
+	}
+	return detailCopy{
+		Refresh: "刷新", LiveData: "Slurm 实时数据", EmptyNodes: "Slurm 未报告节点", EmptyJobs: "当前队列中没有作业",
+		Node: "节点", Partition: "分区", State: "状态", CPUs: "CPU", Memory: "内存", GRES: "GRES", Availability: "可用性",
+		JobID: "作业 ID", JobName: "名称", User: "用户", Account: "账户", Elapsed: "已运行", TimeLimit: "时间限制",
+		NodesOrReason: "节点 / 原因", Online: "在线", Offline: "不可用",
+	}
 }
 
 func copyFor(language string) copySet {

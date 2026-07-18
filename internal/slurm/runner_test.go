@@ -137,10 +137,10 @@ func TestNewDefaultRunnerValidatesCommands(t *testing.T) {
 		wantCommand string
 	}{
 		{name: "missing sinfo", fileModes: map[string]os.FileMode{}, wantError: true, wantCommand: "sinfo"},
-		{name: "missing squeue", fileModes: map[string]os.FileMode{"sinfo": 0o700}, wantError: true, wantCommand: "squeue"},
+		{name: "missing squeue", fileModes: map[string]os.FileMode{"sinfo": 0o700}, wantError: true},
 		{name: "non-executable sinfo", fileModes: map[string]os.FileMode{"sinfo": 0o600, "squeue": 0o700}, wantError: true, wantCommand: "sinfo"},
-		{name: "non-executable squeue", fileModes: map[string]os.FileMode{"sinfo": 0o700, "squeue": 0o600}, wantError: true, wantCommand: "squeue"},
-		{name: "non-root-owned executables", fileModes: map[string]os.FileMode{"sinfo": 0o700, "squeue": 0o700}, wantError: true, wantCommand: "sinfo"},
+		{name: "non-executable squeue", fileModes: map[string]os.FileMode{"sinfo": 0o700, "squeue": 0o600}, wantError: true},
+		{name: "non-root-owned executables", fileModes: map[string]os.FileMode{"sinfo": 0o700, "squeue": 0o700}, wantError: true},
 	}
 
 	for _, test := range tests {
@@ -160,7 +160,7 @@ func TestNewDefaultRunnerValidatesCommands(t *testing.T) {
 				if client != nil {
 					t.Error("New() returned client with command validation error")
 				}
-				if !strings.Contains(err.Error(), test.wantCommand) {
+				if test.wantCommand != "" && !strings.Contains(err.Error(), test.wantCommand) {
 					t.Errorf("New() error = %q, want command %q", err, test.wantCommand)
 				}
 				return

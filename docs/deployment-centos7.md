@@ -31,12 +31,36 @@ runuser -u openhpc-web -- /usr/local/bin/squeue \
 在开发机仓库根目录构建：
 
 ```bash
+export GOPROXY=https://goproxy.cn,direct
 mkdir -p dist
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
   go build -trimpath -ldflags='-s -w' \
   -o dist/openhpc-web-linux-amd64 ./cmd/server
 
 shasum -a 256 dist/openhpc-web-linux-amd64
+```
+
+### 在线开发同步
+
+开发源码目录为 `/opt/ohpc/openhpc-web`。从开发机增量同步时不删除远端额外文件，也不携带本机 UID/GID：
+
+```bash
+rsync -a --no-owner --no-group \
+  --exclude=.git/ \
+  --exclude=state/ \
+  --exclude=dist/ \
+  --exclude=coverage.out \
+  --exclude=output/ \
+  --exclude=.playwright-cli/ \
+  ./ root@10.80.4.30:/opt/ohpc/openhpc-web/
+```
+
+远端非交互 SSH 的 PATH 可能不包含 Go，使用绝对路径并显式配置代理：
+
+```bash
+export GOPROXY=https://goproxy.cn,direct
+/usr/local/go/bin/go -C /opt/ohpc/openhpc-web test ./...
+/usr/local/go/bin/go -C /opt/ohpc/openhpc-web build ./cmd/server
 ```
 
 上传二进制和部署模板：
@@ -128,17 +152,166 @@ ssh -L 18080:127.0.0.1:18080 root@10.80.4.30
 
 ## 8. TLS 反向代理
 
-通过 HTTPS 反向代理发布时：
+以下示例使用自签发证书和本机 Nginx，适合无法接入内部 CA 的受控内网。浏览器不会自动信任自签发证书；正式生产环境应优先使用组织内部 CA 或受信任 CA 签发的证书。
 
-1. 将 `OPENHPC_SECURE_COOKIES` 改为 `true`。
-2. 将 `OPENHPC_TRUSTED_PROXY_CIDRS` 设置为反向代理来源 CIDR。
-3. 在反向代理入口配置 TLS、请求体限制和速率限制。
-4. 不要将 OpenHPC Web 直接监听到 `0.0.0.0`。
+示例使用域名 `openhpc.example.internal` 和服务器地址 `10.80.4.30`。执行前必须将它们替换为实际 DNS 名称和地址，并确保客户端能够解析该域名。如果客户端只通过 IP 访问，还要将后面的 HTTP 跳转目标改为该 IP。
 
-修改后重启：
+### 8.1 安装 Nginx 和 OpenSSL
+
+```bash
+yum install -y epel-release
+yum install -y nginx openssl
+```
+
+### 8.2 生成带 SAN 的自签发证书
+
+CentOS 7 的 OpenSSL 不支持较新的 `-addext` 参数，因此先创建扩展配置。SAN 必须包含用户实际访问时使用的域名或 IP，否则浏览器仍会报告证书名称不匹配。
+
+```bash
+install -d -o root -g root -m 0755 /etc/pki/openhpc-web
+install -d -o root -g root -m 0700 /etc/pki/openhpc-web/private
+
+cat >/root/openhpc-web-openssl.cnf <<'EOF'
+[req]
+distinguished_name = dn
+x509_extensions = v3_server
+prompt = no
+
+[dn]
+CN = openhpc.example.internal
+
+[v3_server]
+basicConstraints = critical,CA:false
+keyUsage = critical,digitalSignature,keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = openhpc.example.internal
+IP.1 = 10.80.4.30
+EOF
+
+umask 077
+openssl req -x509 -nodes -newkey rsa:3072 -sha256 -days 365 \
+  -config /root/openhpc-web-openssl.cnf \
+  -keyout /etc/pki/openhpc-web/private/openhpc-web.key \
+  -out /etc/pki/openhpc-web/openhpc-web.crt
+
+chown root:root \
+  /etc/pki/openhpc-web/private/openhpc-web.key \
+  /etc/pki/openhpc-web/openhpc-web.crt
+chmod 0600 /etc/pki/openhpc-web/private/openhpc-web.key
+chmod 0644 /etc/pki/openhpc-web/openhpc-web.crt
+rm -f /root/openhpc-web-openssl.cnf
+
+openssl x509 -in /etc/pki/openhpc-web/openhpc-web.crt \
+  -noout -subject -dates -fingerprint -sha256
+```
+
+私钥不得复制到客户端或提交到仓库。证书到期前应重新签发并执行 `systemctl reload nginx`。
+
+### 8.3 配置 OpenHPC Web
+
+编辑 `/etc/openhpc-web/openhpc-web.env`，保持应用仅监听 loopback，并只信任本机代理：
+
+```text
+OPENHPC_ADDRESS=127.0.0.1:18080
+OPENHPC_SECURE_COOKIES=true
+OPENHPC_TRUSTED_PROXY_CIDRS=127.0.0.1/32
+```
+
+修改后重启并确认应用仍未监听外部地址：
 
 ```bash
 systemctl restart openhpc-web
+systemctl status openhpc-web --no-pager
+ss -lntp | grep 18080
+```
+
+### 8.4 配置 Nginx
+
+创建 `/etc/nginx/conf.d/openhpc-web.conf`：
+
+```nginx
+limit_req_zone $binary_remote_addr zone=openhpc_web:10m rate=10r/s;
+
+server {
+    listen 80;
+    server_name openhpc.example.internal 10.80.4.30;
+
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name openhpc.example.internal 10.80.4.30;
+
+    ssl_certificate     /etc/pki/openhpc-web/openhpc-web.crt;
+    ssl_certificate_key /etc/pki/openhpc-web/private/openhpc-web.key;
+    ssl_protocols TLSv1.2;
+    ssl_ciphers 'ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256';
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+
+    client_max_body_size 16k;
+    limit_req_status 429;
+
+    location / {
+        limit_req zone=openhpc_web burst=20 nodelay;
+
+        proxy_pass http://127.0.0.1:18080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 30s;
+        proxy_send_timeout 30s;
+    }
+}
+```
+
+检查配置后启动 Nginx：
+
+```bash
+nginx -t
+systemctl enable --now nginx
+systemctl status nginx --no-pager
+```
+
+如果 SELinux 为 enforcing 且 Nginx 日志显示连接 `127.0.0.1:18080` 被拒绝，允许 Web 服务器发起代理连接后重试：
+
+```bash
+setsebool -P httpd_can_network_connect 1
+systemctl restart nginx
+```
+
+如果启用了 `firewalld`，只开放 Nginx 的 HTTP/HTTPS 服务，不要开放应用端口 `18080`：
+
+```bash
+firewall-cmd --permanent --add-service=http
+firewall-cmd --permanent --add-service=https
+firewall-cmd --reload
+```
+
+### 8.5 验证 HTTPS
+
+先在服务器上验证反向代理和证书名称：
+
+```bash
+curl --resolve openhpc.example.internal:443:127.0.0.1 \
+  --cacert /etc/pki/openhpc-web/openhpc-web.crt \
+  https://openhpc.example.internal/
+```
+
+再从客户端访问 `https://openhpc.example.internal/`。需要消除浏览器警告时，只把 `/etc/pki/openhpc-web/openhpc-web.crt` 导入客户端的受信任根证书存储；不要导入或传输私钥。导入前应通过独立安全渠道核对上面输出的 SHA-256 指纹。
+
+检查端口时，预期 Nginx 监听 `80` 和 `443`，OpenHPC Web 仍只监听 `127.0.0.1:18080`：
+
+```bash
+ss -lntp | grep -E ':(80|443|18080)[[:space:]]'
 ```
 
 ## 9. 升级
