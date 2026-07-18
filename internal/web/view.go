@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/openhpc-web/openhpc-web/internal/cluster"
+	"github.com/openhpc-web/openhpc-web/internal/directory"
 	"github.com/openhpc-web/openhpc-web/internal/platform"
 )
 
@@ -209,6 +210,71 @@ type auditView struct {
 
 type auditEventView struct {
 	ID, Actor, Action, Outcome, CreatedAt, OutcomeClass string
+}
+
+type ldapCopy struct {
+	Description, Refresh, Search, SearchPlaceholder string
+	Users, Groups, UID, Name, Email, UIDNumber      string
+	GIDNumber, HomeDirectory, LoginShell            string
+	DescriptionLabel, Members, Details, Back        string
+	EmptyUsers, EmptyGroups, Unavailable, Truncated string
+	UserDetails, GroupDetails, MembersTruncated     string
+}
+
+type ldapView struct {
+	appChrome
+	Module        module
+	Labels        ldapCopy
+	Page          directory.Page
+	Users         []ldapUserRow
+	Groups        []ldapGroupRow
+	Query         string
+	LDAPAvailable bool
+}
+
+type ldapUserRow struct {
+	directory.User
+	Key string
+}
+
+type ldapGroupRow struct {
+	directory.Group
+	Key string
+}
+
+type ldapUserView struct {
+	appChrome
+	Module        module
+	Labels        ldapCopy
+	User          directory.User
+	LDAPAvailable bool
+}
+
+type ldapGroupView struct {
+	appChrome
+	Module        module
+	Labels        ldapCopy
+	Group         directory.Group
+	LDAPAvailable bool
+}
+
+func ldapCopyFor(language string) ldapCopy {
+	if language == "en" {
+		return ldapCopy{
+			Description: "Read-only RFC2307 identity directory", Refresh: "Refresh", Search: "Search directory", SearchPlaceholder: "UID, name, email or group",
+			Users: "Directory users", Groups: "Directory groups", UID: "UID", Name: "Name", Email: "Email", UIDNumber: "UID number", GIDNumber: "GID number",
+			HomeDirectory: "Home directory", LoginShell: "Login shell", DescriptionLabel: "Description", Members: "Members", Details: "Details", Back: "Back to LDAP directory",
+			EmptyUsers: "No directory users", EmptyGroups: "No directory groups", Unavailable: "LDAP directory is temporarily unavailable", Truncated: "Results were limited; narrow the search",
+			UserDetails: "User details", GroupDetails: "Group details", MembersTruncated: "Member list was limited",
+		}
+	}
+	return ldapCopy{
+		Description: "只读 RFC2307 身份目录", Refresh: "刷新", Search: "搜索目录", SearchPlaceholder: "UID、姓名、邮箱或组名",
+		Users: "目录用户", Groups: "目录组", UID: "UID", Name: "姓名", Email: "邮箱", UIDNumber: "UID 编号", GIDNumber: "GID 编号",
+		HomeDirectory: "主目录", LoginShell: "登录 Shell", DescriptionLabel: "描述", Members: "成员", Details: "详情", Back: "返回 LDAP 目录",
+		EmptyUsers: "暂无目录用户", EmptyGroups: "暂无目录组", Unavailable: "LDAP 目录暂不可用", Truncated: "结果已截断，请缩小搜索范围",
+		UserDetails: "用户详情", GroupDetails: "组详情", MembersTruncated: "成员列表已截断",
+	}
 }
 
 func newAuditEventView(event platform.AuditEvent) auditEventView {

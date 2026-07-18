@@ -344,14 +344,15 @@ func TestProtectedPagesShareApplicationChrome(t *testing.T) {
 	handler := newTestHandler(t)
 	session := login(t, handler)
 	tests := []struct {
-		path    string
-		heading string
-		active  string
+		path         string
+		heading      string
+		active       string
+		expectedCSRF int
 	}{
-		{path: "/dashboard", heading: "集群概览", active: "/dashboard"},
-		{path: "/slurm/nodes", heading: "节点与分区", active: "/slurm/nodes"},
-		{path: "/slurm/jobs", heading: "作业管理", active: "/slurm/jobs"},
-		{path: "/ldap", heading: "LDAP 目录", active: "/ldap"},
+		{path: "/dashboard", heading: "集群概览", active: "/dashboard", expectedCSRF: 3},
+		{path: "/slurm/nodes", heading: "节点与分区", active: "/slurm/nodes", expectedCSRF: 3},
+		{path: "/slurm/jobs", heading: "作业管理", active: "/slurm/jobs", expectedCSRF: 3},
+		{path: "/ldap", heading: "LDAP 目录", active: "/ldap", expectedCSRF: 4},
 	}
 
 	for _, test := range tests {
@@ -375,8 +376,8 @@ func TestProtectedPagesShareApplicationChrome(t *testing.T) {
 			} {
 				assertBodyContains(t, response, expected)
 			}
-			if csrfFields := regexp.MustCompile(`name="_csrf" value="[^"]+"`).FindAllString(response.Body.String(), -1); len(csrfFields) != 3 {
-				t.Errorf("populated CSRF fields = %d, want 3", len(csrfFields))
+			if csrfFields := regexp.MustCompile(`name="_csrf" value="[^"]+"`).FindAllString(response.Body.String(), -1); len(csrfFields) != test.expectedCSRF {
+				t.Errorf("populated CSRF fields = %d, want %d", len(csrfFields), test.expectedCSRF)
 			}
 		})
 	}
@@ -843,7 +844,6 @@ func TestModulePlaceholderRoutes(t *testing.T) {
 		path  string
 		label string
 	}{
-		{path: "/ldap", label: "LDAP 目录"},
 		{path: "/slurm/config", label: "Slurm 配置"},
 		{path: "/slurm/users", label: "/slurm/users"},
 		{path: "/system/files", label: "文件管理"},

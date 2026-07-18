@@ -47,9 +47,25 @@ runuser -u openhpc-web -- /usr/local/bin/sacctmgr \
 
 “节点与分区”页面中的分区容量由 `sinfo --Node --json` 节点记录聚合，不会额外执行 Slurm 命令。可将页面中的分区节点数、CPU 总量与 `sinfo` 输出交叉核对；同一节点属于多个分区时，会分别计入各自分区。
 
+### 2.1 验证 LDAP 只读账户与 TLS
+
+LDAP 功能只支持 LDAPS，并强制验证证书链和 URL 主机名。不能沿用 `TLS_REQCERT allow`、`ldap_tls_reqcert = never` 或跳过验证。先将签发 LDAP 服务证书的 CA 安装为 root 持有、不可组/全局写的普通文件：
+
+```bash
+install -o root -g root -m 0644 openhpc-ldap-ca.pem \
+  /etc/pki/ca-trust/source/anchors/openhpc-ldap-ca.pem
+update-ca-trust
+
+LDAPTLS_CACERT=/etc/pki/ca-trust/source/anchors/openhpc-ldap-ca.pem \
+  ldapwhoami -x -H ldaps://ldap.example.com:636 \
+  -D 'cn=openhpc-reader,dc=example,dc=com' -W
+```
+
+证书 SAN 必须包含 `OPENHPC_LDAP_URL` 使用的主机名。只读 Bind 账户的 ACL 仅需允许在配置的 Base DN 下搜索和读取：`uid`、`cn`、`mail`、`uidNumber`、`gidNumber`、`homeDirectory`、`loginShell`、`description`、`memberUid` 和 `objectClass`。不要授权 `userPassword`、`authPassword`、SSH key 或写权限。
+
 ## 3. 构建与上传
 
-在开发机仓库根目录构建：
+在安装 Go 1.25.12 或更高安全修订版本的开发机仓库根目录构建：
 
 ```bash
 export GOPROXY=https://goproxy.cn,direct
@@ -160,6 +176,17 @@ OPENHPC_SLURM_MAX_OUTPUT=2097152
 OPENHPC_SLURM_CACHE_TTL=10s
 # 可选；留空时详情中的“查看内容”保持禁用
 OPENHPC_JOB_OUTPUT_ROOTS=
+
+OPENHPC_LDAP_ENABLED=false
+OPENHPC_LDAP_URL=ldaps://ldap.example.com:636
+OPENHPC_LDAP_BASE_DN=dc=example,dc=com
+OPENHPC_LDAP_USER_BASE_DN=ou=People,dc=example,dc=com
+OPENHPC_LDAP_GROUP_BASE_DN=ou=Group,dc=example,dc=com
+OPENHPC_LDAP_BIND_DN=cn=openhpc-reader,dc=example,dc=com
+OPENHPC_LDAP_BIND_PASSWORD=REPLACE_WITH_A_READ_ONLY_BIND_PASSWORD
+OPENHPC_LDAP_CA_FILE=/etc/pki/ca-trust/source/anchors/openhpc-ldap-ca.pem
+OPENHPC_LDAP_TIMEOUT=3s
+OPENHPC_LDAP_MAX_RESULTS=200
 ```
 
 必须把 `REPLACE_WITH_A_LONG_RANDOM_PASSWORD` 替换为真实密码。用户名长度为 1 到 64，密码长度至少为 12。不要在聊天记录、命令历史或仓库中保存真实密码。
@@ -424,5 +451,21 @@ journalctl -u openhpc-web -n 50 --no-pager
 systemctl status openhpc-web --no-pager
 ss -lntp | grep 18080
 ```
+
+### LDAP 目录显示暂不可用
+
+```bash
+LDAPTLS_CACERT=/etc/pki/ca-trust/source/anchors/openhpc-ldap-ca.pem \
+  ldapsearch -x -LLL -o nettimeout=3 \
+  -H ldaps://ldap.example.com:636 \
+  -D 'cn=openhpc-reader,dc=example,dc=com' -W \
+  -b 'dc=example,dc=com' -z 2 \
+  '(|(objectClass=posixAccount)(objectClass=posixGroup))' \
+  uid cn uidNumber gidNumber
+
+journalctl -u openhpc-web -n 50 --no-pager
+```
+
+确认环境文件为 `root:root 0600`，CA 文件及所有父目录由 root 持有且 group/other 不可写，并检查证书 SAN 与 `OPENHPC_LDAP_URL` 主机名一致。应用日志不会输出 Bind DN、密码、搜索词或 LDAP 底层错误。
 
 确认 SSH 隧道仍在运行，并从开发机访问 `127.0.0.1:18080`，不是服务器的公网地址。

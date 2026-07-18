@@ -267,3 +267,66 @@ func setSlurmEnvironment(t *testing.T, enabled, binaryDir, timeout, maxOutput st
 	t.Setenv("OPENHPC_SLURM_TIMEOUT", timeout)
 	t.Setenv("OPENHPC_SLURM_MAX_OUTPUT", maxOutput)
 }
+
+func TestParseLDAPConfigFromEnvDisabledUnlessExplicitlyTrue(t *testing.T) {
+	for _, enabled := range []string{"", "false", "TRUE", "1"} {
+		t.Run(enabled, func(t *testing.T) {
+			setLDAPEnvironment(t, enabled, "not a URL", "", "invalid", "invalid")
+			configured, _, err := parseLDAPConfigFromEnv()
+			if err != nil || configured {
+				t.Fatalf("parseLDAPConfigFromEnv() = (%v, %v)", configured, err)
+			}
+		})
+	}
+}
+
+func TestParseLDAPConfigFromEnvDefaults(t *testing.T) {
+	setLDAPEnvironment(t, "true", "ldaps://ldap.example.com:636", "dc=example,dc=com", "", "")
+	enabled, config, err := parseLDAPConfigFromEnv()
+	if err != nil || !enabled {
+		t.Fatalf("parseLDAPConfigFromEnv() = (%v, %#v, %v)", enabled, config, err)
+	}
+	if config.Timeout != 3*time.Second || config.MaxResults != 200 || config.URL != "ldaps://ldap.example.com:636" || config.BaseDN != "dc=example,dc=com" {
+		t.Errorf("config = %#v", config)
+	}
+}
+
+func TestParseLDAPConfigFromEnvCustomValues(t *testing.T) {
+	setLDAPEnvironment(t, "true", "ldaps://ldap.example.com:636", "dc=example,dc=com", "750ms", "50")
+	t.Setenv("OPENHPC_LDAP_USER_BASE_DN", "ou=People,dc=example,dc=com")
+	t.Setenv("OPENHPC_LDAP_GROUP_BASE_DN", "ou=Group,dc=example,dc=com")
+	t.Setenv("OPENHPC_LDAP_BIND_DN", "cn=reader,dc=example,dc=com")
+	t.Setenv("OPENHPC_LDAP_BIND_PASSWORD", "secret-value")
+	_, config, err := parseLDAPConfigFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.UserBaseDN != "ou=People,dc=example,dc=com" || config.GroupBaseDN != "ou=Group,dc=example,dc=com" || config.BindDN == "" || config.BindPassword != "secret-value" {
+		t.Errorf("config = %#v", config)
+	}
+}
+
+func TestParseLDAPConfigFromEnvRejectsInvalidValuesWithoutLeakingPassword(t *testing.T) {
+	for _, test := range []struct{ timeout, limit string }{{"invalid", "10"}, {"3s", "invalid"}} {
+		setLDAPEnvironment(t, "true", "ldaps://ldap.example.com:636", "dc=example,dc=com", test.timeout, test.limit)
+		t.Setenv("OPENHPC_LDAP_BIND_PASSWORD", "must-not-leak")
+		_, _, err := parseLDAPConfigFromEnv()
+		if err == nil || strings.Contains(err.Error(), "must-not-leak") {
+			t.Errorf("error = %v", err)
+		}
+	}
+}
+
+func setLDAPEnvironment(t *testing.T, enabled, endpoint, baseDN, timeout, limit string) {
+	t.Helper()
+	t.Setenv("OPENHPC_LDAP_ENABLED", enabled)
+	t.Setenv("OPENHPC_LDAP_URL", endpoint)
+	t.Setenv("OPENHPC_LDAP_BASE_DN", baseDN)
+	t.Setenv("OPENHPC_LDAP_USER_BASE_DN", "")
+	t.Setenv("OPENHPC_LDAP_GROUP_BASE_DN", "")
+	t.Setenv("OPENHPC_LDAP_BIND_DN", "")
+	t.Setenv("OPENHPC_LDAP_BIND_PASSWORD", "")
+	t.Setenv("OPENHPC_LDAP_CA_FILE", "")
+	t.Setenv("OPENHPC_LDAP_TIMEOUT", timeout)
+	t.Setenv("OPENHPC_LDAP_MAX_RESULTS", limit)
+}

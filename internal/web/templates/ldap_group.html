@@ -1,0 +1,5 @@
+{{define "ldap_group.html"}}
+<!doctype html><html lang="{{.Language}}" data-theme="{{.Theme}}">{{template "document-head" .}}<body><div class="app-shell" data-component="app-shell">{{template "app-sidebar" .}}<div class="main-area">{{template "app-topbar" .}}<main class="content data-content">{{template "page-heading" .}}
+<a class="back-link" href="/ldap">← {{.Labels.Back}}</a>
+{{if not .LDAPAvailable}}<div class="data-warning" role="status">{{.Labels.Unavailable}}</div>{{else}}<dl class="directory-details"><div><dt>{{.Labels.Name}}</dt><dd>{{.Group.Name}}</dd></div><div><dt>{{.Labels.DescriptionLabel}}</dt><dd>{{if .Group.Description}}{{.Group.Description}}{{else}}—{{end}}</dd></div><div><dt>{{.Labels.GIDNumber}}</dt><dd>{{.Group.GIDNumber}}</dd></div></dl><section class="data-section"><h2>{{.Labels.Members}}</h2>{{if .Group.MembersTruncated}}<div class="data-warning" role="status">{{.Labels.MembersTruncated}}</div>{{end}}{{if not .Group.Members}}<div class="data-empty">—</div>{{else}}<div class="member-list">{{range .Group.Members}}<span>{{.}}</span>{{end}}</div>{{end}}</section>{{end}}
+</main></div></div></body></html>{{end}}
