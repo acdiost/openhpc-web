@@ -2,6 +2,8 @@ package cluster
 
 import "context"
 
+import "time"
+
 type Account struct {
 	Name             string
 	Description      string
@@ -47,4 +49,31 @@ type AccountingProvider interface {
 
 type AssociationProvider interface {
 	Associations(context.Context) ([]Association, error)
+}
+
+type CoreHourPeriod string
+
+const (
+	CoreHourPeriod24Hours CoreHourPeriod = "24h"
+	CoreHourPeriod7Days   CoreHourPeriod = "7d"
+	CoreHourPeriod30Days  CoreHourPeriod = "30d"
+)
+
+type CoreHourGroup struct {
+	Name            string
+	CoreSeconds     int64
+	AllocationCount int
+}
+
+type CoreHourSummary struct {
+	From            time.Time
+	To              time.Time
+	CoreSeconds     int64
+	AllocationCount int
+	Accounts        []CoreHourGroup
+	Users           []CoreHourGroup
+}
+
+type CoreHourProvider interface {
+	CoreHours(context.Context, CoreHourPeriod) (CoreHourSummary, error)
 }

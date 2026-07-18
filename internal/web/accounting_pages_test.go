@@ -125,6 +125,42 @@ func TestQoSPageShowsLiveQoSInApplicationShell(t *testing.T) {
 	}
 }
 
+func TestQoSPageEmbedsCoreHoursWithFixedPeriodControls(t *testing.T) {
+	provider := &stubAccountingProvider{coreHours: cluster.CoreHourSummary{
+		CoreSeconds: 21_600, AllocationCount: 3,
+		Accounts: []cluster.CoreHourGroup{{Name: "research", CoreSeconds: 18_000, AllocationCount: 2}},
+		Users:    []cluster.CoreHourGroup{{Name: "alice<script>", CoreSeconds: 14_400, AllocationCount: 1}},
+	}}
+	response := getAuthenticated(t, newAccountingHandler(t, provider), "/slurm/qos?view=core-hours&period=7d", "zh")
+	assertStatus(t, response, http.StatusOK)
+	for _, value := range []string{"QoS", "核时统计", "过去 24 小时", "过去 7 天", "过去 30 天", "6.00", "research", "alice&lt;script&gt;", "分配 CPU 核时"} {
+		assertBodyContains(t, response, value)
+	}
+	assertBodyNotContains(t, response, "alice<script>")
+	if provider.coreHourPeriod != cluster.CoreHourPeriod7Days {
+		t.Errorf("period = %q, want 7d", provider.coreHourPeriod)
+	}
+}
+
+func TestQoSPageRejectsInvalidCoreHourPeriodBeforeProviderCall(t *testing.T) {
+	provider := &stubAccountingProvider{}
+	response := getAuthenticated(t, newAccountingHandler(t, provider), "/slurm/qos?view=core-hours&period=custom", "en")
+	assertStatus(t, response, http.StatusBadRequest)
+	if provider.coreHourCalls != 0 {
+		t.Fatalf("core-hour calls = %d, want 0", provider.coreHourCalls)
+	}
+}
+
+func TestCoreHoursRouteRedirectsIntoQoSPage(t *testing.T) {
+	handler := newAccountingHandler(t, &stubAccountingProvider{})
+	request := httptest.NewRequest(http.MethodGet, "/slurm/core-hours?period=30d", nil)
+	request.AddCookie(login(t, handler))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	assertStatus(t, response, http.StatusFound)
+	assertHeader(t, response, "Location", "/slurm/qos?view=core-hours&period=30d")
+}
+
 func TestAccountingPagesShowUnavailableStateWithoutLeakingProviderErrors(t *testing.T) {
 	provider := &stubAccountingProvider{err: errors.New("sacctmgr password=secret failed")}
 	handler := newAccountingHandler(t, provider)
@@ -138,7 +174,7 @@ func TestAccountingPagesShowUnavailableStateWithoutLeakingProviderErrors(t *test
 
 func TestAccountingPagesRequireAuthentication(t *testing.T) {
 	handler := newAccountingHandler(t, &stubAccountingProvider{})
-	for _, path := range []string{"/slurm/accounts", "/slurm/qos", "/slurm/associations"} {
+	for _, path := range []string{"/slurm/accounts", "/slurm/qos", "/slurm/core-hours", "/slurm/associations"} {
 		request := httptest.NewRequest(http.MethodGet, path, nil)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
@@ -151,13 +187,18 @@ func newAccountingHandler(t *testing.T, provider cluster.AccountingProvider) htt
 	t.Helper()
 	handler, err := New(Config{
 		AdminUsername: testUsername, AdminPassword: testPassword,
-		AccountingProvider: provider, AssociationProvider: associationProvider(provider),
+		AccountingProvider: provider, AssociationProvider: associationProvider(provider), CoreHourProvider: coreHourProvider(provider),
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
 	cleanupHandler(t, handler)
 	return handler
+}
+
+func coreHourProvider(provider cluster.AccountingProvider) cluster.CoreHourProvider {
+	value, _ := provider.(cluster.CoreHourProvider)
+	return value
 }
 
 type stubAccountingProvider struct {
@@ -167,6 +208,9 @@ type stubAccountingProvider struct {
 	err              error
 	associationErr   error
 	associationCalls int
+	coreHours        cluster.CoreHourSummary
+	coreHourPeriod   cluster.CoreHourPeriod
+	coreHourCalls    int
 }
 
 func (p *stubAccountingProvider) AccountDirectory(context.Context) (cluster.AccountDirectory, error) {
@@ -179,6 +223,12 @@ func (p *stubAccountingProvider) QoS(context.Context) ([]cluster.QoS, error) {
 func (p *stubAccountingProvider) Associations(context.Context) ([]cluster.Association, error) {
 	p.associationCalls++
 	return append([]cluster.Association(nil), p.associations...), p.associationErr
+}
+
+func (p *stubAccountingProvider) CoreHours(_ context.Context, period cluster.CoreHourPeriod) (cluster.CoreHourSummary, error) {
+	p.coreHourCalls++
+	p.coreHourPeriod = period
+	return p.coreHours, p.err
 }
 
 func associationProvider(provider cluster.AccountingProvider) cluster.AssociationProvider {

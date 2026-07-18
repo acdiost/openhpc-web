@@ -21,6 +21,23 @@ func TestEnvOr(t *testing.T) {
 	}
 }
 
+func TestRuntimeUserWarningAllowsRootWithExplicitRiskWarning(t *testing.T) {
+	warning := runtimeUserWarning(0)
+	for _, required := range []string{"WARNING", "root", "Slurm", "file", "least-privilege"} {
+		if !strings.Contains(warning, required) {
+			t.Errorf("runtimeUserWarning(0) = %q, want %q", warning, required)
+		}
+	}
+}
+
+func TestRuntimeUserWarningIsEmptyForNonRoot(t *testing.T) {
+	for _, euid := range []int{1, 1000, 65534} {
+		if warning := runtimeUserWarning(euid); warning != "" {
+			t.Errorf("runtimeUserWarning(%d) = %q, want empty", euid, warning)
+		}
+	}
+}
+
 func TestSplitList(t *testing.T) {
 	tests := []struct {
 		name  string

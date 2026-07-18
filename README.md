@@ -26,7 +26,7 @@ go test ./... -cover
 go build ./cmd/server
 ```
 
-平台 Web 进程不应以 root 常驻运行。后续确需系统权限的操作应通过严格参数校验、命令白名单和最小化 `sudoers` 规则委托给本地 helper，并写入审计日志。
+程序允许以 root 运行，并在启动日志输出安全警告。生产环境仍推荐使用专用非特权账户；root 模式会扩大 Slurm 子进程和文件读取功能的权限范围，仅应在确有跨用户查询等需求时启用。
 
 ## 当前结构
 
@@ -57,17 +57,18 @@ export OPENHPC_JOB_OUTPUT_ROOTS=
 ```text
 /usr/local/bin/sinfo --Node --json
 /usr/local/bin/squeue --json
+/usr/local/bin/sacct --json --allocations --allusers --starttime=<generated> --endtime=<generated>
 /usr/local/bin/sstat --jobs=32943 --allsteps --noheader --parsable2 --format=JobID,AveCPU,AveRSS,MaxRSS,AveVMSize,MaxVMSize,TRESUsageInTot
 /usr/local/bin/sacctmgr --json show account WithAssoc
 /usr/local/bin/sacctmgr --json show user WithAssoc
 /usr/local/bin/sacctmgr --json show qos
 ```
 
-命令通过 `exec.CommandContext` 直接执行，固定 C locale，禁止 shell 和调用方自定义参数。适配器只解析页面所需字段。读取失败时保留页面和导航，但将实时数据标记为不可用。各类快照使用独立的 10 秒缓存与并发合并边界。分区容量和利用率由节点快照按分区聚合，与节点表复用同一次 `sinfo --Node --json` 缓存；分区和节点嵌入同一个“节点与分区”主页面，旧 `/slurm/partitions` 地址仅重定向到页面内分区区域。作业资源弹窗每 5 秒串行采样一次 `sstat`，服务端最多同时执行 4 个资源采样，并展示总 CPU 时间、最大 RSS、近期曲线和 step 明细。
+命令通过 `exec.CommandContext` 直接执行，固定 C locale，禁止 shell 和调用方自定义参数。适配器只解析页面所需字段。读取失败时保留页面和导航，但将实时数据标记为不可用。各类快照使用独立的 10 秒缓存与并发合并边界。分区容量和利用率由节点快照按分区聚合，与节点表复用同一次 `sinfo --Node --json` 缓存；分区和节点嵌入同一个“节点与分区”主页面，旧 `/slurm/partitions` 地址仅重定向到页面内分区区域。作业资源弹窗每 5 秒串行采样一次 `sstat`，服务端最多同时执行 4 个资源采样，并展示总 CPU 时间、最大 RSS、近期曲线和 step 明细。核时统计内嵌在“QoS 与核时”页面，仅支持过去 24 小时、7 天和 30 天三个固定周期；口径为 allocation 分配 CPU 数乘以窗口内墙钟占用时间，不代表实际 CPU 利用率，也不包含 GPU/TRES 计费。
 
 作业详情中的输出预览默认关闭。配置 `OPENHPC_JOB_OUTPUT_ROOTS` 后，服务端仅接受作业 ID 与 `stdout`/`stderr` 类型，文件路径由当前 Slurm 作业元数据决定；文件必须位于允许根目录及作业工作目录内、为非符号链接普通文件，且 UID 与作业用户一致。接口只返回最新 256 KiB 纯文本。服务账号还需要对应目录的只读权限。
 
-`sstat` 通常只允许作业所有者、root 或 SlurmUser 查询 step 数据。当前 Web 服务仍以专用非特权账号直接执行 `sstat`，因此集群若执行 UID 校验，跨用户资源查询会返回不可用；不要为此把整个 Web 服务改为 root 或 SlurmUser。
+`sstat` 通常只允许作业所有者、root 或 SlurmUser 查询 step 数据。默认部署使用专用非特权账号，因此集群若执行 UID 校验，跨用户资源查询会返回不可用；以 root 运行可满足此类部署需求，但应评估权限扩大带来的风险。
 
 当前兼容基线已在 CentOS 7 管理节点、Slurm 25.05.4 上验证。CentOS 7 部署模板位于 `deploy/`。构建静态 Linux 二进制：
 
@@ -85,6 +86,15 @@ install -o root -g root -m 0644 deploy/openhpc-web.service /etc/systemd/system/o
 ```
 
 将环境文件中的管理员密码替换为高强度随机值。仅通过 SSH 端口转发进行初次访问时保留 `OPENHPC_SECURE_COOKIES=false`；接入本机 TLS 反向代理后必须改为 `true`，并设置 `OPENHPC_TRUSTED_PROXY_CIDRS`。
+
+如需以 root 运行，systemd 覆盖配置可将 `User` 和 `Group` 设为 `root`，同时必须将状态目录调整为当前运行账户持有：
+
+```bash
+chown root:root /var/lib/openhpc-web
+chmod 0700 /var/lib/openhpc-web
+```
+
+默认服务模板仍使用 `openhpc-web`，并保留 `NoNewPrivileges`、loopback 监听和目录权限检查等防护。
 
 ## 功能
 
@@ -105,7 +115,7 @@ install -o root -g root -m 0644 deploy/openhpc-web.service /etc/systemd/system/o
 
 ## 技术栈
 
-单体轻量应用，Web 进程使用专用非 root 账户，特权操作通过最小权限 helper 委托，模块化组件可复用
+单体轻量应用，默认使用专用非 root 账户，也支持在明确需要系统权限时以 root 运行；模块化组件可复用
 
 - Golang、Echo
 - HTMX

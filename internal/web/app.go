@@ -51,6 +51,7 @@ type Config struct {
 	JobOutputRoots      []string
 	AccountingProvider  cluster.AccountingProvider
 	AssociationProvider cluster.AssociationProvider
+	CoreHourProvider    cluster.CoreHourProvider
 }
 
 type application struct {
@@ -68,6 +69,7 @@ type application struct {
 	jobOutputSlots      chan struct{}
 	accountingProvider  cluster.AccountingProvider
 	associationProvider cluster.AssociationProvider
+	coreHourProvider    cluster.CoreHourProvider
 	templates           *template.Template
 	audit               *platform.AuditStore
 	sessions            *sessionStore
@@ -155,6 +157,7 @@ func New(config Config) (http.Handler, error) {
 		jobOutputSlots:      makeJobOutputSlots(jobOutputRoots),
 		accountingProvider:  config.AccountingProvider,
 		associationProvider: config.AssociationProvider,
+		coreHourProvider:    config.CoreHourProvider,
 		templates:           templates,
 		audit:               audit,
 		sessions:            &sessionStore{tokens: map[string]sessionData{}},
@@ -199,12 +202,20 @@ func New(config Config) (http.Handler, error) {
 		return c.Redirect(http.StatusFound, "/slurm/accounts#associations")
 	})
 	protected.GET("/slurm/qos", app.slurmQoS)
+	protected.GET("/slurm/core-hours", func(c echo.Context) error {
+		period := c.QueryParam("period")
+		target := "/slurm/qos?view=core-hours"
+		if period != "" {
+			target += "&period=" + url.QueryEscape(period)
+		}
+		return c.Redirect(http.StatusFound, target)
+	})
 	protected.GET("/audit", app.auditLog)
 	protected.POST("/preferences/language", app.setLanguage)
 	protected.POST("/preferences/theme", app.setTheme)
 	protected.POST("/logout", app.logout)
 	for _, path := range []string{
-		"/ldap", "/slurm/config", "/slurm/users", "/slurm/core-hours",
+		"/ldap", "/slurm/config", "/slurm/users",
 		"/system/files", "/terminal", "/platform/users",
 	} {
 		protected.GET(path, app.modulePlaceholder)
@@ -354,25 +365,61 @@ func paginateAssociations(values []cluster.Association, page int) ([]cluster.Ass
 func (a *application) slurmQoS(c echo.Context) error {
 	lang := language(c)
 	labels := detailCopyFor(lang)
+	coreLabels := coreHourCopyFor(lang)
 	currentModule := moduleByPath("/slurm/qos", lang)
+	selectedView := c.QueryParam("view")
+	if selectedView == "" {
+		selectedView = "qos"
+	}
+	if selectedView != "qos" && selectedView != "core-hours" {
+		return echo.NewHTTPError(http.StatusBadRequest)
+	}
+	period, err := parseCoreHourPeriod(c.QueryParam("period"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest)
+	}
 	var qos []cluster.QoS
+	var coreHours cluster.CoreHourSummary
 	available := false
-	if a.accountingProvider != nil {
+	if selectedView == "qos" && a.accountingProvider != nil {
 		liveQoS, err := a.accountingProvider.QoS(c.Request().Context())
 		if err != nil {
 			log.Printf("Slurm QoS snapshot failed")
 		} else {
 			qos, available = liveQoS, true
 		}
+	} else if selectedView == "core-hours" && a.coreHourProvider != nil {
+		liveCoreHours, err := a.coreHourProvider.CoreHours(c.Request().Context(), period)
+		if err != nil {
+			log.Printf("Slurm core-hour snapshot failed")
+		} else {
+			coreHours, available = liveCoreHours, true
+		}
+	}
+	refreshPath := currentModule.Path
+	if selectedView == "core-hours" {
+		refreshPath += "?view=core-hours&period=" + string(period)
 	}
 	view := qosView{
 		appChrome: a.newAppChrome(c, currentModule.Path, available, pageHeading{
 			Eyebrow: "OPENHPC / SLURM", Title: currentModule.Label, Description: labels.LiveData,
-			RefreshPath: currentModule.Path, RefreshLabel: labels.Refresh,
+			RefreshPath: refreshPath, RefreshLabel: labels.Refresh,
 		}),
-		Module: currentModule, Labels: labels, QoS: qos,
+		Module: currentModule, Labels: labels, QoS: qos, ShowCoreHours: selectedView == "core-hours",
+		CoreLabels: coreLabels, CoreHours: newCoreHourSummaryView(coreHours), SelectedPeriod: period,
 	}
 	return a.render(c, http.StatusOK, "qos.html", view)
+}
+
+func parseCoreHourPeriod(value string) (cluster.CoreHourPeriod, error) {
+	if value == "" || value == string(cluster.CoreHourPeriod24Hours) {
+		return cluster.CoreHourPeriod24Hours, nil
+	}
+	period := cluster.CoreHourPeriod(value)
+	if period != cluster.CoreHourPeriod7Days && period != cluster.CoreHourPeriod30Days {
+		return "", errors.New("invalid core-hour period")
+	}
+	return period, nil
 }
 
 func (a *application) slurmNodes(c echo.Context) error {

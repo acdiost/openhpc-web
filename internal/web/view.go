@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"strconv"
 	"time"
 
@@ -105,9 +106,65 @@ type accountsView struct {
 }
 type qosView struct {
 	appChrome
-	Module module
-	Labels detailCopy
-	QoS    []cluster.QoS
+	Module         module
+	Labels         detailCopy
+	QoS            []cluster.QoS
+	ShowCoreHours  bool
+	CoreLabels     coreHourCopy
+	CoreHours      coreHourSummaryView
+	SelectedPeriod cluster.CoreHourPeriod
+}
+
+type coreHourCopy struct {
+	QoSTab, CoreHoursTab, Period24Hours, Period7Days, Period30Days string
+	AllocatedCoreHours, Allocations, ByAccount, ByUser, Name       string
+	Definition, Empty                                              string
+}
+
+type coreHourGroupView struct {
+	Name, CoreHours string
+	AllocationCount int
+}
+
+type coreHourSummaryView struct {
+	CoreHours       string
+	AllocationCount int
+	Accounts        []coreHourGroupView
+	Users           []coreHourGroupView
+}
+
+func coreHourCopyFor(language string) coreHourCopy {
+	if language == "en" {
+		return coreHourCopy{
+			QoSTab: "QoS", CoreHoursTab: "Core-hour statistics", Period24Hours: "Past 24 hours", Period7Days: "Past 7 days", Period30Days: "Past 30 days",
+			AllocatedCoreHours: "Allocated CPU core-hours", Allocations: "Allocations", ByAccount: "By account", ByUser: "By user", Name: "Name",
+			Definition: "Allocated CPUs multiplied by wall-clock time within the selected window. GPU/TRES billing and actual CPU utilization are excluded.", Empty: "No CPU allocations reported",
+		}
+	}
+	return coreHourCopy{
+		QoSTab: "QoS", CoreHoursTab: "核时统计", Period24Hours: "过去 24 小时", Period7Days: "过去 7 天", Period30Days: "过去 30 天",
+		AllocatedCoreHours: "分配 CPU 核时", Allocations: "作业分配数", ByAccount: "按账户", ByUser: "按用户", Name: "名称",
+		Definition: "分配 CPU 数乘以所选时间窗口内的墙钟占用时间；不包含 GPU/TRES 计费，也不代表 CPU 实际利用率。", Empty: "所选周期内没有 CPU allocation",
+	}
+}
+
+func newCoreHourSummaryView(summary cluster.CoreHourSummary) coreHourSummaryView {
+	return coreHourSummaryView{
+		CoreHours: formatCoreHours(summary.CoreSeconds), AllocationCount: summary.AllocationCount,
+		Accounts: newCoreHourGroupViews(summary.Accounts), Users: newCoreHourGroupViews(summary.Users),
+	}
+}
+
+func newCoreHourGroupViews(values []cluster.CoreHourGroup) []coreHourGroupView {
+	result := make([]coreHourGroupView, len(values))
+	for index, value := range values {
+		result[index] = coreHourGroupView{Name: value.Name, CoreHours: formatCoreHours(value.CoreSeconds), AllocationCount: value.AllocationCount}
+	}
+	return result
+}
+
+func formatCoreHours(coreSeconds int64) string {
+	return fmt.Sprintf("%.2f", float64(coreSeconds)/3600)
 }
 
 type nodesView struct {

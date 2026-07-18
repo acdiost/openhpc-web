@@ -21,8 +21,8 @@ import (
 )
 
 func main() {
-	if os.Geteuid() == 0 {
-		log.Fatal("OpenHPC Web must not run as root; use a least-privilege service account")
+	if warning := runtimeUserWarning(os.Geteuid()); warning != "" {
+		log.Print(warning)
 	}
 	username := os.Getenv("OPENHPC_ADMIN_USERNAME")
 	password := os.Getenv("OPENHPC_ADMIN_PASSWORD")
@@ -52,13 +52,14 @@ func main() {
 	var jobResourceProvider cluster.JobResourceProvider
 	var accountingProvider cluster.AccountingProvider
 	var associationProvider cluster.AssociationProvider
+	var coreHourProvider cluster.CoreHourProvider
 	if slurmEnabled {
 		client, clientErr := slurm.New(slurmConfig)
 		err = clientErr
 		if err != nil {
 			log.Fatalf("initialize Slurm integration: %v", err)
 		}
-		metricsProvider, nodeProvider, partitionProvider, jobProvider, jobResourceProvider, accountingProvider, associationProvider = client, client, client, client, client, client, client
+		metricsProvider, nodeProvider, partitionProvider, jobProvider, jobResourceProvider, accountingProvider, associationProvider, coreHourProvider = client, client, client, client, client, client, client, client
 	}
 	handler, err := web.New(web.Config{
 		AdminUsername:       username,
@@ -74,6 +75,7 @@ func main() {
 		JobOutputRoots:      jobOutputRoots,
 		AccountingProvider:  accountingProvider,
 		AssociationProvider: associationProvider,
+		CoreHourProvider:    coreHourProvider,
 	})
 	if err != nil {
 		log.Fatalf("initialize server: %v", err)
@@ -110,6 +112,13 @@ func main() {
 	if err := server.Shutdown(ctx); err != nil {
 		log.Printf("shutdown: %v", err)
 	}
+}
+
+func runtimeUserWarning(euid int) string {
+	if euid != 0 {
+		return ""
+	}
+	return "WARNING: OpenHPC Web is running as root; Slurm subprocesses and file reads inherit elevated access. Prefer a least-privilege service account when possible and retain all service hardening."
 }
 
 func parseSlurmConfigFromEnv() (bool, slurm.Config, error) {

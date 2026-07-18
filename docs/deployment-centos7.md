@@ -1,13 +1,13 @@
 # CentOS 7 部署指南
 
-本文档用于将 OpenHPC Web 部署到 Slurm 管理节点。当前验证环境为 CentOS 7、Slurm 25.05.4，服务监听 loopback 地址，并通过固定的 `sinfo`、`squeue`、`sstat`、`sacctmgr` 命令读取集群和作业资源数据。
+本文档用于将 OpenHPC Web 部署到 Slurm 管理节点。当前验证环境为 CentOS 7、Slurm 25.05.4，服务监听 loopback 地址，并通过固定的 `sinfo`、`squeue`、`sacct`、`sstat`、`sacctmgr` 命令读取集群和作业资源数据。
 
 ## 1. 部署原则
 
-- Web 服务使用专用的非 root 账户 `openhpc-web`。
+- Web 服务默认使用专用的非 root 账户 `openhpc-web`；也允许按需以 root 运行，并在启动日志中输出警告。
 - Web 服务不通过 SSH root 调用 Slurm，也不直接修改 Slurm 数据库。
 - `/etc/openhpc-web/openhpc-web.env` 必须为 `root:root 0600`。
-- `/var/lib/openhpc-web` 必须为 `openhpc-web:openhpc-web 0700`。
+- `/var/lib/openhpc-web` 必须为运行账户持有且权限为 `0700`；默认部署为 `openhpc-web:openhpc-web 0700`，root 模式为 `root:root 0700`。
 - 首次访问使用 SSH 端口转发；公网或局域网发布前必须增加 TLS 反向代理。
 
 ## 2. 验证服务账户
@@ -23,6 +23,9 @@ runuser -u openhpc-web -- /usr/local/bin/sinfo \
 runuser -u openhpc-web -- /usr/local/bin/squeue \
   --json
 
+runuser -u openhpc-web -- /usr/local/bin/sacct \
+  --json --allocations --allusers --starttime=today --endtime=now
+
 # 将 32943 替换为 openhpc-web 账号拥有的运行中作业 ID。
 runuser -u openhpc-web -- /usr/local/bin/sstat \
   --jobs=32943 --allsteps --noheader --parsable2 \
@@ -36,9 +39,11 @@ runuser -u openhpc-web -- /usr/local/bin/sacctmgr \
   --json show qos
 ```
 
-除 `sstat` 外的五个 Slurm 命令都必须成功。Web 进程不需要 root、SlurmUser 或 MariaDB 直连权限；账户、用户和 QoS 页面只读取 SlurmDBD 已授权返回的数据。
+除 `sstat` 外的六个 Slurm 命令都必须成功。默认 Web 进程不需要 root、SlurmUser 或 MariaDB 直连权限；账户、用户、QoS 和核时页面只读取 SlurmDBD 已授权返回的数据。
 
-`sstat` 的 step RPC 通常校验调用者 UID。服务账号只能可靠查询自己拥有的作业；查询其他用户作业可能返回 `Invalid user id`。不要为此把整个 Web 服务改为 root 或 SlurmUser。跨用户实时资源查看需要独立的、参数受限的 SlurmUser broker，并应保留 Web 服务的 `NoNewPrivileges=true` 防护。
+`sstat` 的 step RPC 通常校验调用者 UID。服务账号只能可靠查询自己拥有的作业；查询其他用户作业可能返回 `Invalid user id`。以 root 运行可提供跨用户查询，但这会扩大 Slurm 子进程及文件读取权限，应保留 `NoNewPrivileges=true`、loopback 监听和命令路径校验等防护。
+
+核时页面的统计口径为 allocation 分配 CPU 数乘以所选窗口内墙钟占用时间，仅支持过去 24 小时、7 天和 30 天。该值不是 CPU 实际利用时间，也不包含 GPU/TRES 计费。
 
 “节点与分区”页面中的分区容量由 `sinfo --Node --json` 节点记录聚合，不会额外执行 Slurm 命令。可将页面中的分区节点数、CPU 总量与 `sinfo` 输出交叉核对；同一节点属于多个分区时，会分别计入各自分区。
 
@@ -108,6 +113,27 @@ install -o root -g root -m 0644 \
   /tmp/openhpc-web.service \
   /etc/systemd/system/openhpc-web.service
 ```
+
+如确需以 root 运行，先调整状态目录属主，再使用 systemd 覆盖配置变更运行账户：
+
+```bash
+chown root:root /var/lib/openhpc-web
+chmod 0700 /var/lib/openhpc-web
+
+systemctl edit openhpc-web
+```
+
+在编辑器中写入：
+
+```ini
+[Service]
+User=root
+Group=root
+CapabilityBoundingSet=
+AmbientCapabilities=
+```
+
+默认服务模板保持非特权账户；root 模式清空 capability 集，并仍保留模板中的 `NoNewPrivileges=true`、`PrivateTmp=true`、`ProtectSystem=full` 和 `ProtectHome=true`。除非确有受限文件预览需求，否则保持 `OPENHPC_JOB_OUTPUT_ROOTS` 为空。
 
 ## 5. 配置环境文件
 
@@ -377,6 +403,8 @@ runuser -u openhpc-web -- /usr/local/bin/sinfo \
   --Node --json
 runuser -u openhpc-web -- /usr/local/bin/squeue \
   --json
+runuser -u openhpc-web -- /usr/local/bin/sacct \
+  --json --allocations --allusers --starttime=today --endtime=now
 runuser -u openhpc-web -- /usr/local/bin/sstat \
   --jobs=32943 --allsteps --noheader --parsable2 \
   --format=JobID,AveCPU,AveRSS,MaxRSS,AveVMSize,MaxVMSize,TRESUsageInTot
@@ -389,7 +417,7 @@ runuser -u openhpc-web -- /usr/local/bin/sacctmgr \
 journalctl -u openhpc-web -n 50 --no-pager
 ```
 
-确认 `/usr/local/bin/sinfo`、`/usr/local/bin/squeue`、`/usr/local/bin/sstat`、`/usr/local/bin/sacctmgr` 及其父目录均由 root 持有，并且 group/other 不可写。应用会拒绝符号链接或可被普通用户替换的命令路径。
+确认 `/usr/local/bin/sinfo`、`/usr/local/bin/squeue`、`/usr/local/bin/sacct`、`/usr/local/bin/sstat`、`/usr/local/bin/sacctmgr` 及其父目录均由 root 持有，并且 group/other 不可写。应用会拒绝符号链接或可被普通用户替换的命令路径。
 
 ### 服务启动但无法访问
 
