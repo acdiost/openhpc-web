@@ -1,6 +1,8 @@
 package slurm
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -13,8 +15,9 @@ import (
 )
 
 const (
-	sstatFieldCount = 7
-	maxSstatSteps   = 1024
+	sstatFieldCount    = 7
+	maxSstatSteps      = 1024
+	maxSstatLineLength = 8 * maxDetailFieldLength
 )
 
 func (c *Client) JobResourceUsage(parent context.Context, id int64) (cluster.JobResourceUsage, error) {
@@ -29,8 +32,7 @@ func (c *Client) JobResourceUsage(parent context.Context, id int64) (cluster.Job
 		"--allsteps",
 		"--noheader",
 		"--parsable2",
-		"--units=K",
-		"--format=JobID,AveCPU,TotalCPU,AveRSS,MaxRSS,AveVMSize,MaxVMSize",
+		"--format=JobID,AveCPU,AveRSS,MaxRSS,AveVMSize,MaxVMSize,TRESUsageInTot",
 	)
 	if err != nil {
 		return cluster.JobResourceUsage{}, fmt.Errorf("read Slurm job resources: %w", err)
@@ -47,16 +49,15 @@ func parseSstat(output []byte, id int64, sampledAt time.Time) (cluster.JobResour
 	usage := cluster.JobResourceUsage{
 		JobID: jobID, SampledAt: sampledAt.UTC().Format(time.RFC3339), Steps: []cluster.JobResourceStep{},
 	}
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	if len(lines) == 1 && strings.TrimSpace(lines[0]) == "" {
-		return usage, nil
-	}
-	if len(lines) > maxSstatSteps {
-		return cluster.JobResourceUsage{}, errors.New("sstat step count exceeds maximum")
-	}
-	steps := make([]cluster.JobResourceStep, 0, len(lines))
-	for _, line := range lines {
-		fields := strings.Split(strings.TrimSuffix(strings.TrimSpace(line), "|"), "|")
+	steps := make([]cluster.JobResourceStep, 0)
+	scanner := bufio.NewScanner(bytes.NewReader(output))
+	scanner.Buffer(make([]byte, 1024), maxSstatLineLength)
+	for scanner.Scan() {
+		if len(steps) == maxSstatSteps {
+			return cluster.JobResourceUsage{}, errors.New("sstat step count exceeds maximum")
+		}
+		line := strings.TrimSuffix(scanner.Text(), "\r")
+		fields := strings.Split(line, "|")
 		if len(fields) != sstatFieldCount {
 			return cluster.JobResourceUsage{}, errors.New("sstat row has unexpected field count")
 		}
@@ -75,22 +76,26 @@ func parseSstat(output []byte, id int64, sampledAt time.Time) (cluster.JobResour
 		if err != nil {
 			return cluster.JobResourceUsage{}, err
 		}
-		totalCPUSeconds, err := parseSstatDuration(fields[2])
+		totalCPU, err := parseSstatTRESCPU(fields[6])
+		if err != nil {
+			return cluster.JobResourceUsage{}, err
+		}
+		totalCPUSeconds, err := parseSstatDuration(totalCPU)
 		if err != nil {
 			return cluster.JobResourceUsage{}, err
 		}
 		sizes := make([]int64, 4)
 		for index := range sizes {
-			sizes[index], err = parseSstatSize(fields[index+3])
+			sizes[index], err = parseSstatSize(fields[index+2])
 			if err != nil {
 				return cluster.JobResourceUsage{}, err
 			}
 		}
 		step := cluster.JobResourceStep{
 			Step: stepName, AveCPU: strings.TrimSpace(fields[1]), AveCPUSeconds: aveCPUSeconds,
-			TotalCPU: strings.TrimSpace(fields[2]), TotalCPUSeconds: totalCPUSeconds,
-			AveRSS: strings.TrimSpace(fields[3]), AveRSSBytes: sizes[0], MaxRSS: strings.TrimSpace(fields[4]), MaxRSSBytes: sizes[1],
-			AveVMSize: strings.TrimSpace(fields[5]), AveVMSizeBytes: sizes[2], MaxVMSize: strings.TrimSpace(fields[6]), MaxVMSizeBytes: sizes[3],
+			TotalCPU: totalCPU, TotalCPUSeconds: totalCPUSeconds,
+			AveRSS: strings.TrimSpace(fields[2]), AveRSSBytes: sizes[0], MaxRSS: strings.TrimSpace(fields[3]), MaxRSSBytes: sizes[1],
+			AveVMSize: strings.TrimSpace(fields[4]), AveVMSizeBytes: sizes[2], MaxVMSize: strings.TrimSpace(fields[5]), MaxVMSizeBytes: sizes[3],
 		}
 		if totalCPUSeconds > math.MaxInt64-usage.TotalCPUSeconds {
 			return cluster.JobResourceUsage{}, errors.New("sstat CPU time exceeds supported range")
@@ -101,8 +106,28 @@ func parseSstat(output []byte, id int64, sampledAt time.Time) (cluster.JobResour
 		}
 		steps = append(steps, step)
 	}
+	if err := scanner.Err(); err != nil {
+		return cluster.JobResourceUsage{}, fmt.Errorf("scan sstat output: %w", err)
+	}
 	usage.Steps = steps
 	return usage, nil
+}
+
+func parseSstatTRESCPU(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if isUnavailableSstatValue(value) {
+		return value, nil
+	}
+	if len(value) > maxDetailFieldLength {
+		return "", errors.New("sstat TRES usage exceeds maximum length")
+	}
+	for _, item := range strings.Split(value, ",") {
+		name, amount, found := strings.Cut(strings.TrimSpace(item), "=")
+		if found && name == "cpu" {
+			return strings.TrimSpace(amount), nil
+		}
+	}
+	return "", errors.New("sstat TRES usage does not include CPU time")
 }
 
 func parseSstatDuration(value string) (int64, error) {

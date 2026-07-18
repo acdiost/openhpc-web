@@ -23,10 +23,10 @@ runuser -u openhpc-web -- /usr/local/bin/sinfo \
 runuser -u openhpc-web -- /usr/local/bin/squeue \
   --json
 
-# 将 32943 替换为当前正在运行的作业 ID
+# 将 32943 替换为 openhpc-web 账号拥有的运行中作业 ID。
 runuser -u openhpc-web -- /usr/local/bin/sstat \
-  --jobs=32943 --allsteps --noheader --parsable2 --units=K \
-  --format=JobID,AveCPU,TotalCPU,AveRSS,MaxRSS,AveVMSize,MaxVMSize
+  --jobs=32943 --allsteps --noheader --parsable2 \
+  --format=JobID,AveCPU,AveRSS,MaxRSS,AveVMSize,MaxVMSize,TRESUsageInTot
 
 runuser -u openhpc-web -- /usr/local/bin/sacctmgr \
   --json show account WithAssoc
@@ -36,7 +36,9 @@ runuser -u openhpc-web -- /usr/local/bin/sacctmgr \
   --json show qos
 ```
 
-六个 Slurm 命令都必须成功。Web 进程不需要 root、sudo 或 MariaDB 直连权限；账户、用户和 QoS 页面只读取 SlurmDBD 已授权返回的数据。
+除 `sstat` 外的五个 Slurm 命令都必须成功。Web 进程不需要 root、SlurmUser 或 MariaDB 直连权限；账户、用户和 QoS 页面只读取 SlurmDBD 已授权返回的数据。
+
+`sstat` 的 step RPC 通常校验调用者 UID。服务账号只能可靠查询自己拥有的作业；查询其他用户作业可能返回 `Invalid user id`。不要为此把整个 Web 服务改为 root 或 SlurmUser。跨用户实时资源查看需要独立的、参数受限的 SlurmUser broker，并应保留 Web 服务的 `NoNewPrivileges=true` 防护。
 
 “节点与分区”页面中的分区容量由 `sinfo --Node --json` 节点记录聚合，不会额外执行 Slurm 命令。可将页面中的分区节点数、CPU 总量与 `sinfo` 输出交叉核对；同一节点属于多个分区时，会分别计入各自分区。
 
@@ -376,8 +378,8 @@ runuser -u openhpc-web -- /usr/local/bin/sinfo \
 runuser -u openhpc-web -- /usr/local/bin/squeue \
   --json
 runuser -u openhpc-web -- /usr/local/bin/sstat \
-  --jobs=32943 --allsteps --noheader --parsable2 --units=K \
-  --format=JobID,AveCPU,TotalCPU,AveRSS,MaxRSS,AveVMSize,MaxVMSize
+  --jobs=32943 --allsteps --noheader --parsable2 \
+  --format=JobID,AveCPU,AveRSS,MaxRSS,AveVMSize,MaxVMSize,TRESUsageInTot
 runuser -u openhpc-web -- /usr/local/bin/sacctmgr \
   --json show account WithAssoc
 runuser -u openhpc-web -- /usr/local/bin/sacctmgr \
