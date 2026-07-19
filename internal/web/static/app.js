@@ -143,23 +143,46 @@
     return (value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)) + ' ' + units[unit];
   };
 
-  var chartPoints = function (history, field) {
-    var maximum = history.reduce(function (current, sample) { return Math.max(current, sample[field]); }, 0) || 1;
-    return history.map(function (sample, index) {
-      var x = history.length === 1 ? 360 : index * 720 / (history.length - 1);
-      var y = 200 - sample[field] * 180 / maximum;
+  var chartPoints = function (samples, field) {
+    var values = samples.filter(function (sample) { return Number.isFinite(sample[field]); });
+    if (!values.length) return '';
+    var maximum = values.reduce(function (current, sample) { return Math.max(current, sample[field]); }, 0) || 1;
+    var firstTime = values[0].time;
+    var lastTime = values[values.length - 1].time;
+    var timeRange = lastTime > firstTime ? lastTime - firstTime : 0;
+    return values.map(function (sample, index) {
+      var x = timeRange ? 52 + (sample.time - firstTime) * 652 / timeRange : (values.length === 1 ? 378 : 52 + index * 652 / (values.length - 1));
+      var y = 120 - sample[field] * 100 / maximum;
       return x.toFixed(1) + ',' + y.toFixed(1);
     }).join(' ');
+  };
+
+  var chartMaximum = function (samples, field) {
+    return samples.reduce(function (current, sample) {
+      return Number.isFinite(sample[field]) ? Math.max(current, sample[field]) : current;
+    }, 0);
+  };
+
+  var renderResourceChart = function (line, axisMaximum, description, samples, field, formatter, empty) {
+    var maximum = chartMaximum(samples, field);
+    var hasSamples = samples.some(function (sample) { return Number.isFinite(sample[field]); });
+    line.setAttribute('points', chartPoints(samples, field));
+    axisMaximum.textContent = hasSamples ? formatter(maximum) : '—';
+    description.textContent = hasSamples ? formatter(maximum) : empty;
   };
 
   var renderResourceUsage = function (usage) {
     var cpu = resourceModal.querySelector('[data-resource-cpu]');
     var memory = resourceModal.querySelector('[data-resource-memory]');
     var sampled = resourceModal.querySelector('[data-resource-sampled]');
+    var cpuRate = resourceModal.querySelector('[data-resource-cpu-rate]');
     var cpuLine = resourceModal.querySelector('[data-resource-cpu-line]');
     var memoryLine = resourceModal.querySelector('[data-resource-memory-line]');
-    var chart = resourceModal.querySelector('[data-resource-chart]');
-    var chartDescription = resourceModal.querySelector('[data-resource-chart-description]');
+    var cpuAxisMaximum = resourceModal.querySelector('[data-resource-cpu-axis-max]');
+    var memoryAxisMaximum = resourceModal.querySelector('[data-resource-memory-axis-max]');
+    var cpuDescription = resourceModal.querySelector('[data-resource-cpu-chart-description]');
+    var memoryDescription = resourceModal.querySelector('[data-resource-memory-chart-description]');
+    var memoryCurrent = resourceModal.querySelector('[data-resource-memory-current]');
     var tableBody = resourceModal.querySelector('[data-sstat-body]');
     var sampledTime = new Date(usage.sampled_at).toLocaleTimeString();
     var cpuText = formatDuration(usage.total_cpu_seconds);
@@ -167,17 +190,27 @@
     cpu.textContent = cpuText;
     memory.textContent = memoryText;
     sampled.textContent = sampledTime;
+    var sampledAt = Date.parse(usage.sampled_at);
     resourceHistory = resourceHistory.concat([{
       cpu: usage.total_cpu_seconds,
-      memory: usage.max_rss_bytes
+      memory: usage.max_rss_bytes,
+      time: Number.isFinite(sampledAt) ? sampledAt : Date.now()
     }]).slice(-24);
-    cpuLine.setAttribute('points', chartPoints(resourceHistory, 'cpu'));
-    memoryLine.setAttribute('points', chartPoints(resourceHistory, 'memory'));
-    chart.setAttribute('data-sample-count', String(resourceHistory.length));
+    var cpuSamples = resourceHistory.map(function (sample, index) {
+      if (index === 0) return { time: sample.time, cores: NaN };
+      var previous = resourceHistory[index - 1];
+      var elapsedSeconds = (sample.time - previous.time) / 1000;
+      var deltaCPU = sample.cpu - previous.cpu;
+      return { time: sample.time, cores: elapsedSeconds > 0 && deltaCPU >= 0 ? deltaCPU / elapsedSeconds : NaN };
+    });
+    var latestCPU = cpuSamples[cpuSamples.length - 1].cores;
+    cpuRate.textContent = Number.isFinite(latestCPU) ? latestCPU.toFixed(latestCPU >= 10 ? 0 : 1) : '—';
+    memoryCurrent.textContent = memoryText;
+    renderResourceChart(cpuLine, cpuAxisMaximum, cpuDescription, cpuSamples, 'cores', function (value) { return value.toFixed(value >= 10 ? 0 : 1); }, resourceModal.getAttribute('data-resource-empty'));
+    renderResourceChart(memoryLine, memoryAxisMaximum, memoryDescription, resourceHistory, 'memory', formatBytes, resourceModal.getAttribute('data-resource-empty'));
     var resourceSummary = resourceModal.getAttribute('data-resource-sampled-label') + ' ' + sampledTime + '; ' +
       resourceModal.getAttribute('data-resource-cpu-label') + ' ' + cpuText + '; ' +
       resourceModal.getAttribute('data-resource-memory-label') + ' ' + memoryText;
-    chartDescription.textContent = resourceSummary;
     while (tableBody.firstChild) tableBody.removeChild(tableBody.firstChild);
     usage.steps.forEach(function (step) {
       var row = document.createElement('tr');

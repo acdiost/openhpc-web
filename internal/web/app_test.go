@@ -949,7 +949,7 @@ func TestPlatformUserIsRestrictedToOwnMenuAndJobs(t *testing.T) {
 	if err := store.Upsert(context.Background(), platform.PlatformUser{Username: "alice", PasswordHash: string(hash), Role: platform.RoleUser, Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	handler, err := New(Config{AdminUsername: testUsername, AdminPassword: testPassword, PlatformUsers: store, JobProvider: &stubJobProvider{jobs: []cluster.Job{{ID: "1", User: "alice"}, {ID: "2", User: "bob"}}}})
+	handler, err := New(Config{AdminUsername: testUsername, AdminPassword: testPassword, PlatformUsers: store, JobProvider: &stubJobProvider{jobs: []cluster.Job{{ID: "1", User: "alice"}, {ID: "2", User: "bob"}}}, JobCanceler: &stubJobCanceler{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -977,6 +977,8 @@ func TestPlatformUserIsRestrictedToOwnMenuAndJobs(t *testing.T) {
 	handler.ServeHTTP(jobs, request)
 	assertBodyContains(t, jobs, `data-job-detail="job-detail-1"`)
 	assertBodyNotContains(t, jobs, `data-job-detail="job-detail-2"`)
+	assertBodyContains(t, jobs, `action="/slurm/jobs/1/cancel"`)
+	assertBodyNotContains(t, jobs, `action="/slurm/jobs/2/cancel"`)
 }
 
 func TestResponsesIncludeSecurityHeaders(t *testing.T) {

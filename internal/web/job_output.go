@@ -257,14 +257,6 @@ func readJobOutput(ctx context.Context, job cluster.Job, stream string, roots []
 	return content, truncated, nil
 }
 
-func canViewJobOutputMetadata(job cluster.Job, path string, roots []jobOutputRoot) bool {
-	if !pathWithin(job.WorkDir, path) {
-		return false
-	}
-	_, _, found := matchingOutputRoot(roots, job.WorkDir, path)
-	return found
-}
-
 func matchingOutputRoot(roots []jobOutputRoot, workDir, path string) (jobOutputRoot, string, bool) {
 	selected := jobOutputRoot{}
 	selectedPath := ""

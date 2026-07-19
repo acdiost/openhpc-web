@@ -99,3 +99,7 @@ type JobProvider interface {
 type JobResourceProvider interface {
 	JobResourceUsage(context.Context, int64) (JobResourceUsage, error)
 }
+
+type JobCanceler interface {
+	CancelJob(context.Context, int64) error
+}

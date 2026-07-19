@@ -77,7 +77,7 @@ func New(config Config) (*Client, error) {
 			warning = func(message string) { log.Print(message) }
 		}
 		reportedWarnings := make(map[string]struct{})
-		for _, command := range []string{"sinfo", "squeue", "sacct", "sacctmgr", "sstat", "scontrol"} {
+		for _, command := range []string{"sinfo", "squeue", "sacct", "sacctmgr", "sstat", "scontrol", "scancel"} {
 			path := filepath.Join(config.BinaryDir, command)
 			warnings, err := validateSlurmExecutable(path)
 			if err != nil {

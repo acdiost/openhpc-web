@@ -84,6 +84,7 @@ func main() {
 	var partitionProvider cluster.PartitionProvider
 	var jobProvider cluster.JobProvider
 	var jobResourceProvider cluster.JobResourceProvider
+	var jobCanceler cluster.JobCanceler
 	var accountingProvider cluster.AccountingProvider
 	var associationProvider cluster.AssociationProvider
 	var coreHourProvider cluster.CoreHourProvider
@@ -103,7 +104,7 @@ func main() {
 		}
 		partitionAdmin = client
 		nodeAdmin = client
-		metricsProvider, nodeProvider, partitionProvider, jobProvider, jobResourceProvider, accountingProvider, associationProvider, coreHourProvider = client, client, client, client, client, client, client, client
+		metricsProvider, nodeProvider, partitionProvider, jobProvider, jobResourceProvider, jobCanceler, accountingProvider, associationProvider, coreHourProvider = client, client, client, client, client, client, client, client, client
 		configRoot := envOr("OPENHPC_SLURM_CONFIG_ROOT", "/usr/local/etc")
 		configProvider, configErr := slurmconfig.New(configRoot, 1<<20)
 		if configErr != nil {
@@ -129,6 +130,7 @@ func main() {
 		PartitionProvider:   partitionProvider,
 		JobProvider:         jobProvider,
 		JobResourceProvider: jobResourceProvider,
+		JobCanceler:         jobCanceler,
 		JobOutputRoots:      jobOutputRoots,
 		Warning:             func(message string) { log.Print(message) },
 		AccountingProvider:  accountingProvider,

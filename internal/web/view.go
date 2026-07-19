@@ -109,31 +109,31 @@ func slurmConfigCopyFor(language string) slurmConfigCopy {
 }
 
 type detailCopy struct {
-	Refresh, LiveData, EmptyNodes, EmptyJobs                 string
-	EmptyPartitions, PartitionStatus, NodeStatus             string
-	Node, Partition, State, CPUs, Memory, GRES, Availability string
-	OnlineNodes, TotalNodes, OfflineNodes, CPUUtilization    string
-	JobID, JobName, User, Account, Elapsed, TimeLimit        string
-	NodesOrReason, Online, Offline, NodeCount                string
-	BringNodeOnline, DownNode, DrainNode, NodeReason         string
-	Confirm                                                  string
-	JobDetails, BackToJobs, JobNotFound, Close               string
-	CPUCount, SubmitTime, StartTime, WorkDir                 string
-	EligibleTime, EndTime, Unknown                           string
-	StdOut, StdErr, Command, ViewContent                     string
-	OutputPreviewUnavailable, OutputLoading, OutputError     string
-	OutputPreview, OutputTruncated, Details, Actions         string
-	Resources, ResourceUsage, ResourceLoading, ResourceError string
-	ResourceEmpty, SampledAt, CPUTime, MaxRSS, ResourceTrend string
-	Step, AveCPU, TotalCPU, AveRSS, MaxVMSize                string
-	Accounts, Users, Description, Organization               string
-	Coordinators, Associations, AdminLevel                   string
-	AssociationDetails, AssociationID, Cluster               string
-	AccountLevel, AllPartitions, EmptyAssociations           string
-	AssociationUnavailable                                   string
-	PreviousPage, NextPage                                   string
-	DefaultAccount, DefaultWCKey, Priority, UsageFactor      string
-	MaxJobs, Unlimited                                       string
+	Refresh, LiveData, EmptyNodes, EmptyJobs                               string
+	EmptyPartitions, PartitionStatus, NodeStatus                           string
+	Node, Partition, State, CPUs, Memory, GRES, Availability               string
+	OnlineNodes, TotalNodes, OfflineNodes, CPUUtilization                  string
+	JobID, JobName, User, Account, Elapsed, TimeLimit                      string
+	NodesOrReason, Online, Offline, NodeCount                              string
+	BringNodeOnline, DownNode, DrainNode, NodeReason                       string
+	Confirm                                                                string
+	JobDetails, BackToJobs, JobNotFound, Close                             string
+	CPUCount, SubmitTime, StartTime, WorkDir                               string
+	EligibleTime, EndTime, Unknown                                         string
+	StdOut, StdErr, Command, ViewContent                                   string
+	OutputLoading, OutputError                                             string
+	OutputPreview, OutputTruncated, Details, Actions, Cancel               string
+	Resources, ResourceUsage, ResourceLoading, ResourceError               string
+	ResourceEmpty, SampledAt, CPUTime, CPUCoreUsage, MaxRSS, ResourceTrend string
+	Step, AveCPU, TotalCPU, AveRSS, MaxVMSize                              string
+	Accounts, Users, Description, Organization                             string
+	Coordinators, Associations, AdminLevel                                 string
+	AssociationDetails, AssociationID, Cluster                             string
+	AccountLevel, AllPartitions, EmptyAssociations                         string
+	AssociationUnavailable                                                 string
+	PreviousPage, NextPage                                                 string
+	DefaultAccount, DefaultWCKey, Priority, UsageFactor                    string
+	MaxJobs, Unlimited                                                     string
 }
 
 type partitionCopy struct {
@@ -293,16 +293,19 @@ type jobsView struct {
 	appChrome
 	Module     module
 	Labels     detailCopy
-	Jobs       []cluster.Job
+	Jobs       []jobView
 	JobDetails []jobModalView
 }
 
+type jobView struct {
+	cluster.Job
+	CanCancel bool
+}
+
 type jobModalView struct {
-	Labels        detailCopy
-	Job           cluster.Job
-	EndTime       string
-	CanViewStdOut bool
-	CanViewStdErr bool
+	Labels  detailCopy
+	Job     cluster.Job
+	EndTime string
 }
 
 type auditCopy struct {
@@ -435,14 +438,14 @@ func detailCopyFor(language string) detailCopy {
 			NodesOrReason: "Nodes / reason", Online: "Online", Offline: "Unavailable", NodeCount: "Node count",
 			BringNodeOnline: "Resume", DownNode: "Down", DrainNode: "Drain", NodeReason: "Reason", Confirm: "Confirm",
 			JobDetails: "Job details", BackToJobs: "Back to jobs", JobNotFound: "Job not found in the current queue", Close: "Close",
-			Resources: "Resources", ResourceUsage: "Live resource usage", ResourceLoading: "Loading sstat data...", ResourceError: "Resource data is temporarily unavailable",
-			ResourceEmpty: "No active sstat steps reported", SampledAt: "Sampled at", CPUTime: "CPU time", MaxRSS: "Maximum RSS", ResourceTrend: "Recent resource trend",
+			Resources: "View live resource usage", ResourceUsage: "Live resource usage", ResourceLoading: "Loading sstat data...", ResourceError: "Resource data is temporarily unavailable",
+			ResourceEmpty: "No active sstat steps reported", SampledAt: "Sampled at", CPUTime: "CPU time", CPUCoreUsage: "CPU usage (cores)", MaxRSS: "Maximum RSS", ResourceTrend: "Live resource trend",
 			Step: "Step", AveCPU: "Average CPU time", TotalCPU: "Total CPU time", AveRSS: "Average RSS", MaxVMSize: "Maximum virtual memory",
 			CPUCount: "CPU count", SubmitTime: "Submit time", StartTime: "Start time", WorkDir: "Working directory",
 			EligibleTime: "EligibleTime", EndTime: "EndTime", Unknown: "Unknown",
 			StdOut: "Standard output", StdErr: "Standard error", Command: "Submit command", ViewContent: "View content",
-			OutputPreviewUnavailable: "Output preview is not enabled", OutputLoading: "Loading output...", OutputError: "Output could not be loaded",
-			OutputPreview: "Output preview", OutputTruncated: "latest 256 KiB only", Details: "Details", Actions: "Actions",
+			OutputLoading: "Loading output...", OutputError: "Output could not be loaded",
+			OutputPreview: "Output preview", OutputTruncated: "latest 256 KiB only", Details: "View details", Actions: "Actions", Cancel: "Cancel job",
 			Accounts: "Accounts", Users: "Users", Description: "Description", Organization: "Organization", Coordinators: "Coordinators", Associations: "Associations", AdminLevel: "Admin level",
 			AssociationDetails: "Association details", AssociationID: "ID", Cluster: "Cluster", AccountLevel: "Account level", AllPartitions: "All partitions",
 			EmptyAssociations: "No associations reported", AssociationUnavailable: "Association data is temporarily unavailable",
@@ -459,14 +462,14 @@ func detailCopyFor(language string) detailCopy {
 		NodesOrReason: "节点 / 原因", Online: "在线", Offline: "不可用", NodeCount: "节点数",
 		BringNodeOnline: "恢复Resume", DownNode: "下线Down", DrainNode: "维护Drain", NodeReason: "操作原因", Confirm: "确认",
 		JobDetails: "作业详细信息", BackToJobs: "返回作业列表", JobNotFound: "当前队列中未找到该作业", Close: "关闭",
-		Resources: "资源", ResourceUsage: "实时资源消耗", ResourceLoading: "正在加载 sstat 数据...", ResourceError: "资源数据暂不可用",
-		ResourceEmpty: "sstat 暂无活动步骤数据", SampledAt: "采样时间", CPUTime: "CPU 时间", MaxRSS: "最大常驻内存", ResourceTrend: "近期资源趋势",
+		Resources: "查看实时资源占用", ResourceUsage: "实时资源占用", ResourceLoading: "正在加载 sstat 数据...", ResourceError: "资源数据暂不可用",
+		ResourceEmpty: "sstat 暂无活动步骤数据", SampledAt: "采样时间", CPUTime: "CPU 时间", CPUCoreUsage: "CPU 占用（核）", MaxRSS: "最大常驻内存", ResourceTrend: "实时资源趋势",
 		Step: "步骤", AveCPU: "平均 CPU 时间", TotalCPU: "总 CPU 时间", AveRSS: "平均常驻内存", MaxVMSize: "最大虚拟内存",
 		CPUCount: "CPU数", SubmitTime: "提交时间", StartTime: "开始时间", WorkDir: "工作目录",
 		EligibleTime: "可调度时间", EndTime: "结束时间", Unknown: "未知",
 		StdOut: "标准输出", StdErr: "标准错误", Command: "提交命令", ViewContent: "查看内容",
-		OutputPreviewUnavailable: "未启用输出内容预览", OutputLoading: "正在加载输出...", OutputError: "无法加载输出内容",
-		OutputPreview: "输出内容", OutputTruncated: "仅显示末尾 256 KiB", Details: "详情", Actions: "操作",
+		OutputLoading: "正在加载输出...", OutputError: "无法加载输出内容",
+		OutputPreview: "输出内容", OutputTruncated: "仅显示末尾 256 KiB", Details: "查看详情", Actions: "操作", Cancel: "取消作业",
 		Accounts: "账户", Users: "用户", Description: "描述", Organization: "组织", Coordinators: "协调员", Associations: "关联数", AdminLevel: "管理员级别",
 		AssociationDetails: "关联明细", AssociationID: "ID", Cluster: "集群", AccountLevel: "账户级", AllPartitions: "全部分区",
 		EmptyAssociations: "暂无关联记录", AssociationUnavailable: "关联数据暂不可用",

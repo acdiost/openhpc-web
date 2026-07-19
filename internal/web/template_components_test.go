@@ -111,7 +111,7 @@ func TestJobResourceScriptPollsAndCancelsWithModalLifecycle(t *testing.T) {
 	}
 	script := string(contents)
 	for _, expected := range []string{
-		"[data-job-resource]", "/resources", "setTimeout", "clearTimeout", "AbortController", "data-resource-chart",
+		"[data-job-resource]", "/resources", "setTimeout", "clearTimeout", "AbortController", "data-resource-cpu-chart", "data-resource-memory-chart", "elapsedSeconds", "deltaCPU", "data-resource-cpu-axis-max", "hasSamples",
 	} {
 		if !strings.Contains(script, expected) {
 			t.Errorf("app.js does not contain %q", expected)

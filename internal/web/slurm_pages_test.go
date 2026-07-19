@@ -40,7 +40,7 @@ func TestSlurmJobsPageShowsLiveEscapedData(t *testing.T) {
 	response := getAuthenticated(t, handler, "/slurm/jobs", "zh")
 	assertStatus(t, response, http.StatusOK)
 	for _, value := range []string{
-		"作业管理", "分区", "CPU数", "操作", "详情", "32943", "&lt;script&gt;Emilia&lt;/script&gt;", "liyuxiang(10001)", "GPU&lt;fast&gt;", "RUNNING", "node31", "16",
+		"作业管理", "分区", "CPU数", "操作", "查看详情", "查看实时资源占用", "实时资源占用", "32943", "&lt;script&gt;Emilia&lt;/script&gt;", "liyuxiang(10001)", "GPU&lt;fast&gt;", "RUNNING", "node31", "16",
 		"作业详细信息", "提交时间", "可调度时间=2026-07-18T13:34:41", "开始时间", "结束时间=未知", "工作目录",
 		"标准输出", "标准错误", "提交命令", "/home/liyuxiangjfzx/work/PVA-MPN/20/md_gpu.slurm", "查看内容",
 	} {
@@ -53,19 +53,39 @@ func TestSlurmJobsPageShowsLiveEscapedData(t *testing.T) {
 	assertBodyContains(t, response, `data-job-detail="job-detail-32943"`)
 	assertBodyContains(t, response, `aria-haspopup="dialog"`)
 	assertBodyContains(t, response, `aria-controls="job-detail-modal"`)
-	assertBodyContains(t, response, `aria-label="详情: 32943"`)
+	assertBodyContains(t, response, `aria-label="查看详情: 32943"`)
 	assertBodyContains(t, response, `aria-label="关闭"`)
 	assertBodyContains(t, response, `<tr><td><strong>32943</strong></td>`)
 	assertBodyContains(t, response, `class="job-detail-button"`)
 	assertBodyContains(t, response, `class="job-resource-button"`)
 	assertBodyContains(t, response, `data-job-resource="32943"`)
+	assertBodyContains(t, response, `aria-label="查看实时资源占用: 32943"`)
 	assertBodyContains(t, response, `<dialog id="job-resource-modal"`)
-	assertBodyContains(t, response, `data-resource-chart`)
+	assertBodyContains(t, response, `data-resource-cpu-chart`)
+	assertBodyContains(t, response, `data-resource-memory-chart`)
 	assertBodyContains(t, response, `data-sstat-table`)
 	assertBodyNotContains(t, response, `href="/slurm/jobs/32943"`)
 	if count := strings.Count(response.Body.String(), `<dialog id="job-detail-modal"`); count != 1 {
 		t.Errorf("job detail dialogs = %d, want 1", count)
 	}
+}
+
+func TestSlurmJobsPageRendersCancelForAdminCrossUserJob(t *testing.T) {
+	jobs := &stubJobProvider{jobs: []cluster.Job{{ID: "32943", User: "alice"}}}
+	handler, err := New(Config{
+		AdminUsername: testUsername, AdminPassword: testPassword,
+		JobProvider: jobs, JobCanceler: &stubJobCanceler{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupHandler(t, handler)
+
+	response := getAuthenticated(t, handler, "/slurm/jobs", "zh")
+	assertStatus(t, response, http.StatusOK)
+	assertBodyContains(t, response, `action="/slurm/jobs/32943/cancel"`)
+	assertBodyContains(t, response, `class="job-cancel-button"`)
+	assertBodyContains(t, response, `aria-label="取消作业: 32943"`)
 }
 
 func TestSlurmJobDetailHasNoStandalonePage(t *testing.T) {

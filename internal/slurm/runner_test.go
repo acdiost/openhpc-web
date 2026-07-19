@@ -138,6 +138,7 @@ func TestNewDefaultRunnerValidatesCommands(t *testing.T) {
 	}{
 		{name: "missing sinfo", fileModes: map[string]os.FileMode{}, wantError: true, wantCommand: "sinfo"},
 		{name: "missing squeue", fileModes: map[string]os.FileMode{"sinfo": 0o700}, wantError: true},
+		{name: "missing scancel", fileModes: map[string]os.FileMode{"sinfo": 0o700, "squeue": 0o700, "sacct": 0o700, "sacctmgr": 0o700, "sstat": 0o700, "scontrol": 0o700}, wantError: true, wantCommand: "scancel"},
 		{name: "non-executable sinfo", fileModes: map[string]os.FileMode{"sinfo": 0o600, "squeue": 0o700}, wantError: true, wantCommand: "sinfo"},
 		{name: "non-executable squeue", fileModes: map[string]os.FileMode{"sinfo": 0o700, "squeue": 0o600}, wantError: true},
 	}
@@ -176,7 +177,7 @@ func TestNewDefaultRunnerValidatesCommands(t *testing.T) {
 
 func TestNewDefaultRunnerAllowsOwnerAndWritableRisksWithWarnings(t *testing.T) {
 	directory := t.TempDir()
-	for _, command := range []string{"sinfo", "squeue", "sacct", "sacctmgr", "sstat", "scontrol"} {
+	for _, command := range []string{"sinfo", "squeue", "sacct", "sacctmgr", "sstat", "scontrol", "scancel"} {
 		path := filepath.Join(directory, command)
 		if err := os.WriteFile(path, []byte("test"), 0o700); err != nil {
 			t.Fatal(err)

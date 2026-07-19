@@ -70,20 +70,21 @@ export OPENHPC_JOB_OUTPUT_ROOTS=
 /usr/local/bin/squeue --json
 /usr/local/bin/sacct --json --allocations --allusers --starttime=<generated> --endtime=<generated>
 /usr/local/bin/sstat --jobs=32943 --allsteps --noheader --parsable2 --format=JobID,AveCPU,AveRSS,MaxRSS,AveVMSize,MaxVMSize,TRESUsageInTot
+/usr/local/bin/scancel 32943
 /usr/local/bin/sacctmgr --json show account WithAssoc
 /usr/local/bin/sacctmgr --json show user WithAssoc
 /usr/local/bin/sacctmgr --json show qos
 ```
 
-命令通过 `exec.CommandContext` 直接执行，固定 C locale，禁止 shell 和调用方自定义参数。适配器只解析页面所需字段。读取失败时保留页面和导航，但将实时数据标记为不可用。各类快照使用独立的 10 秒缓存与并发合并边界。节点状态由 `sinfo --Node --json` 缓存驱动，分区管理页支持勾选节点创建或更新分区定义，并将结果持久化到 SQLite 以便 Slurm 重启后快速恢复。作业资源弹窗每 5 秒串行采样一次 `sstat`，服务端最多同时执行 4 个资源采样，并展示总 CPU 时间、最大 RSS、近期曲线和 step 明细。核时统计内嵌在“QoS 与核时”页面，仅支持过去 24 小时、7 天和 30 天三个固定周期；口径为 allocation 分配 CPU 数乘以窗口内墙钟占用时间，不代表实际 CPU 利用率，也不包含 GPU/TRES 计费。
+命令通过 `exec.CommandContext` 直接执行，固定 C locale，禁止 shell 和调用方自定义参数。适配器只解析页面所需字段。读取失败时保留页面和导航，但将实时数据标记为不可用。各类快照使用独立的 10 秒缓存与并发合并边界。节点状态由 `sinfo --Node --json` 缓存驱动，分区管理页支持勾选节点创建或更新分区定义，并将结果持久化到 SQLite 以便 Slurm 重启后快速恢复。作业资源弹窗每 5 秒串行采样一次 `sstat`，将累计 CPU 时间换算为 CPU 核数趋势，并独立展示最大 RSS 趋势和 step 明细。核时统计内嵌在“QoS 与核时”页面，仅支持过去 24 小时、7 天和 30 天三个固定周期；口径为 allocation 分配 CPU 数乘以窗口内墙钟占用时间，不代表实际 CPU 利用率，也不包含 GPU/TRES 计费。
 
-作业详情中的输出预览默认关闭。配置 `OPENHPC_JOB_OUTPUT_ROOTS` 后，服务端仅接受作业 ID 与 `stdout`/`stderr` 类型，文件路径由当前 Slurm 作业元数据决定；文件必须位于允许根目录及作业工作目录内，并且是非符号链接普通文件。文件 UID 与作业用户不一致不会阻断读取，是否可读由进程权限决定；启用该功能时启动日志会输出风险 WARNING。接口只返回最新 256 KiB 纯文本。
+作业详情始终显示标准输出和标准错误的查看按钮。配置 `OPENHPC_JOB_OUTPUT_ROOTS` 后，服务端才允许读取输出；未配置时请求会被拒绝。服务端仅接受作业 ID 与 `stdout`/`stderr` 类型，文件路径由当前 Slurm 作业元数据决定；文件必须位于允许根目录及作业工作目录内，并且是非符号链接普通文件。平台管理员可以查看任意作业输出，普通用户只能查看自己的作业输出。文件 UID 与作业用户不一致不会阻断读取，是否可读由进程权限决定；启用该功能时启动日志会输出风险 WARNING。接口只返回最新 256 KiB 纯文本。
 
 `/slurm/config` 是只读配置文件浏览器，根目录由 `OPENHPC_SLURM_CONFIG_ROOT` 固定（默认 `/usr/local/etc`），不接受请求传入路径，不展开 Include。文件读取使用固定文件名、禁止符号链接和越界，单文件最多读取 1 MiB；密码、Token、Secret、AuthInfo 和 PrivateKey 等键值在页面中显示为 `REDACTED`。
 
 ## 平台用户与权限
 
-管理员使用 `OPENHPC_ADMIN_USERNAME` 和 `OPENHPC_ADMIN_PASSWORD` 初始化或更新管理员账号；平台用户数据保存在 `OPENHPC_DATABASE_PATH` 的 SQLite 数据库中。管理员登录后可从“平台用户”页面创建、启用或停用账号，并分配“管理员”或“普通用户”角色。管理员可查看全部菜单；普通用户只能看到总览、自己的作业、文件管理和终端，作业详情、资源和输出接口也会在服务端按作业用户名再次校验。
+管理员使用 `OPENHPC_ADMIN_USERNAME` 和 `OPENHPC_ADMIN_PASSWORD` 初始化或更新管理员账号；平台用户数据保存在 `OPENHPC_DATABASE_PATH` 的 SQLite 数据库中。管理员登录后可从“平台用户”页面创建、启用或停用账号，并分配“管理员”或“普通用户”角色。管理员可查看全部菜单；普通用户只能看到总览、自己的作业、文件管理和终端，作业详情、资源和输出接口也会在服务端按作业用户名再次校验。作业取消固定执行 `scancel <job-id>`：平台管理员可代表 root 服务进程取消任意作业，其他用户只能取消其用户名与作业提交者一致的作业；授权、CSRF 校验和作业重新查询均在服务端执行。
 
 `sstat` 通常只允许作业所有者、root 或 SlurmUser 查询 step 数据。本程序固定以 root 运行，可满足集群的跨用户查询需求；部署时仍应评估该权限边界带来的风险。
 

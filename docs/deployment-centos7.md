@@ -33,6 +33,8 @@ test "$(id -u)" -eq 0
   --jobs=32943 --allsteps --noheader --parsable2 \
   --format=JobID,AveCPU,AveRSS,MaxRSS,AveVMSize,MaxVMSize,TRESUsageInTot
 
+/usr/local/bin/scancel 32943
+
 /usr/local/bin/sacctmgr \
   --json show account WithAssoc
 /usr/local/bin/sacctmgr \
@@ -41,7 +43,7 @@ test "$(id -u)" -eq 0
   --json show qos
 ```
 
-除 `sstat` 外的六个 Slurm 命令都必须成功。Web 进程以 root 运行，但账户、用户、QoS 和核时页面仍只读取 SlurmDBD 已授权返回的数据。
+除 `sstat` 外的七个 Slurm 命令都必须成功。Web 进程以 root 运行，但账户、用户、QoS 和核时页面仍只读取 SlurmDBD 已授权返回的数据。作业取消只使用固定的正整数作业 ID；平台管理员可代表 root 服务进程取消任意作业，其他用户只能取消自己提交的作业。
 
 `sstat` 的 step RPC 通常校验调用者 UID。以 root 运行可提供跨用户查询；程序不额外限制 root 的文件或 Slurm 权限，具体访问范围仍受 systemd sandbox 限制。
 
@@ -430,6 +432,7 @@ awk 'BEGIN{FS="="}
 /usr/local/bin/sstat \
   --jobs=32943 --allsteps --noheader --parsable2 \
   --format=JobID,AveCPU,AveRSS,MaxRSS,AveVMSize,MaxVMSize,TRESUsageInTot
+/usr/local/bin/scancel 32943
 /usr/local/bin/sacctmgr \
   --json show account WithAssoc
 /usr/local/bin/sacctmgr \
@@ -439,7 +442,7 @@ awk 'BEGIN{FS="="}
 journalctl -u openhpc-web -n 50 --no-pager
 ```
 
-建议 `/usr/local/bin/sinfo`、`/usr/local/bin/squeue`、`/usr/local/bin/sacct`、`/usr/local/bin/sstat`、`/usr/local/bin/sacctmgr` 及其父目录由 root 持有且 group/other 不可写。属主或可写位异常时应用只输出 WARNING；缺失、符号链接、非普通文件或无执行位仍会拒绝初始化。
+建议 `/usr/local/bin/sinfo`、`/usr/local/bin/squeue`、`/usr/local/bin/sacct`、`/usr/local/bin/sstat`、`/usr/local/bin/scancel`、`/usr/local/bin/sacctmgr` 及其父目录由 root 持有且 group/other 不可写。属主或可写位异常时应用只输出 WARNING；缺失、符号链接、非普通文件或无执行位仍会拒绝初始化。
 
 ### 服务启动但无法访问
 

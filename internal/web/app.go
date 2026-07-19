@@ -52,6 +52,7 @@ type Config struct {
 	PartitionProvider   cluster.PartitionProvider
 	JobProvider         cluster.JobProvider
 	JobResourceProvider cluster.JobResourceProvider
+	JobCanceler         cluster.JobCanceler
 	JobOutputRoots      []string
 	Warning             func(string)
 	AccountingProvider  cluster.AccountingProvider
@@ -75,6 +76,7 @@ type application struct {
 	partitionProvider   cluster.PartitionProvider
 	jobProvider         cluster.JobProvider
 	jobResourceProvider cluster.JobResourceProvider
+	jobCanceler         cluster.JobCanceler
 	jobResourceSlots    chan struct{}
 	jobOutputRoots      []jobOutputRoot
 	jobOutputSlots      chan struct{}
@@ -242,6 +244,7 @@ func New(config Config) (http.Handler, error) {
 		partitionProvider:   config.PartitionProvider,
 		jobProvider:         config.JobProvider,
 		jobResourceProvider: config.JobResourceProvider,
+		jobCanceler:         config.JobCanceler,
 		jobResourceSlots:    make(chan struct{}, maxConcurrentJobResourceReads),
 		jobOutputRoots:      jobOutputRoots,
 		jobOutputSlots:      makeJobOutputSlots(jobOutputRoots),
@@ -317,6 +320,7 @@ func New(config Config) (http.Handler, error) {
 	protected.GET("/slurm/jobs", app.slurmJobs)
 	protected.GET("/slurm/jobs/:id/resources", app.slurmJobResources)
 	protected.GET("/slurm/jobs/:id/output/:stream", app.slurmJobOutput)
+	protected.POST("/slurm/jobs/:id/cancel", app.slurmJobCancel)
 	protected.GET("/slurm/accounts", app.slurmAccounts, app.requireAdmin)
 	protected.GET("/slurm/associations", func(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/slurm/accounts#associations")
@@ -698,16 +702,18 @@ func (a *application) slurmJobs(c echo.Context) error {
 		}
 		jobDetails[index] = jobModalView{
 			Labels: labels, Job: job, EndTime: endTime,
-			CanViewStdOut: canViewJobOutputMetadata(job, job.StdOut, a.jobOutputRoots),
-			CanViewStdErr: canViewJobOutputMetadata(job, job.StdErr, a.jobOutputRoots),
 		}
+	}
+	jobRows := make([]jobView, len(jobs))
+	for index, job := range jobs {
+		jobRows[index] = jobView{Job: job, CanCancel: a.jobCanceler != nil && canCancelJob(currentPrincipal(c), job)}
 	}
 	view := jobsView{
 		appChrome: a.newAppChrome(c, currentModule.Path, available, pageHeading{
 			Eyebrow: "OPENHPC / SLURM", Title: currentModule.Label, Description: labels.LiveData,
 			RefreshPath: currentModule.Path, RefreshLabel: labels.Refresh,
 		}),
-		Module: currentModule, Labels: labels, Jobs: jobs, JobDetails: jobDetails,
+		Module: currentModule, Labels: labels, Jobs: jobRows, JobDetails: jobDetails,
 	}
 	return a.render(c, http.StatusOK, "jobs.html", view)
 }
@@ -864,6 +870,10 @@ func filterJobsForPrincipal(jobs []cluster.Job, identity principal) []cluster.Jo
 }
 
 func canAccessJob(identity principal, job cluster.Job) bool {
+	return identity.Role == platform.RoleAdmin || job.User == identity.Username
+}
+
+func canCancelJob(identity principal, job cluster.Job) bool {
 	return identity.Role == platform.RoleAdmin || job.User == identity.Username
 }
 

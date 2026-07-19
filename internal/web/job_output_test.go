@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,6 +17,8 @@ import (
 	"testing"
 
 	"github.com/acdiost/openhpc-web/internal/cluster"
+	"github.com/acdiost/openhpc-web/internal/platform"
+	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/sys/unix"
 )
 
@@ -102,11 +105,15 @@ func TestJobOutputRequiresAuthentication(t *testing.T) {
 	}
 }
 
-func TestJobOutputIsDisabledWithoutAllowedRoots(t *testing.T) {
+func TestJobOutputButtonsRemainAvailableWithoutAllowedRoots(t *testing.T) {
 	provider := &stubJobProvider{jobs: []cluster.Job{{ID: "32943", StdOut: "/tmp/out.log"}}}
 	handler := newJobOutputHandler(t, provider, nil)
 	page := getAuthenticated(t, handler, "/slurm/jobs", "zh")
-	assertBodyContains(t, page, `data-output-label="标准输出" disabled`)
+	assertBodyContains(t, page, `data-output-label="标准输出">查看内容`)
+	assertBodyContains(t, page, `data-output-label="标准错误">查看内容`)
+	assertBodyNotContains(t, page, `data-output-label="标准输出" disabled`)
+	assertBodyNotContains(t, page, `aria-describedby="job-output-`)
+	assertBodyNotContains(t, page, "未启用输出内容预览")
 
 	response := getAuthenticated(t, handler, "/slurm/jobs/32943/output/stdout", "zh")
 	assertStatus(t, response, http.StatusNotFound)
@@ -254,13 +261,106 @@ func TestJobOutputResponseStaysWithinLimitAfterUTF8Repair(t *testing.T) {
 	}
 }
 
-func TestJobOutputButtonsRequirePerStreamMetadata(t *testing.T) {
+func TestJobOutputButtonsDoNotRequirePerStreamMetadata(t *testing.T) {
 	root := t.TempDir()
 	provider := &stubJobProvider{jobs: []cluster.Job{{ID: "32943", UserID: int64(os.Getuid()), WorkDir: root, StdOut: filepath.Join(root, "out.log")}}}
 	page := getAuthenticated(t, newJobOutputHandler(t, provider, []string{root}), "/slurm/jobs", "en")
 	assertStatus(t, page, http.StatusOK)
 	assertBodyContains(t, page, `data-output-stream="stdout"`)
-	assertBodyContains(t, page, `data-output-stream="stderr" data-output-label="Standard error" disabled`)
+	assertBodyContains(t, page, `data-output-stream="stderr" data-output-label="Standard error">View content`)
+}
+
+func TestJobOutputAllowsOwnersButDeniesOtherUsers(t *testing.T) {
+	root := t.TempDir()
+	workDir := filepath.Join(root, "work")
+	if err := os.Mkdir(workDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(workDir, "out.log")
+	if err := os.WriteFile(path, []byte("owner output"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := platform.OpenUserStore(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("ordinary user password"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Upsert(context.Background(), platform.PlatformUser{Username: "alice", PasswordHash: string(passwordHash), Role: platform.RoleUser, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	handler, err := New(Config{
+		AdminUsername: testUsername, AdminPassword: testPassword, PlatformUsers: store,
+		JobProvider: &stubJobProvider{jobs: []cluster.Job{
+			{ID: "32943", User: "alice", WorkDir: workDir, StdOut: path},
+			{ID: "32944", User: "bob", WorkDir: workDir, StdOut: path},
+		}},
+		JobOutputRoots: []string{root},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupHandler(t, handler)
+	login := postForm(handler, "/login", url.Values{"username": {"alice"}, "password": {"ordinary user password"}}, nil)
+	assertStatus(t, login, http.StatusSeeOther)
+	session := findCookie(t, login.Result().Cookies(), sessionCookie)
+
+	for _, test := range []struct {
+		path   string
+		status int
+	}{
+		{path: "/slurm/jobs/32943/output/stdout", status: http.StatusOK},
+		{path: "/slurm/jobs/32944/output/stdout", status: http.StatusNotFound},
+	} {
+		request := httptest.NewRequest(http.MethodGet, test.path, nil)
+		request.AddCookie(session)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		assertStatus(t, response, test.status)
+	}
+}
+
+func TestJobOutputAllowsPlatformAdminToReadOtherUserOutput(t *testing.T) {
+	root := t.TempDir()
+	workDir := filepath.Join(root, "work")
+	if err := os.Mkdir(workDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(workDir, "out.log")
+	if err := os.WriteFile(path, []byte("administrator output"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := platform.OpenUserStore(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("operator password"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Upsert(context.Background(), platform.PlatformUser{Username: "operator", PasswordHash: string(passwordHash), Role: platform.RoleAdmin, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	handler, err := New(Config{
+		AdminUsername: testUsername, AdminPassword: testPassword, PlatformUsers: store,
+		JobProvider:    &stubJobProvider{jobs: []cluster.Job{{ID: "32943", User: "alice", WorkDir: workDir, StdOut: path}}},
+		JobOutputRoots: []string{root},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupHandler(t, handler)
+	login := postForm(handler, "/login", url.Values{"username": {"operator"}, "password": {"operator password"}}, nil)
+	assertStatus(t, login, http.StatusSeeOther)
+	session := findCookie(t, login.Result().Cookies(), sessionCookie)
+	request := httptest.NewRequest(http.MethodGet, "/slurm/jobs/32943/output/stdout", nil)
+	request.AddCookie(session)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	assertStatus(t, response, http.StatusOK)
+	assertBodyContains(t, response, "administrator output")
 }
 
 func TestJobOutputFrontendHandlesStaleAndTruncatedResponses(t *testing.T) {

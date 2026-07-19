@@ -568,6 +568,11 @@
   .resource-summary span { color: var(--muted); font-size: 0.6875rem; }
   .resource-summary strong { margin-top: 0.25rem; color: var(--ink); font-size: 0.875rem; }
   .resource-chart-section h3 { margin: 1.25rem 0 0.5rem; color: var(--ink); font-size: 0.8125rem; font-weight: 750; }
+  .resource-chart { padding: 0.65rem 0.75rem 0.4rem; }
+  .resource-chart figcaption { display: flex; align-items: baseline; justify-content: space-between; color: var(--muted); font-size: 0.75rem; }
+  .resource-chart figcaption strong { color: var(--ink); font-size: 0.875rem; }
+  .resource-chart svg { display: block; width: 100%; height: 8.75rem; margin-top: 0.35rem; }
+  .resource-chart text { fill: var(--muted); font-size: 0.65rem; }
   .resource-grid line { stroke: #dce3e8; stroke-width: 1; }
   .resource-line { fill: none; stroke-width: 3; }
   .resource-line.cpu { stroke: var(--accent); }
