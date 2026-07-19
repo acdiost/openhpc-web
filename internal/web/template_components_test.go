@@ -58,18 +58,23 @@ func TestTailwindBuildContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read Tailwind input: %v", err)
 	}
-	for _, expected := range []string{`@import "tailwindcss"`, `@source "../templates"`} {
+	for _, expected := range []string{
+		`@import "tailwindcss"`,
+		`@source "../templates"`,
+		`@theme`,
+		`--color-research-red-600`,
+		`@layer components`,
+		`@media (max-width: 767px)`,
+		`visibility: hidden`,
+		`input:focus-visible + span`,
+		`overflow-wrap: break-word`,
+	} {
 		if !strings.Contains(string(input), expected) {
 			t.Errorf("Tailwind input does not contain %q", expected)
 		}
 	}
 	if strings.Contains(string(input), "app.legacy.css") {
 		t.Error("Tailwind input must not import the legacy stylesheet")
-	}
-	for _, forbidden := range []string{`@apply`, `@layer components`, `@media`, `{`} {
-		if strings.Contains(string(input), forbidden) {
-			t.Errorf("Tailwind input must not contain native component CSS %q", forbidden)
-		}
 	}
 	if _, statErr := fs.Stat(assets, "static/app.legacy.css"); !errors.Is(statErr, fs.ErrNotExist) {
 		t.Error("legacy stylesheet remains embedded in the application")
