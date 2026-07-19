@@ -6,31 +6,81 @@
 {{template "app-sidebar" .}}
 <div class="main-area">{{template "app-topbar" .}}<main class="content settings-content">
 {{template "page-heading" .}}
+<section class="settings-hero" data-component="settings-hero">
+  <div class="settings-hero-copy">
+    <p>OPENHPC / SYSTEM</p>
+    <span>{{if eq .Language "en"}}Edit persisted Slurm and LDAP overrides{{else}}编辑持久化的 Slurm 与 LDAP 覆盖配置{{end}}</span>
+  </div>
+  <div class="settings-metrics" aria-label="{{if eq .Language "en"}}Settings summary{{else}}设置摘要{{end}}">
+    <div><strong>{{.GroupCount}}</strong><span>{{if eq .Language "en"}}Groups{{else}}分组{{end}}</span></div>
+    <div><strong>{{.FieldCount}}</strong><span>{{if eq .Language "en"}}Fields{{else}}字段{{end}}</span></div>
+    <div><strong>{{.ConfiguredCount}}</strong><span>{{if eq .Language "en"}}Configured{{else}}已配置{{end}}</span></div>
+    <div><strong>{{.SecretCount}}</strong><span>{{if eq .Language "en"}}Secrets{{else}}秘密字段{{end}}</span></div>
+  </div>
+</section>
 {{if .Success}}<div class="data-success" role="status">{{.Success}}</div>{{end}}
 {{if .Error}}<div class="data-warning" role="alert">{{.Error}}</div>{{end}}
-<form action="/settings" method="post" class="settings-form">
-<input type="hidden" name="_csrf" value="{{.CSRFToken}}">
-<p class="settings-note">{{if eq .Language "en"}}Values are stored as SQLite overrides. Changes take effect after the next service restart.{{else}}配置将作为 SQLite 覆盖值保存，重启服务后生效。{{end}}</p>
-{{range .Groups}}
-<section class="settings-section"><h2>{{.Name}}</h2>
-{{range .Fields}}
-<div class="settings-field">
-<span><strong>{{.Label}}</strong><small>{{.Key}} · {{.Source}}</small></span>
-{{if eq .InputType "checkbox"}}
-<input id="setting-{{.Key}}" type="checkbox" name="{{.Key}}" value="true"{{if eq .Value "true"}} checked{{end}}>
-<input type="hidden" name="{{.Key}}" value="false">
-{{else}}
-<input id="setting-{{.Key}}" type="{{.InputType}}" name="{{.Key}}" value="{{if not .Secret}}{{.Value}}{{end}}"{{if .Secret}}{{if .Configured}} placeholder="configured"{{end}}{{end}} autocomplete="off">
-{{end}}
-{{if .Secret}}<em>{{if .Configured}}{{if eq $.Language "en"}}Configured{{else}}已配置{{end}}{{else}}{{if eq $.Language "en"}}Not configured{{else}}未配置{{end}}{{end}}</em><label class="settings-clear"><input type="checkbox" name="clear_{{.Key}}" value="1">{{if eq $.Language "en"}}Clear override{{else}}清除覆盖{{end}}</label>{{end}}
+<div class="settings-layout">
+  <aside class="settings-aside">
+    <div class="settings-aside-head">
+      <p>{{if eq .Language "en"}}Workflow{{else}}操作流程{{end}}</p>
+      <h2>{{if eq .Language "en"}}Save, then restart{{else}}保存后重启生效{{end}}</h2>
+    </div>
+    <p class="settings-note">{{if eq .Language "en"}}Values are stored as SQLite overrides. Changes take effect after the next service restart.{{else}}配置将作为 SQLite 覆盖值保存，重启服务后生效。{{end}}</p>
+    <ul class="settings-checklist">
+      <li>{{if eq .Language "en"}}Use the left-hand summary to see how much of the deployment is already configured.{{else}}通过左侧摘要快速查看当前已配置的内容。{{end}}</li>
+      <li>{{if eq .Language "en"}}Secret values stay redacted and can be cleared without rewriting the rest of the form.{{else}}秘密字段会被隐藏，可单独清除覆盖值。{{end}}</li>
+      <li>{{if eq .Language "en"}}Test LDAP connectivity before restarting the service.{{else}}重启服务前先测试 LDAP 连通性。{{end}}</li>
+    </ul>
+    <form action="/settings/ldap-test" method="post" class="settings-test-form">
+      <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+      <button type="submit" class="secondary-button">{{if eq .Language "en"}}Test LDAP connectivity{{else}}测试 LDAP 连通性{{end}}</button>
+    </form>
+  </aside>
+  <section class="settings-panel">
+    <form action="/settings" method="post" class="settings-form">
+      <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+      {{range .Groups}}
+      <section class="settings-section">
+        <div class="settings-section-head">
+          <div>
+            <p>{{.Name}}</p>
+            <h2>{{.Name}}</h2>
+          </div>
+          <span>{{len .Fields}} {{if eq $.Language "en"}}fields{{else}}项{{end}}</span>
+        </div>
+        <div class="settings-rows">
+          {{range .Fields}}
+          <div class="settings-field">
+            <div class="settings-field-copy">
+              <strong>{{.Label}}</strong>
+              <small>{{.Key}}</small>
+            </div>
+            <div class="settings-field-control">
+              <span class="settings-field-source">{{.Source}}</span>
+              {{if eq .InputType "checkbox"}}
+              <label class="settings-switch">
+                <input id="setting-{{.Key}}" type="checkbox" name="{{.Key}}" value="true"{{if eq .Value "true"}} checked{{end}}>
+                <span aria-hidden="true"></span>
+              </label>
+              <input type="hidden" name="{{.Key}}" value="false">
+              {{else}}
+              <input id="setting-{{.Key}}" type="{{.InputType}}" name="{{.Key}}" value="{{if not .Secret}}{{.Value}}{{end}}"{{if .Secret}}{{if .Configured}} placeholder="{{if eq $.Language "en"}}configured{{else}}已配置{{end}}"{{end}}{{end}} autocomplete="off">
+              {{end}}
+            </div>
+            <div class="settings-field-meta">
+              {{if .Secret}}<em>{{if .Configured}}{{if eq $.Language "en"}}Configured{{else}}已配置{{end}}{{else}}{{if eq $.Language "en"}}Not configured{{else}}未配置{{end}}{{end}}</em><label class="settings-clear"><input type="checkbox" name="clear_{{.Key}}" value="1">{{if eq $.Language "en"}}Clear override{{else}}清除覆盖{{end}}</label>{{else}}<span>{{if eq $.Language "en"}}Inherited from environment or override storage{{else}}继承环境变量或 SQLite 覆盖值{{end}}</span>{{end}}
+            </div>
+          </div>
+          {{end}}
+        </div>
+      </section>
+      {{end}}
+      <div class="settings-actions">
+        <button type="submit" class="primary-button">{{if eq .Language "en"}}Save settings{{else}}保存设置{{end}}</button>
+      </div>
+    </form>
+  </section>
 </div>
-{{end}}</section>
-{{end}}
-<button type="submit" class="primary-button">{{if eq .Language "en"}}Save settings{{else}}保存设置{{end}}</button>
-</form>
-<form action="/settings/ldap-test" method="post" class="settings-test-form">
-<input type="hidden" name="_csrf" value="{{.CSRFToken}}">
-<button type="submit" class="secondary-button">{{if eq .Language "en"}}Test LDAP connectivity{{else}}测试 LDAP 连通性{{end}}</button>
-</form>
 </main></div></div></body></html>
 {{end}}
