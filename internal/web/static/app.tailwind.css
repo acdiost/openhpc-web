@@ -330,6 +330,12 @@
   .availability i { width: 0.45rem; height: 0.45rem; border-radius: 50%; background: currentColor; }
   .availability.offline { color: var(--accent); }
 
+  .node-summary { margin-bottom: 0.75rem; }
+  .node-summary > div { padding: 0.85rem 1rem; border-left: 3px solid #167a53; background: #fff; box-shadow: var(--shadow-panel); }
+  .node-summary > div.offline { border-left-color: var(--accent); }
+  .node-summary dt { color: var(--muted); font-size: 0.75rem; font-weight: 700; }
+  .node-summary dd { margin-top: 0.25rem; color: var(--ink); font-size: 1.5rem; font-weight: 760; line-height: 1; }
+
   .primary-button,
   .node-online-button,
   .job-resource-button,

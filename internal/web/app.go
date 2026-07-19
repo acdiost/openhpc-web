@@ -556,16 +556,6 @@ func parseCoreHourPeriod(value string) (cluster.CoreHourPeriod, error) {
 func (a *application) slurmNodes(c echo.Context) error {
 	lang := language(c)
 	labels := detailCopyFor(lang)
-	var partitions []cluster.Partition
-	partitionsAvailable := false
-	if a.partitionProvider != nil {
-		livePartitions, err := a.partitionProvider.Partitions(c.Request().Context())
-		if err != nil {
-			log.Printf("Slurm partitions snapshot failed")
-		} else {
-			partitions, partitionsAvailable = livePartitions, true
-		}
-	}
 	var nodes []cluster.Node
 	nodesAvailable := false
 	if a.nodeProvider != nil {
@@ -576,14 +566,15 @@ func (a *application) slurmNodes(c echo.Context) error {
 			nodes, nodesAvailable = liveNodes, true
 		}
 	}
+	nodeSummary := newNodeSummary(nodes)
 	currentModule := moduleByPath("/slurm/nodes", lang)
 	view := nodesView{
-		appChrome: a.newAppChrome(c, currentModule.Path, nodesAvailable && partitionsAvailable, pageHeading{
+		appChrome: a.newAppChrome(c, currentModule.Path, nodesAvailable, pageHeading{
 			Eyebrow: "OPENHPC / SLURM", Title: currentModule.Label, Description: labels.LiveData,
 			RefreshPath: currentModule.Path, RefreshLabel: labels.Refresh,
 		}),
-		Module: currentModule, Labels: labels, Nodes: nodes, Partitions: partitions,
-		NodesAvailable: nodesAvailable, PartitionsAvailable: partitionsAvailable,
+		Module: currentModule, Labels: labels, Nodes: nodes,
+		NodeSummary: nodeSummary, NodesAvailable: nodesAvailable,
 		Success: nodeAvailabilitySuccessFor(lang, c.QueryParam("saved")),
 		Error:   nodeAvailabilityErrorFor(lang, c.QueryParam("error")),
 	}

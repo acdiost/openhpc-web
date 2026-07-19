@@ -14,19 +14,36 @@ import (
 	"github.com/acdiost/openhpc-web/internal/platform"
 )
 
-func TestNodesPageEmbedsPartitionAndNodeSnapshots(t *testing.T) {
+func TestNodesPageShowsOnlyNodeManagementData(t *testing.T) {
 	partitions := &stubPartitionProvider{partitions: []cluster.Partition{{Name: "GPU<main", NodeCount: 3, OnlineNodes: 2, AllocatedCPUs: 64, TotalCPUs: 384, MemoryMB: 1530000, CPUUtilization: 17}}}
 	nodes := &partitionNodeProvider{nodes: []cluster.Node{{Name: "node31", Partition: "GPU<main", State: "mixed", TotalCPUs: 128, Online: true}}}
 	handler := newSlurmPageHandlerWithPartitions(t, nodes, partitions)
 	response := getPartitionAuthenticated(t, handler, "/slurm/nodes", "zh")
 
 	assertStatus(t, response, http.StatusOK)
-	for _, value := range []string{"分区状态", "节点状态", "GPU&lt;main", "2 / 3", "64 / 384", "17%", "1530000 MB", "node31", `id="partitions"`, `id="nodes"`} {
+	for _, value := range []string{"节点管理", "节点状态", "节点总数", "在线节点", "不可用节点", "node31", `id="nodes"`} {
 		assertBodyContains(t, response, value)
 	}
+	for _, value := range []string{"分区状态", "2 / 3", "64 / 384", "17%", "1530000 MB", `id="partitions"`} {
+		assertBodyNotContains(t, response, value)
+	}
 	assertBodyNotContains(t, response, "GPU<main")
-	if partitions.calls != 1 {
-		t.Errorf("Partitions() calls = %d, want 1", partitions.calls)
+	if partitions.calls != 0 {
+		t.Errorf("Partitions() calls = %d, want 0", partitions.calls)
+	}
+}
+
+func TestNewNodeSummaryCountsAvailability(t *testing.T) {
+	summary := newNodeSummary([]cluster.Node{
+		{Name: "node31", Online: true},
+		{Name: "node32", Online: false},
+		{Name: "node33", Online: true},
+	})
+	if summary != (nodeSummaryView{Total: 3, Online: 2, Offline: 1}) {
+		t.Fatalf("node summary = %#v", summary)
+	}
+	if empty := newNodeSummary(nil); empty != (nodeSummaryView{}) {
+		t.Fatalf("empty node summary = %#v", empty)
 	}
 }
 
@@ -73,38 +90,14 @@ func TestNodesPageRejectsUnknownNodeAndReportsUpdateFailure(t *testing.T) {
 	assertHeader(t, response, "Location", "/slurm/nodes?error=update_failed#nodes")
 }
 
-func TestNodesPageSeparatesPartitionAndNodeFailures(t *testing.T) {
+func TestNodesPageHidesNodeProviderFailureDetails(t *testing.T) {
 	secret := errors.New("exec /secret/sinfo: credential material")
-	tests := []struct {
-		name       string
-		nodes      *partitionNodeProvider
-		partitions *stubPartitionProvider
-		want       string
-	}{
-		{
-			name: "partitions unavailable",
-			nodes: &partitionNodeProvider{nodes: []cluster.Node{{
-				Name: "node31", Partition: "GPU", State: "idle", TotalCPUs: 1, Online: true,
-			}}},
-			partitions: &stubPartitionProvider{err: secret}, want: "node31",
-		},
-		{
-			name: "nodes unavailable", nodes: &partitionNodeProvider{err: secret},
-			partitions: &stubPartitionProvider{partitions: []cluster.Partition{{Name: "GPU", NodeCount: 1}}},
-			want:       "GPU",
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			handler := newSlurmPageHandlerWithPartitions(t, test.nodes, test.partitions)
-			response := getPartitionAuthenticated(t, handler, "/slurm/nodes", "en")
-			assertStatus(t, response, http.StatusOK)
-			assertBodyContains(t, response, "Slurm data is temporarily unavailable")
-			assertBodyContains(t, response, test.want)
-			assertBodyNotContains(t, response, "/secret/sinfo")
-			assertBodyNotContains(t, response, "credential material")
-		})
-	}
+	handler := newSlurmPageHandlerWithPartitions(t, &partitionNodeProvider{err: secret}, nil)
+	response := getPartitionAuthenticated(t, handler, "/slurm/nodes", "en")
+	assertStatus(t, response, http.StatusOK)
+	assertBodyContains(t, response, "Slurm data is temporarily unavailable")
+	assertBodyNotContains(t, response, "/secret/sinfo")
+	assertBodyNotContains(t, response, "credential material")
 }
 
 func TestPartitionManagementPageRendersLiveNodesAndStoredPartitions(t *testing.T) {

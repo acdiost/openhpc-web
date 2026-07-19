@@ -112,7 +112,7 @@ type detailCopy struct {
 	Refresh, LiveData, EmptyNodes, EmptyJobs                 string
 	EmptyPartitions, PartitionStatus, NodeStatus             string
 	Node, Partition, State, CPUs, Memory, GRES, Availability string
-	OnlineNodes, CPUUtilization                              string
+	OnlineNodes, TotalNodes, OfflineNodes, CPUUtilization    string
 	JobID, JobName, User, Account, Elapsed, TimeLimit        string
 	NodesOrReason, Online, Offline, NodeCount                string
 	BringNodeOnline, TakeNodeOffline                         string
@@ -222,14 +222,31 @@ func formatCoreHours(coreSeconds int64) string {
 
 type nodesView struct {
 	appChrome
-	Module              module
-	Labels              detailCopy
-	Nodes               []cluster.Node
-	Partitions          []cluster.Partition
-	NodesAvailable      bool
-	PartitionsAvailable bool
-	Success             string
-	Error               string
+	Module         module
+	Labels         detailCopy
+	Nodes          []cluster.Node
+	NodeSummary    nodeSummaryView
+	NodesAvailable bool
+	Success        string
+	Error          string
+}
+
+type nodeSummaryView struct {
+	Total   int
+	Online  int
+	Offline int
+}
+
+func newNodeSummary(nodes []cluster.Node) nodeSummaryView {
+	summary := nodeSummaryView{Total: len(nodes)}
+	for _, node := range nodes {
+		if node.Online {
+			summary.Online++
+		} else {
+			summary.Offline++
+		}
+	}
+	return summary
 }
 
 type partitionNodeView struct {
@@ -407,7 +424,7 @@ func detailCopyFor(language string) detailCopy {
 	if language == "en" {
 		return detailCopy{
 			Refresh: "Refresh", LiveData: "Live Slurm data", EmptyNodes: "No nodes reported", EmptyJobs: "No jobs in the queue",
-			EmptyPartitions: "No partitions reported", PartitionStatus: "Partition status", NodeStatus: "Node status",
+			EmptyPartitions: "No partitions reported", PartitionStatus: "Partition status", NodeStatus: "Node status", TotalNodes: "Total nodes", OfflineNodes: "Unavailable nodes",
 			Node: "Node", Partition: "Partition", State: "State", CPUs: "CPUs", Memory: "Memory", GRES: "GRES", Availability: "Availability",
 			OnlineNodes: "Online nodes", CPUUtilization: "CPU utilization",
 			JobID: "Job ID", JobName: "Name", User: "User", Account: "Account", Elapsed: "Elapsed", TimeLimit: "Time limit",
@@ -431,7 +448,7 @@ func detailCopyFor(language string) detailCopy {
 	}
 	return detailCopy{
 		Refresh: "刷新", LiveData: "Slurm 实时数据", EmptyNodes: "Slurm 未报告节点", EmptyJobs: "当前队列中没有作业",
-		EmptyPartitions: "Slurm 未报告分区", PartitionStatus: "分区状态", NodeStatus: "节点状态",
+		EmptyPartitions: "Slurm 未报告分区", PartitionStatus: "分区状态", NodeStatus: "节点状态", TotalNodes: "节点总数", OfflineNodes: "不可用节点",
 		Node: "节点", Partition: "分区", State: "状态", CPUs: "CPU", Memory: "内存", GRES: "GRES", Availability: "可用性",
 		OnlineNodes: "在线节点", CPUUtilization: "CPU 利用率",
 		JobID: "作业 ID", JobName: "名称", User: "用户", Account: "账户", Elapsed: "已运行", TimeLimit: "时间限制",
@@ -515,7 +532,7 @@ func copyFor(language string) copySet {
 func modulesFor(language string) []module {
 	zh := []module{
 		{Path: "/dashboard", Label: "总览", Group: "工作台", Icon: "grid"},
-		{Path: "/slurm/nodes", Label: "节点与分区", Group: "Slurm", Icon: "server"},
+		{Path: "/slurm/nodes", Label: "节点管理", Group: "Slurm", Icon: "server"},
 		{Path: "/slurm/partitions", Label: "分区管理", Group: "Slurm", Icon: "server"},
 		{Path: "/slurm/jobs", Label: "作业管理", Group: "Slurm", Icon: "jobs"},
 		{Path: "/slurm/accounts", Label: "账户与用户", Group: "Slurm", Icon: "users"},
@@ -530,7 +547,7 @@ func modulesFor(language string) []module {
 	if language != "en" {
 		return zh
 	}
-	labels := []string{"Overview", "Nodes & partitions", "Partition management", "Jobs", "Accounts & users", "QoS & core hours", "LDAP directory", "Platform users", "Slurm configuration", "Files", "Terminal", "Audit log"}
+	labels := []string{"Overview", "Node management", "Partition management", "Jobs", "Accounts & users", "QoS & core hours", "LDAP directory", "Platform users", "Slurm configuration", "Files", "Terminal", "Audit log"}
 	groups := []string{"Workspace", "Slurm", "Slurm", "Slurm", "Slurm", "Slurm", "Identity", "Identity", "System", "System", "System", "System"}
 	result := make([]module, len(zh))
 	for index, item := range zh {

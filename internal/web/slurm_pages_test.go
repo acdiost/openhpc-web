@@ -19,7 +19,7 @@ func TestSlurmNodesPageShowsLiveEscapedData(t *testing.T) {
 	handler := newSlurmPageHandler(t, provider, nil)
 	response := getAuthenticated(t, handler, "/slurm/nodes", "zh")
 	assertStatus(t, response, http.StatusOK)
-	for _, value := range []string{"节点与分区", "node&lt;31", "GPU", "mixed", "48 / 128", "510000 MB", "gpu:rtx:8"} {
+	for _, value := range []string{"节点管理", "节点总数", "在线节点", "不可用节点", "node&lt;31", "GPU", "mixed", "48 / 128", "510000 MB", "gpu:rtx:8"} {
 		assertBodyContains(t, response, value)
 	}
 	assertBodyNotContains(t, response, "node<31")
