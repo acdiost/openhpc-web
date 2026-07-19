@@ -3,6 +3,7 @@ package web
 import (
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -19,7 +20,12 @@ func (a *application) platformUsersPage(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusServiceUnavailable)
 	}
 	rows := make([]platformUserRow, len(users))
+	activeCount := 0
+	confirmDisableUsername := ""
 	for i, user := range users {
+		if user.Enabled {
+			activeCount++
+		}
 		role := "普通用户"
 		if user.Role == platform.RoleAdmin {
 			role = "管理员"
@@ -30,12 +36,20 @@ func (a *application) platformUsersPage(c echo.Context) error {
 				role = "Administrator"
 			}
 		}
+		if c.QueryParam("confirm") == "disable" && c.QueryParam("username") == user.Username && user.Enabled && user.Username != currentPrincipal(c).Username {
+			confirmDisableUsername = user.Username
+		}
 		rows[i] = platformUserRow{Username: user.Username, Role: role, Enabled: user.Enabled, CreatedAt: user.CreatedAt.Local().Format("2006-01-02 15:04")}
 	}
 	return a.render(c, http.StatusOK, "platform_users.html", platformUsersView{
-		appChrome: a.newAppChrome(c, "/platform/users", a.slurmHealth(c.Request().Context()), pageHeading{Eyebrow: "OPENHPC / IDENTITY", Title: map[bool]string{true: "Platform users", false: "平台用户"}[language(c) == "en"], Description: map[bool]string{true: "Manage local platform accounts", false: "管理平台本地账号"}[language(c) == "en"]}),
-		Users:     rows, Success: platformUserSuccessFor(language(c), c.QueryParam("result")),
-		Error: platformUserErrorFor(language(c), c.QueryParam("result")),
+		appChrome:              a.newAppChrome(c, "/platform/users", a.slurmHealth(c.Request().Context()), pageHeading{Eyebrow: "OPENHPC / IDENTITY", Title: map[bool]string{true: "Platform users", false: "平台用户"}[language(c) == "en"], Description: map[bool]string{true: "Manage local platform accounts", false: "管理平台本地账号"}[language(c) == "en"]}),
+		Users:                  rows,
+		TotalCount:             len(rows),
+		ActiveCount:            activeCount,
+		DisabledCount:          len(rows) - activeCount,
+		ConfirmDisableUsername: confirmDisableUsername,
+		Success:                platformUserSuccessFor(language(c), c.QueryParam("result")),
+		Error:                  platformUserErrorFor(language(c), c.QueryParam("result")),
 	})
 }
 
@@ -70,6 +84,9 @@ func (a *application) setPlatformUserStatus(c echo.Context) error {
 		return a.redirectPlatformUsers(c, "invalid")
 	}
 	enabled := enabledValue == "true"
+	if !enabled && c.FormValue("confirmed") != "true" {
+		return c.Redirect(http.StatusSeeOther, "/platform/users?confirm=disable&username="+url.QueryEscape(username))
+	}
 	if err := a.platformUsers.SetEnabled(c.Request().Context(), username, enabled); err != nil {
 		return a.redirectPlatformUsers(c, "error")
 	}

@@ -57,7 +57,20 @@ func TestPlatformUserLifecycleCreatesWithoutOverwriteAndRevokesDisabledSessions(
 	assertStatus(t, aliceLogin, http.StatusSeeOther)
 	aliceSession := findCookie(t, aliceLogin.Result().Cookies(), sessionCookie)
 
-	disable := postProtectedForm(handler, "/platform/users/status", url.Values{"username": {"alice"}, "enabled": {"false"}}, adminSession, csrf)
+	confirmation := postProtectedForm(handler, "/platform/users/status", url.Values{"username": {"alice"}, "enabled": {"false"}}, adminSession, csrf)
+	assertStatus(t, confirmation, http.StatusSeeOther)
+	assertHeader(t, confirmation, "Location", "/platform/users?confirm=disable&username=alice")
+	confirmationPage := getAuthenticated(t, handler, "/platform/users?confirm=disable&username=alice", "en")
+	assertStatus(t, confirmationPage, http.StatusOK)
+	assertBodyContains(t, confirmationPage, "Confirm account disable")
+	assertBodyContains(t, confirmationPage, "Disable alice? Active sessions will end immediately.")
+	assertBodyContains(t, confirmationPage, `name="confirmed" value="true"`)
+	stillEnabled, found, err := store.Get(context.Background(), "alice")
+	if err != nil || !found || !stillEnabled.Enabled {
+		t.Fatalf("unconfirmed disable changed user: %#v, found=%v, err=%v", stillEnabled, found, err)
+	}
+
+	disable := postProtectedForm(handler, "/platform/users/status", url.Values{"username": {"alice"}, "enabled": {"false"}, "confirmed": {"true"}}, adminSession, csrf)
 	assertStatus(t, disable, http.StatusSeeOther)
 	assertHeader(t, disable, "Location", "/platform/users?result=updated")
 
@@ -80,4 +93,46 @@ func TestCreatePlatformUserRejectsPasswordBeyondBcryptLimit(t *testing.T) {
 	}, session, csrf)
 	assertStatus(t, response, http.StatusSeeOther)
 	assertHeader(t, response, "Location", "/platform/users?result=invalid")
+}
+
+func TestPlatformUsersPageShowsAccountSummaryAndManagementGuidance(t *testing.T) {
+	store, err := platform.OpenUserStore(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+	for _, user := range []platform.PlatformUser{
+		{Username: "alice", PasswordHash: "hash", Role: platform.RoleUser, Enabled: true},
+		{Username: "suspended", PasswordHash: "hash", Role: platform.RoleUser, Enabled: false},
+	} {
+		if err := store.Create(context.Background(), user); err != nil {
+			t.Fatal(err)
+		}
+	}
+	handler, err := New(Config{AdminUsername: testUsername, AdminPassword: testPassword, PlatformUsers: store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupHandler(t, handler)
+
+	response := getAuthenticated(t, handler, "/platform/users", "en")
+	assertStatus(t, response, http.StatusOK)
+	for _, value := range []string{
+		`class="platform-user-summary"`, `<span>Total accounts</span><strong>3</strong>`,
+		`<span>Active</span><strong>2</strong>`, `<span>Disabled</span><strong>1</strong>`,
+		`data-platform-user-status="enabled"`, `data-platform-user-status="disabled"`,
+		"Use 1-64 letters, digits, dots, underscores, or hyphens.", "Use 12-72 bytes.",
+		`aria-label="Disable alice"`, `data-confirm="Disable alice? Active sessions will end immediately."`,
+		"Disabling an account immediately ends its active sessions.", `class="data-table platform-user-table`,
+	} {
+		assertBodyContains(t, response, value)
+	}
+	assertBodyNotContains(t, response, `minlength="12"`)
+	assertBodyNotContains(t, response, `maxlength="72"`)
+
+	chineseResponse := getAuthenticated(t, handler, "/platform/users", "zh")
+	assertStatus(t, chineseResponse, http.StatusOK)
+	for _, value := range []string{"账号总数", "已启用", "已停用", `data-confirm="停用 alice？其活跃会话将立即结束。"`} {
+		assertBodyContains(t, chineseResponse, value)
+	}
 }

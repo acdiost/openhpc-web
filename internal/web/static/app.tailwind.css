@@ -292,6 +292,46 @@
   .account-summary > a:hover { background: var(--accent-soft); }
   .account-summary span { color: var(--muted); font-size: 0.75rem; font-weight: 700; }
   .account-summary strong { color: var(--ink); font-size: 1.5rem; font-weight: 760; line-height: 1; }
+  .platform-user-overview { margin: 0 0 1.75rem; }
+  .platform-user-summary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+  }
+  .platform-user-summary > div {
+    display: flex;
+    min-height: 5.25rem;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 0.85rem 1rem;
+    border-left: 3px solid var(--accent);
+    background: #fff;
+    box-shadow: var(--shadow-panel);
+  }
+  .platform-user-summary span { color: var(--muted); font-size: 0.75rem; font-weight: 700; }
+  .platform-user-summary strong { color: var(--ink); font-size: 1.5rem; font-weight: 760; line-height: 1; }
+  .platform-user-section-description,
+  .platform-user-status-note {
+    margin: -0.35rem 0 0.75rem;
+    color: var(--muted);
+    font-size: 0.8125rem;
+  }
+  .platform-user-field-hint { margin: 0; color: var(--muted); font-size: 0.75rem; line-height: 1.4; }
+  .platform-user-current,
+  .platform-user-self-action {
+    display: inline-block;
+    margin-left: 0.5rem;
+    color: var(--muted);
+    font-size: 0.6875rem;
+    font-weight: 700;
+  }
+  .platform-user-disable { border-color: var(--accent); color: var(--accent-strong); }
+  .platform-user-disable:hover { background: var(--accent-soft); }
+  .platform-user-enable { border-color: #167a53; color: #167a53; }
+  .platform-user-enable:hover { background: #edf9f3; }
+  .platform-user-name { overflow-wrap: anywhere; }
+  .platform-user-confirmation h2 { margin-bottom: 0.35rem; font-size: 0.9375rem; }
+  .platform-user-confirmation p { margin-bottom: 0.75rem; font-size: 0.8125rem; }
   .account-section-count {
     display: inline-grid;
     min-width: 1.75rem;
@@ -344,6 +384,15 @@
   .data-table tbody tr:hover { background: #fbfcfc; }
   .data-table strong { color: var(--ink); font-weight: 700; }
   .data-table code { color: var(--accent-strong); font-size: 0.75rem; }
+
+  @media (max-width: 40rem) {
+    .platform-user-summary { grid-template-columns: 1fr; gap: 0.5rem; }
+    .platform-user-summary > div { min-height: 4.25rem; }
+    .platform-user-table th:nth-child(4),
+    .platform-user-table td:nth-child(4) { display: none; }
+    .platform-user-table th,
+    .platform-user-table td { padding-left: 0.6rem; padding-right: 0.6rem; }
+  }
 
   .state-badge,
   .audit-outcome,

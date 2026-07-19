@@ -11,6 +11,21 @@
     });
   }
 
+  var confirmationForms = document.querySelectorAll('form[data-confirm]');
+  confirmationForms.forEach(function (form) {
+    form.addEventListener('submit', function (event) {
+      if (!window.confirm(form.getAttribute('data-confirm'))) {
+        event.preventDefault();
+        return;
+      }
+      var confirmedInput = document.createElement('input');
+      confirmedInput.type = 'hidden';
+      confirmedInput.name = 'confirmed';
+      confirmedInput.value = 'true';
+      form.appendChild(confirmedInput);
+    });
+  });
+
   var search = document.querySelector('.search input');
   var jobModal = document.getElementById('job-detail-modal');
   var jobModalBody = document.querySelector('[data-job-modal-body]');

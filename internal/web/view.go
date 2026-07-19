@@ -97,8 +97,12 @@ type platformUserRow struct {
 }
 type platformUsersView struct {
 	appChrome
-	Users          []platformUserRow
-	Error, Success string
+	Users                  []platformUserRow
+	TotalCount             int
+	ActiveCount            int
+	DisabledCount          int
+	ConfirmDisableUsername string
+	Error, Success         string
 }
 
 func slurmConfigCopyFor(language string) slurmConfigCopy {
