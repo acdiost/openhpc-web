@@ -247,6 +247,130 @@
     });
   }
 
+  var nodeStateModal = document.getElementById('node-state-modal');
+  var nodeStateTitle = document.querySelector('[data-node-state-title]');
+  var nodeStateName = document.querySelector('[data-node-state-name]');
+  var nodeStateValue = document.querySelector('[data-node-state-value]');
+  var nodeStateReason = document.querySelector('[data-node-state-reason]');
+  var nodeStateSubmit = document.querySelector('[data-node-state-submit]');
+  var nodeStateTrigger = null;
+
+  if (nodeStateModal && nodeStateTitle && nodeStateName && nodeStateValue && nodeStateReason && nodeStateSubmit) {
+    document.addEventListener('click', function (event) {
+      var trigger = event.target.closest('[data-node-state-trigger]');
+      if (!trigger) return;
+      var state = trigger.getAttribute('data-node-state-trigger');
+      nodeStateTrigger = trigger;
+      nodeStateTitle.textContent = trigger.getAttribute('data-node-action-label') + ': ' + trigger.getAttribute('data-node-name');
+      nodeStateName.value = trigger.getAttribute('data-node-name');
+      nodeStateValue.value = state;
+      nodeStateReason.value = '';
+      nodeStateSubmit.className = state === 'down' ? 'node-offline-button' : 'node-drain-button';
+      document.body.classList.add('modal-open');
+      nodeStateModal.showModal();
+      nodeStateReason.focus();
+    });
+    nodeStateModal.addEventListener('click', function (event) {
+      if (event.target === nodeStateModal || event.target.closest('[data-node-state-close]')) nodeStateModal.close();
+    });
+    nodeStateModal.addEventListener('close', function () {
+      nodeStateReason.value = '';
+      document.body.classList.remove('modal-open');
+      if (nodeStateTrigger) nodeStateTrigger.focus();
+    });
+  }
+
+  var partitionEditorModal = document.getElementById('partition-editor-modal');
+  var partitionDeleteModal = document.getElementById('partition-delete-modal');
+  var partitionEditorForm = document.querySelector('[data-partition-editor-form]');
+  var partitionNameInput = document.querySelector('[data-partition-name-input]');
+  var partitionEditorTitle = document.querySelector('[data-partition-editor-title]');
+  var partitionSubmit = document.querySelector('[data-partition-submit]');
+  var partitionDeleteInput = document.querySelector('[data-partition-delete-input]');
+  var partitionDeleteName = document.querySelector('[data-partition-delete-name]');
+  var partitionEditorTrigger = null;
+  var partitionDeleteTrigger = null;
+
+  var openPartitionModal = function (modal) {
+    document.body.classList.add('modal-open');
+    if (!modal.open) modal.showModal();
+  };
+
+  if (partitionEditorModal && partitionDeleteModal && partitionEditorForm && partitionNameInput && partitionEditorTitle && partitionSubmit && partitionDeleteInput && partitionDeleteName) {
+    var setPartitionEditor = function (name, nodeNames, isEditing) {
+      partitionEditorForm.reset();
+      partitionNameInput.value = name;
+      partitionNameInput.readOnly = isEditing;
+      partitionEditorTitle.textContent = isEditing ? partitionEditorModal.getAttribute('data-partition-update-label') : partitionEditorModal.getAttribute('data-partition-create-label');
+      partitionSubmit.textContent = partitionEditorTitle.textContent;
+      var selectedNames = nodeNames.reduce(function (names, nodeName) {
+        names[nodeName] = true;
+        return names;
+      }, {});
+      partitionEditorForm.querySelectorAll('[data-partition-node]').forEach(function (node) {
+        node.checked = Boolean(selectedNames[node.value]);
+      });
+    };
+
+    document.addEventListener('click', function (event) {
+      var createTrigger = event.target.closest('[data-partition-create]');
+      if (createTrigger) {
+        event.preventDefault();
+        partitionEditorTrigger = createTrigger;
+        setPartitionEditor('', [], false);
+        openPartitionModal(partitionEditorModal);
+        partitionNameInput.focus();
+        return;
+      }
+
+      var editTrigger = event.target.closest('[data-partition-edit]');
+      if (editTrigger) {
+        event.preventDefault();
+        partitionEditorTrigger = editTrigger;
+        var nodes = editTrigger.getAttribute('data-partition-nodes').split(', ').filter(Boolean);
+        setPartitionEditor(editTrigger.getAttribute('data-partition-name'), nodes, true);
+        openPartitionModal(partitionEditorModal);
+        partitionNameInput.focus();
+        return;
+      }
+
+      var deleteTrigger = event.target.closest('[data-partition-delete]');
+      if (deleteTrigger) {
+        event.preventDefault();
+        partitionDeleteTrigger = deleteTrigger;
+        var partitionName = deleteTrigger.getAttribute('data-partition-name');
+        partitionDeleteInput.value = partitionName;
+        partitionDeleteName.textContent = partitionName;
+        openPartitionModal(partitionDeleteModal);
+        partitionDeleteModal.querySelector('button[type="submit"]').focus();
+      }
+    });
+
+    document.querySelectorAll('[data-partition-modal-close]').forEach(function (button) {
+      button.addEventListener('click', function (event) {
+        event.preventDefault();
+        button.closest('dialog').close();
+      });
+    });
+
+    [partitionEditorModal, partitionDeleteModal].forEach(function (modal) {
+      modal.addEventListener('click', function (event) {
+        if (event.target === modal) modal.close();
+      });
+      modal.addEventListener('close', function () {
+        document.body.classList.remove('modal-open');
+        var trigger = modal === partitionEditorModal ? partitionEditorTrigger : partitionDeleteTrigger;
+        if (trigger) trigger.focus();
+      });
+    });
+
+    if (partitionEditorModal.hasAttribute('data-partition-open')) {
+      if (partitionEditorModal.open) partitionEditorModal.close();
+      openPartitionModal(partitionEditorModal);
+      partitionNameInput.focus();
+    }
+  }
+
   document.addEventListener('keydown', function (event) {
     if (event.key === 'Escape' && menuButton && sidebar && sidebar.classList.contains('open')) {
       setMenuOpen(false);

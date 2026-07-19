@@ -55,9 +55,10 @@ func TestNodesPageShowsAvailableNodeAction(t *testing.T) {
 
 	response := getPartitionAuthenticated(t, handler, "/slurm/nodes", "zh")
 	assertStatus(t, response, http.StatusOK)
-	for _, value := range []string{`action="/slurm/nodes/state"`, `name="name" value="node31"`, `name="reason"`, `value="down"`, `value="drain"`, `value="resume"`, `class="node-offline-button"`, `class="node-drain-button"`, `class="node-resume-button"`, `aria-label="下线节点: node31"`, "下线节点", "Drain", "恢复上线"} {
+	for _, value := range []string{`action="/slurm/nodes/state"`, `name="name" value="node31"`, `data-node-state-trigger="down"`, `data-node-state-trigger="drain"`, `data-node-state-value`, `value="resume"`, `class="node-offline-button"`, `class="node-drain-button"`, `class="node-resume-button"`, `aria-controls="node-state-modal"`, `aria-label="下线Down: node31"`, "下线Down", "维护Drain", "恢复Resume", `<dialog id="node-state-modal"`, `data-node-state-reason`, `<noscript>`, `class="node-state-fallback"`, `name="reason"`, `required`} {
 		assertBodyContains(t, response, value)
 	}
+	assertBodyNotContains(t, response, `class="node-state-form"`)
 }
 
 func TestNodesPageChangesNodeState(t *testing.T) {
@@ -148,6 +149,42 @@ func TestPartitionManagementPageRendersLiveNodesAndStoredPartitions(t *testing.T
 	}
 }
 
+func TestPartitionManagementPageUsesModalsForPartitionOperations(t *testing.T) {
+	handler := newPartitionManagementHandler(t, filepath.Join(t.TempDir(), "state.db"), &partitionNodeProvider{
+		nodes: []cluster.Node{{Name: "node31", Partition: "GPU", State: "idle", Online: true}},
+	}, nil)
+	session, csrf := loginWithCSRF(t, handler)
+	response := postProtectedForm(handler, "/slurm/partitions", url.Values{
+		"name":  {"test"},
+		"nodes": {"node31"},
+	}, session, csrf)
+	assertStatus(t, response, http.StatusSeeOther)
+
+	response = getPartitionAuthenticated(t, handler, "/slurm/partitions", "en")
+	assertStatus(t, response, http.StatusOK)
+	for _, value := range []string{
+		`id="partition-editor-modal"`, `id="partition-delete-modal"`,
+		`data-partition-create`, `data-partition-edit`, `data-partition-delete`,
+		`aria-haspopup="dialog"`, `data-partition-modal-close`,
+		`action="/slurm/partitions" method="get"`, `action="/slurm/partitions/delete"`, `href="/slurm/partitions" class="modal-close"`,
+	} {
+		assertBodyContains(t, response, value)
+	}
+	assertBodyNotContains(t, response, `id="editor"`)
+
+	response = getPartitionAuthenticated(t, handler, "/slurm/partitions?modal=create", "en")
+	assertStatus(t, response, http.StatusOK)
+	assertBodyContains(t, response, `open data-partition-open`)
+
+	response = getPartitionAuthenticated(t, handler, "/slurm/partitions?name=test", "en")
+	assertStatus(t, response, http.StatusOK)
+	assertBodyContains(t, response, `value="test" autocomplete="off" spellcheck="false" required data-partition-name-input readonly`)
+
+	response = getPartitionAuthenticated(t, handler, "/slurm/partitions?saved=created&name=test", "en")
+	assertStatus(t, response, http.StatusOK)
+	assertBodyNotContains(t, response, `data-partition-open`)
+}
+
 func TestPartitionManagementPageCreatesPatchesAndDeletesStoredPartition(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.db")
 	handler := newPartitionManagementHandler(t, path, &partitionNodeProvider{
@@ -160,7 +197,7 @@ func TestPartitionManagementPageCreatesPatchesAndDeletesStoredPartition(t *testi
 		"nodes": {"node31", "node32"},
 	}, session, csrf)
 	assertStatus(t, response, http.StatusSeeOther)
-	assertHeader(t, response, "Location", "/slurm/partitions?saved=created&name=test#editor")
+	assertHeader(t, response, "Location", "/slurm/partitions?saved=created&name=test")
 
 	response = getPartitionAuthenticated(t, handler, "/slurm/partitions", "en")
 	assertStatus(t, response, http.StatusOK)
@@ -182,7 +219,7 @@ func TestPartitionManagementPageCreatesPatchesAndDeletesStoredPartition(t *testi
 		"nodes": {"node31"},
 	}, session, csrf)
 	assertStatus(t, response, http.StatusSeeOther)
-	assertHeader(t, response, "Location", "/slurm/partitions?saved=updated&name=test#editor")
+	assertHeader(t, response, "Location", "/slurm/partitions?saved=updated&name=test")
 
 	response = getPartitionAuthenticated(t, handler, "/slurm/partitions", "en")
 	assertStatus(t, response, http.StatusOK)
@@ -202,7 +239,7 @@ func TestPartitionManagementPageCreatesPatchesAndDeletesStoredPartition(t *testi
 		"name": {"test"},
 	}, session, csrf)
 	assertStatus(t, response, http.StatusSeeOther)
-	assertHeader(t, response, "Location", "/slurm/partitions?saved=deleted#editor")
+	assertHeader(t, response, "Location", "/slurm/partitions?saved=deleted")
 
 	store, err = platform.OpenPartitionStore(path)
 	if err != nil {
@@ -266,7 +303,7 @@ func TestPartitionManagementPageRejectsSystemPartitionEdits(t *testing.T) {
 		"nodes": {"node31"},
 	}, session, csrf)
 	assertStatus(t, response, http.StatusSeeOther)
-	assertHeader(t, response, "Location", "/slurm/partitions?error=%E5%88%86%E5%8C%BA+GPU+%E4%B8%BA%E5%8F%AA%E8%AF%BB%E3%80%82&name=GPU#editor")
+	assertHeader(t, response, "Location", "/slurm/partitions?error=%E5%88%86%E5%8C%BA+GPU+%E4%B8%BA%E5%8F%AA%E8%AF%BB%E3%80%82&name=GPU")
 }
 
 func TestPartitionManagementPageRequiresAuthentication(t *testing.T) {

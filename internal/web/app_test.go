@@ -415,8 +415,8 @@ func TestProtectedPagesShareApplicationChrome(t *testing.T) {
 		expectedCSRF int
 	}{
 		{path: "/dashboard", heading: "集群概览", active: "/dashboard", expectedCSRF: 3},
-		{path: "/slurm/nodes", heading: "节点管理", active: "/slurm/nodes", expectedCSRF: 3},
-		{path: "/slurm/partitions", heading: "分区管理", active: "/slurm/partitions", expectedCSRF: 4},
+		{path: "/slurm/nodes", heading: "节点管理", active: "/slurm/nodes", expectedCSRF: 4},
+		{path: "/slurm/partitions", heading: "分区管理", active: "/slurm/partitions", expectedCSRF: 5},
 		{path: "/slurm/jobs", heading: "作业管理", active: "/slurm/jobs", expectedCSRF: 3},
 		{path: "/ldap", heading: "LDAP 目录", active: "/ldap", expectedCSRF: 4},
 		{path: "/settings", heading: "系统设置", active: "/settings", activeMarkup: `href="/settings" class="nav-item sidebar-settings active" aria-current="page"`, expectedCSRF: 5},

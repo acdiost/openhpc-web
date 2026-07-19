@@ -25,6 +25,7 @@ func (a *application) slurmPartitions(c echo.Context) error {
 	selectedSpec, selectedManaged := partitionSelection(systemPartitions, managedPartitions, selectedName)
 	success := partitionSuccessFor(lang, c.QueryParam("saved"), selectedName)
 	errText := partitionErrorFor(lang, c.QueryParam("error"), selectedName)
+	openEditor := c.QueryParam("modal") == "create" || (selectedManaged && c.QueryParam("saved") == "")
 	view := partitionsView{
 		appChrome: a.newAppChrome(c, module.Path, nodesAvailable || partitionsAvailable, pageHeading{
 			Eyebrow: "OPENHPC / SLURM", Title: module.Label, Description: labels.Description,
@@ -35,7 +36,7 @@ func (a *application) slurmPartitions(c echo.Context) error {
 		SystemPartitions:   partitionSystemRowsView(systemPartitions, labels),
 		PlatformPartitions: partitionManagedRowsView(managedPartitions, liveNodes, nodesAvailable, labels),
 		NodesAvailable:     nodesAvailable, PartitionsAvailable: partitionsAvailable,
-		Success: success, Error: errText, SelectedName: selectedName,
+		Success: success, Error: errText, SelectedName: selectedName, OpenEditor: openEditor,
 	}
 	if !selectedManaged {
 		view.SelectedName = ""
@@ -75,12 +76,12 @@ func (a *application) savePartition(c echo.Context) error {
 		if strings.Contains(err.Error(), "read-only") {
 			code = "readonly"
 		}
-		return c.Redirect(http.StatusSeeOther, "/slurm/partitions?error="+url.QueryEscape(partitionErrorFor(language(c), code, name))+"&name="+url.QueryEscape(name)+"#editor")
+		return c.Redirect(http.StatusSeeOther, "/slurm/partitions?error="+url.QueryEscape(partitionErrorFor(language(c), code, name))+"&name="+url.QueryEscape(name))
 	}
 	if a.partitionAdmin != nil {
 		if err := a.partitionAdmin.ApplyPartition(c.Request().Context(), name, selected); err != nil {
 			_ = a.recordAudit(c, platform.AuditEvent{Actor: currentPrincipal(c).Username, Action: "slurm.partition.sync", Outcome: "failed", CreatedAt: time.Now()})
-			return c.Redirect(http.StatusSeeOther, "/slurm/partitions?error="+url.QueryEscape(partitionErrorFor(language(c), "sync_failed", name))+"&name="+url.QueryEscape(name)+"#editor")
+			return c.Redirect(http.StatusSeeOther, "/slurm/partitions?error="+url.QueryEscape(partitionErrorFor(language(c), "sync_failed", name))+"&name="+url.QueryEscape(name))
 		}
 	}
 	outcome := "success"
@@ -93,7 +94,7 @@ func (a *application) savePartition(c echo.Context) error {
 	if err := a.recordAudit(c, platform.AuditEvent{Actor: currentPrincipal(c).Username, Action: "slurm.partition.save", Outcome: outcome, CreatedAt: time.Now()}); err != nil {
 		log.Printf("partition audit failed")
 	}
-	return c.Redirect(http.StatusSeeOther, "/slurm/partitions?saved="+saved+"&name="+url.QueryEscape(name)+"#editor")
+	return c.Redirect(http.StatusSeeOther, "/slurm/partitions?saved="+saved+"&name="+url.QueryEscape(name))
 }
 
 func (a *application) deletePartition(c echo.Context) error {
@@ -112,26 +113,26 @@ func (a *application) deletePartition(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest)
 	}
 	if !found {
-		return c.Redirect(http.StatusSeeOther, "/slurm/partitions?saved=deleted#editor")
+		return c.Redirect(http.StatusSeeOther, "/slurm/partitions?saved=deleted")
 	}
 	if !spec.Managed {
-		return c.Redirect(http.StatusSeeOther, "/slurm/partitions?error="+url.QueryEscape(partitionErrorFor(language(c), "readonly", name))+"&name="+url.QueryEscape(name)+"#editor")
+		return c.Redirect(http.StatusSeeOther, "/slurm/partitions?error="+url.QueryEscape(partitionErrorFor(language(c), "readonly", name))+"&name="+url.QueryEscape(name))
 	}
 	if err := a.partitionStore.DeleteManaged(c.Request().Context(), name); err != nil {
 		_ = a.recordAudit(c, platform.AuditEvent{Actor: currentPrincipal(c).Username, Action: "slurm.partition.delete", Outcome: "failed", CreatedAt: time.Now()})
-		return c.Redirect(http.StatusSeeOther, "/slurm/partitions?error="+url.QueryEscape(partitionErrorFor(language(c), "delete_failed", name))+"&name="+url.QueryEscape(name)+"#editor")
+		return c.Redirect(http.StatusSeeOther, "/slurm/partitions?error="+url.QueryEscape(partitionErrorFor(language(c), "delete_failed", name))+"&name="+url.QueryEscape(name))
 	}
 	if a.partitionAdmin != nil {
 		if err := a.partitionAdmin.DeletePartition(c.Request().Context(), name); err != nil {
 			_, _ = a.partitionStore.Upsert(c.Request().Context(), spec)
 			_ = a.recordAudit(c, platform.AuditEvent{Actor: currentPrincipal(c).Username, Action: "slurm.partition.sync", Outcome: "failed", CreatedAt: time.Now()})
-			return c.Redirect(http.StatusSeeOther, "/slurm/partitions?error="+url.QueryEscape(partitionErrorFor(language(c), "sync_failed", name))+"&name="+url.QueryEscape(name)+"#editor")
+			return c.Redirect(http.StatusSeeOther, "/slurm/partitions?error="+url.QueryEscape(partitionErrorFor(language(c), "sync_failed", name))+"&name="+url.QueryEscape(name))
 		}
 	}
 	if err := a.recordAudit(c, platform.AuditEvent{Actor: currentPrincipal(c).Username, Action: "slurm.partition.delete", Outcome: "success", CreatedAt: time.Now()}); err != nil {
 		log.Printf("partition audit failed")
 	}
-	return c.Redirect(http.StatusSeeOther, "/slurm/partitions?saved=deleted#editor")
+	return c.Redirect(http.StatusSeeOther, "/slurm/partitions?saved=deleted")
 }
 
 func (a *application) syncSystemPartitions(ctx context.Context) error {
@@ -342,7 +343,7 @@ func partitionSuccessFor(language, saved, name string) string {
 		if language == "en" {
 			return "Partition " + name + " patched."
 		}
-		return "分区 " + name + " 已补丁更新。"
+		return "分区 " + name + " 已更新。"
 	case "unchanged":
 		if language == "en" {
 			return "Partition " + name + " is unchanged."

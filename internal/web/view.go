@@ -115,7 +115,8 @@ type detailCopy struct {
 	OnlineNodes, TotalNodes, OfflineNodes, CPUUtilization    string
 	JobID, JobName, User, Account, Elapsed, TimeLimit        string
 	NodesOrReason, Online, Offline, NodeCount                string
-	BringNodeOnline, TakeNodeOffline, DrainNode, NodeReason  string
+	BringNodeOnline, DownNode, DrainNode, NodeReason  string
+	Confirm                                                  string
 	JobDetails, BackToJobs, JobNotFound, Close               string
 	CPUCount, SubmitTime, StartTime, WorkDir                 string
 	EligibleTime, EndTime, Unknown                           string
@@ -142,6 +143,7 @@ type partitionCopy struct {
 	LiveNodes, SystemPartitions, PlatformPartitions   string
 	Status, ReadOnly, Source, ImportedAt              string
 	EditPartition, DeletePartition, SavePartition     string
+	Cancel                                            string
 	Matched, Added, Removed                           string
 	Created, Patched, Unchanged, Deleted              string
 	Node, Partition, State, Action                    string
@@ -429,7 +431,7 @@ func detailCopyFor(language string) detailCopy {
 			OnlineNodes: "Online nodes", CPUUtilization: "CPU utilization",
 			JobID: "Job ID", JobName: "Name", User: "User", Account: "Account", Elapsed: "Elapsed", TimeLimit: "Time limit",
 			NodesOrReason: "Nodes / reason", Online: "Online", Offline: "Unavailable", NodeCount: "Node count",
-			BringNodeOnline: "Resume", TakeNodeOffline: "Take node offline", DrainNode: "Drain", NodeReason: "Reason (required for down or drain)",
+			BringNodeOnline: "Resume", DownNode: "Down", DrainNode: "Drain", NodeReason: "Reason", Confirm: "Confirm",
 			JobDetails: "Job details", BackToJobs: "Back to jobs", JobNotFound: "Job not found in the current queue", Close: "Close",
 			Resources: "Resources", ResourceUsage: "Live resource usage", ResourceLoading: "Loading sstat data...", ResourceError: "Resource data is temporarily unavailable",
 			ResourceEmpty: "No active sstat steps reported", SampledAt: "Sampled at", CPUTime: "CPU time", MaxRSS: "Maximum RSS", ResourceTrend: "Recent resource trend",
@@ -453,7 +455,7 @@ func detailCopyFor(language string) detailCopy {
 		OnlineNodes: "在线节点", CPUUtilization: "CPU 利用率",
 		JobID: "作业 ID", JobName: "名称", User: "用户", Account: "账户", Elapsed: "已运行", TimeLimit: "时间限制",
 		NodesOrReason: "节点 / 原因", Online: "在线", Offline: "不可用", NodeCount: "节点数",
-		BringNodeOnline: "恢复上线", TakeNodeOffline: "下线节点", DrainNode: "Drain", NodeReason: "操作原因（下线或 Drain 必填）",
+		BringNodeOnline: "恢复Resume", DownNode: "下线Down", DrainNode: "维护Drain", NodeReason: "操作原因", Confirm: "确认",
 		JobDetails: "作业详细信息", BackToJobs: "返回作业列表", JobNotFound: "当前队列中未找到该作业", Close: "关闭",
 		Resources: "资源", ResourceUsage: "实时资源消耗", ResourceLoading: "正在加载 sstat 数据...", ResourceError: "资源数据暂不可用",
 		ResourceEmpty: "sstat 暂无活动步骤数据", SampledAt: "采样时间", CPUTime: "CPU 时间", MaxRSS: "最大常驻内存", ResourceTrend: "近期资源趋势",
@@ -480,20 +482,20 @@ func partitionCopyFor(language string) partitionCopy {
 			CreatePartition: "Create partition", UpdatePartition: "Patch partition",
 			LiveNodes: "Live nodes", SystemPartitions: "System partitions", PlatformPartitions: "Platform partitions",
 			Status: "Status", ReadOnly: "Read-only", Source: "Source", ImportedAt: "Imported at",
-			EditPartition: "Edit partition", DeletePartition: "Delete partition", SavePartition: "Save partition",
+			EditPartition: "Edit partition", DeletePartition: "Delete partition", SavePartition: "Save partition", Cancel: "Cancel",
 			Matched: "Matched", Added: "Added", Removed: "Removed",
 			Created: "Created", Patched: "Patched", Unchanged: "Unchanged", Deleted: "Deleted",
 			Node: "Node", Partition: "Partition", State: "State", Action: "Action",
 		}
 	}
 	return partitionCopy{
-		Description: "通过勾选在线节点创建或补丁更新分区。已保存定义写入 SQLite，便于 Slurm 重启后快速恢复。",
+		Description: "通过勾选在线节点创建或更新分区。已保存定义写入 SQLite，便于 Slurm 重启后快速恢复。",
 		Refresh:     "刷新", EmptyNodes: "未报告节点", EmptyPartitions: "暂无已保存分区",
 		Unavailable: "分区数据暂不可用", PartitionName: "分区名称", SelectedNodes: "已选节点",
-		CreatePartition: "创建分区", UpdatePartition: "补丁更新",
+		CreatePartition: "创建分区", UpdatePartition: "更新分区",
 		LiveNodes: "在线节点", SystemPartitions: "系统分区", PlatformPartitions: "平台分区",
 		Status: "状态", ReadOnly: "只读", Source: "来源", ImportedAt: "导入时间",
-		EditPartition: "编辑分区", DeletePartition: "删除分区", SavePartition: "保存分区",
+		EditPartition: "编辑分区", DeletePartition: "删除分区", SavePartition: "保存分区", Cancel: "取消",
 		Matched: "一致", Added: "新增", Removed: "移除",
 		Created: "已创建", Patched: "已更新", Unchanged: "无变化", Deleted: "已删除",
 		Node: "节点", Partition: "分区", State: "状态", Action: "操作",

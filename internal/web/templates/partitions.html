@@ -12,50 +12,6 @@
         {{if .Success}}<div class="data-success mb-4 border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700" role="status">{{.Success}}</div>{{end}}
         {{if .Error}}<div class="data-warning mb-4 border border-rose-200 border-l-3 border-l-rose-600 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-800" role="alert">{{.Error}}</div>{{end}}
 
-        <section class="data-section" id="editor">
-          <div class="section-head">
-            <h2>{{if .SelectedName}}{{.Labels.UpdatePartition}}{{else}}{{.Labels.CreatePartition}}{{end}}</h2>
-            {{if .SelectedName}}<a class="table-link" href="/slurm/partitions#editor">{{.Labels.CreatePartition}}</a>{{end}}
-          </div>
-          <form action="/slurm/partitions" method="post" class="settings-form partition-editor">
-            <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
-            <p class="settings-note">{{.Labels.Description}}</p>
-            <div class="settings-field grid grid-cols-1 gap-3 border-t border-slate-200 py-3 md:grid-cols-[minmax(160px,240px)_minmax(0,1fr)_minmax(160px,220px)]">
-              <span><strong>{{.Labels.PartitionName}}</strong><small>/slurm/partitions</small></span>
-              <input type="text" name="name" value="{{.SelectedName}}" autocomplete="off" spellcheck="false">
-            </div>
-            <section class="data-section partition-nodes">
-              <div class="section-head">
-                <h3>{{.Labels.LiveNodes}}</h3>
-              </div>
-              {{if not .NodesAvailable}}
-                <div class="data-warning mb-4 border border-rose-200 border-l-3 border-l-rose-600 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-800" role="status">{{.Labels.Unavailable}}</div>
-              {{else if not .Nodes}}
-                <div class="data-empty border border-slate-200 bg-white px-5 py-10 text-center text-sm text-slate-500">{{.Labels.EmptyNodes}}</div>
-              {{else}}
-                <div class="data-table-wrap overflow-x-auto border border-slate-200 bg-white">
-                  <table class="data-table partition-table min-w-[720px] w-full border-collapse text-left">
-                    <thead>
-                      <tr><th></th><th>{{.Labels.Node}}</th><th>{{.Labels.Partition}}</th><th>{{.Labels.State}}</th></tr>
-                    </thead>
-                    <tbody>
-                      {{range .Nodes}}
-                        <tr>
-                          <td><input type="checkbox" name="nodes" value="{{.Name}}"{{if .Selected}} checked{{end}}></td>
-                          <td><strong>{{.Name}}</strong></td>
-                          <td>{{if .Partition}}{{.Partition}}{{else}}—{{end}}</td>
-                          <td>{{.State}}</td>
-                        </tr>
-                      {{end}}
-                    </tbody>
-                  </table>
-                </div>
-              {{end}}
-            </section>
-            <button type="submit" class="primary-button min-h-9 border-0 bg-rose-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-rose-700">{{if .SelectedName}}{{.Labels.UpdatePartition}}{{else}}{{.Labels.CreatePartition}}{{end}}</button>
-          </form>
-        </section>
-
         <section class="data-section">
           <div class="section-head">
             <h2>{{.Labels.SystemPartitions}}</h2>
@@ -88,6 +44,7 @@
         <section class="data-section">
           <div class="section-head">
             <h2>{{.Labels.PlatformPartitions}}</h2>
+            <form action="/slurm/partitions" method="get" class="inline-form"><input type="hidden" name="modal" value="create"><button type="submit" class="primary-button min-h-9 border-0 bg-rose-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-rose-700" data-partition-create aria-haspopup="dialog" aria-controls="partition-editor-modal">{{.Labels.CreatePartition}}</button></form>
           </div>
           {{if not .PartitionsAvailable}}
             <div class="data-warning mb-4 border border-rose-200 border-l-3 border-l-rose-600 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-800" role="status">{{.Labels.Unavailable}}</div>
@@ -109,12 +66,8 @@
                       <td>{{if .RemovedNodes}}{{.RemovedNodes}}{{else}}—{{end}}</td>
                       <td>{{if .UpdatedAt}}{{.UpdatedAt}}{{else}}—{{end}}</td>
                       <td class="row-actions">
-                        <a class="table-link" href="/slurm/partitions?name={{.Name}}#editor">{{$.Labels.EditPartition}}</a>
-                        <form action="/slurm/partitions/delete" method="post" class="inline-form">
-                          <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
-                          <input type="hidden" name="name" value="{{.Name}}">
-                          <button type="submit" class="danger-button min-h-9 border border-rose-600 bg-rose-50 px-3 py-1.5 text-sm font-bold text-rose-800 hover:bg-rose-600 hover:text-white">{{$.Labels.DeletePartition}}</button>
-                        </form>
+                        <form action="/slurm/partitions" method="get" class="inline-form"><input type="hidden" name="name" value="{{.Name}}"><button type="submit" class="table-link" data-partition-edit data-partition-name="{{.Name}}" data-partition-nodes="{{.Nodes}}" aria-haspopup="dialog" aria-controls="partition-editor-modal">{{$.Labels.EditPartition}}</button></form>
+                        <form action="/slurm/partitions/delete" method="post" class="inline-form"><input type="hidden" name="_csrf" value="{{$.CSRFToken}}"><input type="hidden" name="name" value="{{.Name}}"><button type="submit" class="danger-button min-h-9 border border-rose-600 bg-rose-50 px-3 py-1.5 text-sm font-bold text-rose-800 hover:bg-rose-600 hover:text-white" data-partition-delete data-partition-name="{{.Name}}" aria-haspopup="dialog" aria-controls="partition-delete-modal">{{$.Labels.DeletePartition}}</button></form>
                       </td>
                     </tr>
                   {{end}}
@@ -123,6 +76,49 @@
             </div>
           {{end}}
         </section>
+
+        <dialog id="partition-editor-modal" class="partition-modal m-auto w-[min(980px,calc(100%-2.5rem))] max-h-[90vh] border-0 bg-transparent p-0 text-slate-900 backdrop:bg-slate-950/55" aria-modal="true" aria-labelledby="partition-editor-title" data-partition-create-label="{{.Labels.CreatePartition}}" data-partition-update-label="{{.Labels.UpdatePartition}}"{{if .OpenEditor}} open data-partition-open{{end}}>
+          <div class="partition-modal-surface flex max-h-[90vh] flex-col border-t-3 border-t-rose-600 bg-white shadow-2xl">
+            <header><h2 id="partition-editor-title" data-partition-editor-title>{{if .SelectedName}}{{.Labels.UpdatePartition}}{{else}}{{.Labels.CreatePartition}}{{end}}</h2><a href="/slurm/partitions" class="modal-close" data-partition-modal-close aria-label="{{.Labels.Cancel}}">×</a></header>
+            <form action="/slurm/partitions" method="post" class="settings-form partition-editor flex min-h-0 flex-col" data-partition-editor-form>
+              <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+              <div class="partition-modal-body overflow-auto px-5 py-2 pb-5">
+                <p class="settings-note">{{.Labels.Description}}</p>
+                <div class="settings-field grid grid-cols-1 gap-3 border-t border-slate-200 py-3 md:grid-cols-[minmax(160px,240px)_minmax(0,1fr)_minmax(160px,220px)]">
+                  <span><strong>{{.Labels.PartitionName}}</strong><small>/slurm/partitions</small></span>
+                  <input type="text" name="name" value="{{.SelectedName}}" autocomplete="off" spellcheck="false" required data-partition-name-input{{if .SelectedName}} readonly{{end}}>
+                </div>
+                <section class="partition-nodes">
+                  <div class="section-head"><h3>{{.Labels.LiveNodes}}</h3></div>
+                  {{if not .NodesAvailable}}
+                    <div class="data-warning mb-4 border border-rose-200 border-l-3 border-l-rose-600 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-800" role="status">{{.Labels.Unavailable}}</div>
+                  {{else if not .Nodes}}
+                    <div class="data-empty border border-slate-200 bg-white px-5 py-10 text-center text-sm text-slate-500">{{.Labels.EmptyNodes}}</div>
+                  {{else}}
+                    <div class="data-table-wrap overflow-x-auto border border-slate-200 bg-white">
+                      <table class="data-table partition-table min-w-[720px] w-full border-collapse text-left">
+                        <thead><tr><th></th><th>{{.Labels.Node}}</th><th>{{.Labels.Partition}}</th><th>{{.Labels.State}}</th></tr></thead>
+                        <tbody>{{range .Nodes}}<tr><td><input type="checkbox" name="nodes" value="{{.Name}}"{{if .Selected}} checked{{end}} data-partition-node></td><td><strong>{{.Name}}</strong></td><td>{{if .Partition}}{{.Partition}}{{else}}—{{end}}</td><td>{{.State}}</td></tr>{{end}}</tbody>
+                      </table>
+                    </div>
+                  {{end}}
+                </section>
+              </div>
+              <footer class="partition-modal-actions flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-3"><a href="/slurm/partitions" class="secondary-button min-h-9 border border-slate-300 bg-white px-3 py-1.5 text-sm font-bold text-slate-600 hover:bg-slate-100" data-partition-modal-close>{{.Labels.Cancel}}</a><button type="submit" class="primary-button min-h-9 border-0 bg-rose-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-rose-700" data-partition-submit>{{if .SelectedName}}{{.Labels.UpdatePartition}}{{else}}{{.Labels.CreatePartition}}{{end}}</button></footer>
+            </form>
+          </div>
+        </dialog>
+
+        <dialog id="partition-delete-modal" class="partition-modal m-auto w-[min(520px,calc(100%-2.5rem))] border-0 bg-transparent p-0 text-slate-900 backdrop:bg-slate-950/55" aria-modal="true" aria-labelledby="partition-delete-title">
+          <div class="partition-modal-surface flex flex-col border-t-3 border-t-rose-600 bg-white shadow-2xl">
+            <header><h2 id="partition-delete-title">{{.Labels.DeletePartition}}</h2><button type="button" class="modal-close" data-partition-modal-close aria-label="{{.Labels.Cancel}}">×</button></header>
+            <form action="/slurm/partitions/delete" method="post" data-partition-delete-form>
+              <input type="hidden" name="_csrf" value="{{.CSRFToken}}"><input type="hidden" name="name" data-partition-delete-input>
+              <p class="px-5 py-5 text-sm text-slate-600" data-partition-delete-name></p>
+              <footer class="partition-modal-actions flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-3"><button type="button" class="secondary-button min-h-9 border border-slate-300 bg-white px-3 py-1.5 text-sm font-bold text-slate-600 hover:bg-slate-100" data-partition-modal-close>{{.Labels.Cancel}}</button><button type="submit" class="danger-button min-h-9 border border-rose-600 bg-rose-50 px-3 py-1.5 text-sm font-bold text-rose-800 hover:bg-rose-600 hover:text-white">{{.Labels.DeletePartition}}</button></footer>
+            </form>
+          </div>
+        </dialog>
       </main>
     </div>
   </div>
