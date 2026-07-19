@@ -61,6 +61,7 @@ type Config struct {
 	SettingsStore       *platform.SettingsStore
 	PartitionStore      *platform.PartitionStore
 	PartitionAdmin      cluster.PartitionAdmin
+	NodeAdmin           cluster.NodeAdmin
 	SettingsDefaults    map[string]string
 	SlurmConfigProvider slurmconfig.Provider
 	PlatformUsers       *platform.UserStore
@@ -86,6 +87,7 @@ type application struct {
 	settingsStore       *platform.SettingsStore
 	partitionStore      *platform.PartitionStore
 	partitionAdmin      cluster.PartitionAdmin
+	nodeAdmin           cluster.NodeAdmin
 	settingsDefaults    map[string]string
 	platformUsers       *platform.UserStore
 	templates           *template.Template
@@ -252,6 +254,7 @@ func New(config Config) (http.Handler, error) {
 		settingsStore:       config.SettingsStore,
 		partitionStore:      partitionStore,
 		partitionAdmin:      config.PartitionAdmin,
+		nodeAdmin:           config.NodeAdmin,
 		settingsDefaults:    cloneSettings(config.SettingsDefaults),
 		platformUsers:       userStore,
 		templates:           templates,
@@ -307,6 +310,7 @@ func New(config Config) (http.Handler, error) {
 	protected.GET("/", func(c echo.Context) error { return c.Redirect(http.StatusFound, "/dashboard") })
 	protected.GET("/dashboard", app.dashboard)
 	protected.GET("/slurm/nodes", app.slurmNodes, app.requireAdmin)
+	protected.POST("/slurm/nodes/state", app.setNodeAvailability, app.requireAdmin)
 	protected.GET("/slurm/partitions", app.slurmPartitions, app.requireAdmin)
 	protected.POST("/slurm/partitions", app.savePartition, app.requireAdmin)
 	protected.POST("/slurm/partitions/delete", app.deletePartition, app.requireAdmin)
@@ -580,8 +584,76 @@ func (a *application) slurmNodes(c echo.Context) error {
 		}),
 		Module: currentModule, Labels: labels, Nodes: nodes, Partitions: partitions,
 		NodesAvailable: nodesAvailable, PartitionsAvailable: partitionsAvailable,
+		Success: nodeAvailabilitySuccessFor(lang, c.QueryParam("saved")),
+		Error:   nodeAvailabilityErrorFor(lang, c.QueryParam("error")),
 	}
 	return a.render(c, http.StatusOK, "nodes.html", view)
+}
+
+func (a *application) setNodeAvailability(c echo.Context) error {
+	if a.nodeAdmin == nil || a.nodeProvider == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable)
+	}
+	if err := c.Request().ParseForm(); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest)
+	}
+	name := strings.TrimSpace(c.FormValue("name"))
+	online, err := strconv.ParseBool(c.FormValue("online"))
+	if err != nil || name == "" {
+		return echo.NewHTTPError(http.StatusBadRequest)
+	}
+	nodes, err := a.nodeProvider.Nodes(c.Request().Context())
+	if err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable)
+	}
+	found := false
+	for _, node := range nodes {
+		if node.Name == name {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return echo.NewHTTPError(http.StatusBadRequest)
+	}
+	if err := a.nodeAdmin.SetNodeOnline(c.Request().Context(), name, online); err != nil {
+		_ = a.recordAudit(c, platform.AuditEvent{Actor: currentPrincipal(c).Username, Action: "slurm.node.availability", Outcome: "failed", CreatedAt: time.Now()})
+		return c.Redirect(http.StatusSeeOther, "/slurm/nodes?error=update_failed#nodes")
+	}
+	if err := a.recordAudit(c, platform.AuditEvent{Actor: currentPrincipal(c).Username, Action: "slurm.node.availability", Outcome: "success", CreatedAt: time.Now()}); err != nil {
+		log.Printf("node availability audit failed")
+	}
+	saved := "offline"
+	if online {
+		saved = "online"
+	}
+	return c.Redirect(http.StatusSeeOther, "/slurm/nodes?saved="+saved+"#nodes")
+}
+
+func nodeAvailabilitySuccessFor(language, saved string) string {
+	if saved == "online" {
+		if language == "en" {
+			return "Node brought online."
+		}
+		return "节点已上线。"
+	}
+	if saved == "offline" {
+		if language == "en" {
+			return "Node taken offline."
+		}
+		return "节点已下线。"
+	}
+	return ""
+}
+
+func nodeAvailabilityErrorFor(language, code string) string {
+	if code != "update_failed" {
+		return ""
+	}
+	if language == "en" {
+		return "Node availability could not be updated."
+	}
+	return "节点可用状态更新失败。"
 }
 
 func (a *application) slurmJobs(c echo.Context) error {

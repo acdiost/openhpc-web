@@ -109,3 +109,65 @@ func TestClientDeletePartition(t *testing.T) {
 		t.Fatalf("DeletePartition() error = %v", err)
 	}
 }
+
+func TestClientSetNodeOnline(t *testing.T) {
+	runner := &scriptedRunner{run: func(_ context.Context, path string, args ...string) ([]byte, error) {
+		if filepath.Base(path) != "scontrol" {
+			return nil, errors.New("unexpected command")
+		}
+		return nil, nil
+	}}
+	client, err := New(Config{BinaryDir: "/opt/slurm/bin", Timeout: time.Second, MaxOutputBytes: 16 << 10, Runner: runner})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if err := client.SetNodeOnline(context.Background(), "node01", true); err != nil {
+		t.Fatalf("SetNodeOnline(online) error = %v", err)
+	}
+	if err := client.SetNodeOnline(context.Background(), "node02", false); err != nil {
+		t.Fatalf("SetNodeOnline(offline) error = %v", err)
+	}
+	want := []commandCall{
+		{path: filepath.Join("/opt/slurm/bin", "scontrol"), args: []string{"update", "nodename=node01", "state=resume"}},
+		{path: filepath.Join("/opt/slurm/bin", "scontrol"), args: []string{"update", "nodename=node02", "state=down"}},
+	}
+	if got := runner.callsSnapshot(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("calls = %#v, want %#v", got, want)
+	}
+}
+
+func TestClientSetNodeOnlineInvalidatesNodeCache(t *testing.T) {
+	responses := [][]byte{
+		[]byte(`{"errors":[],"sinfo":[{"nodes":{"nodes":["node01"]},"partition":{"name":"CPU"},"node":{"state":["IDLE"]},"cpus":{"allocated":0,"total":1},"memory":{"maximum":1}}]}`),
+		[]byte(`{"errors":[],"sinfo":[{"nodes":{"nodes":["node01"]},"partition":{"name":"CPU"},"node":{"state":["DOWN"]},"cpus":{"allocated":0,"total":1},"memory":{"maximum":1}}]}`),
+	}
+	sinfoCalls := 0
+	runner := &scriptedRunner{run: func(_ context.Context, path string, args ...string) ([]byte, error) {
+		if filepath.Base(path) == "scontrol" {
+			return nil, nil
+		}
+		if filepath.Base(path) != "sinfo" {
+			return nil, errors.New("unexpected command")
+		}
+		output := responses[sinfoCalls]
+		sinfoCalls++
+		return output, nil
+	}}
+	client := newTestClient(t, runner)
+	if _, err := client.Nodes(context.Background()); err != nil {
+		t.Fatalf("Nodes() error = %v", err)
+	}
+	if err := client.SetNodeOnline(context.Background(), "node01", false); err != nil {
+		t.Fatalf("SetNodeOnline() error = %v", err)
+	}
+	nodes, err := client.Nodes(context.Background())
+	if err != nil {
+		t.Fatalf("Nodes() after update error = %v", err)
+	}
+	if len(nodes) != 1 || nodes[0].Online {
+		t.Fatalf("nodes after update = %#v, want offline node01", nodes)
+	}
+	if sinfoCalls != 2 {
+		t.Fatalf("sinfo calls = %d, want 2", sinfoCalls)
+	}
+}

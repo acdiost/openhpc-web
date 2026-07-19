@@ -50,6 +50,36 @@ func (c *Client) DeletePartition(ctx context.Context, name string) error {
 	return nil
 }
 
+func (c *Client) SetNodeOnline(ctx context.Context, name string, online bool) error {
+	if err := validateNodeName(name); err != nil {
+		return err
+	}
+	state := "down"
+	if online {
+		state = "resume"
+	}
+	updateCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	if _, err := c.run(updateCtx, "scontrol", "update", "nodename="+name, "state="+state); err != nil {
+		return fmt.Errorf("set Slurm node %s state: %w", name, err)
+	}
+	c.nodesCache.invalidate()
+	return nil
+}
+
+func validateNodeName(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return errors.New("node name is required")
+	}
+	if err := validateDetailStrings([]string{name}); err != nil {
+		return err
+	}
+	if strings.ContainsAny(name, ", \t\r\n") {
+		return errors.New("node name must not contain commas or whitespace")
+	}
+	return nil
+}
+
 func validatePartitionDefinition(name string, nodes []string) error {
 	if strings.TrimSpace(name) == "" || len(nodes) == 0 {
 		return errors.New("partition name and nodes are required")
@@ -74,3 +104,4 @@ func validatePartitionDefinition(name string, nodes []string) error {
 }
 
 var _ cluster.PartitionAdmin = (*Client)(nil)
+var _ cluster.NodeAdmin = (*Client)(nil)

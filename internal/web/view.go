@@ -115,6 +115,7 @@ type detailCopy struct {
 	OnlineNodes, CPUUtilization                              string
 	JobID, JobName, User, Account, Elapsed, TimeLimit        string
 	NodesOrReason, Online, Offline, NodeCount                string
+	BringNodeOnline, TakeNodeOffline                         string
 	JobDetails, BackToJobs, JobNotFound, Close               string
 	CPUCount, SubmitTime, StartTime, WorkDir                 string
 	EligibleTime, EndTime, Unknown                           string
@@ -227,6 +228,8 @@ type nodesView struct {
 	Partitions          []cluster.Partition
 	NodesAvailable      bool
 	PartitionsAvailable bool
+	Success             string
+	Error               string
 }
 
 type partitionNodeView struct {
@@ -409,6 +412,7 @@ func detailCopyFor(language string) detailCopy {
 			OnlineNodes: "Online nodes", CPUUtilization: "CPU utilization",
 			JobID: "Job ID", JobName: "Name", User: "User", Account: "Account", Elapsed: "Elapsed", TimeLimit: "Time limit",
 			NodesOrReason: "Nodes / reason", Online: "Online", Offline: "Unavailable", NodeCount: "Node count",
+			BringNodeOnline: "Bring online", TakeNodeOffline: "Take offline",
 			JobDetails: "Job details", BackToJobs: "Back to jobs", JobNotFound: "Job not found in the current queue", Close: "Close",
 			Resources: "Resources", ResourceUsage: "Live resource usage", ResourceLoading: "Loading sstat data...", ResourceError: "Resource data is temporarily unavailable",
 			ResourceEmpty: "No active sstat steps reported", SampledAt: "Sampled at", CPUTime: "CPU time", MaxRSS: "Maximum RSS", ResourceTrend: "Recent resource trend",
@@ -432,6 +436,7 @@ func detailCopyFor(language string) detailCopy {
 		OnlineNodes: "在线节点", CPUUtilization: "CPU 利用率",
 		JobID: "作业 ID", JobName: "名称", User: "用户", Account: "账户", Elapsed: "已运行", TimeLimit: "时间限制",
 		NodesOrReason: "节点 / 原因", Online: "在线", Offline: "不可用", NodeCount: "节点数",
+		BringNodeOnline: "上线", TakeNodeOffline: "下线",
 		JobDetails: "作业详细信息", BackToJobs: "返回作业列表", JobNotFound: "当前队列中未找到该作业", Close: "关闭",
 		Resources: "资源", ResourceUsage: "实时资源消耗", ResourceLoading: "正在加载 sstat 数据...", ResourceError: "资源数据暂不可用",
 		ResourceEmpty: "sstat 暂无活动步骤数据", SampledAt: "采样时间", CPUTime: "CPU 时间", MaxRSS: "最大常驻内存", ResourceTrend: "近期资源趋势",

@@ -30,6 +30,49 @@ func TestNodesPageEmbedsPartitionAndNodeSnapshots(t *testing.T) {
 	}
 }
 
+func TestNodesPageShowsAvailableNodeAction(t *testing.T) {
+	handler := newSlurmPageHandlerWithNodeAdmin(t, &partitionNodeProvider{nodes: []cluster.Node{
+		{Name: "node31", Partition: "GPU", State: "idle", Online: true},
+		{Name: "node32", Partition: "GPU", State: "down", Online: false},
+	}}, nil, &stubNodeAdmin{})
+
+	response := getPartitionAuthenticated(t, handler, "/slurm/nodes", "zh")
+	assertStatus(t, response, http.StatusOK)
+	for _, value := range []string{`action="/slurm/nodes/state"`, `name="name" value="node31"`, `name="online" value="false"`, "下线", `name="name" value="node32"`, `name="online" value="true"`, "上线"} {
+		assertBodyContains(t, response, value)
+	}
+}
+
+func TestNodesPageChangesNodeAvailability(t *testing.T) {
+	admin := &stubNodeAdmin{}
+	handler := newSlurmPageHandlerWithNodeAdmin(t, &partitionNodeProvider{nodes: []cluster.Node{{Name: "node31", Online: true}}}, nil, admin)
+	session, csrf := loginWithCSRF(t, handler)
+
+	response := postProtectedForm(handler, "/slurm/nodes/state", url.Values{"name": {"node31"}, "online": {"false"}}, session, csrf)
+	assertStatus(t, response, http.StatusSeeOther)
+	assertHeader(t, response, "Location", "/slurm/nodes?saved=offline#nodes")
+	if !reflect.DeepEqual(admin.calls, []nodeAdminCall{{name: "node31", online: false}}) {
+		t.Fatalf("node admin calls = %#v", admin.calls)
+	}
+}
+
+func TestNodesPageRejectsUnknownNodeAndReportsUpdateFailure(t *testing.T) {
+	provider := &partitionNodeProvider{nodes: []cluster.Node{{Name: "node31", Online: true}}}
+	admin := &stubNodeAdmin{err: errors.New("scontrol failed")}
+	handler := newSlurmPageHandlerWithNodeAdmin(t, provider, nil, admin)
+	session, csrf := loginWithCSRF(t, handler)
+
+	response := postProtectedForm(handler, "/slurm/nodes/state", url.Values{"name": {"not-a-node"}, "online": {"false"}}, session, csrf)
+	assertStatus(t, response, http.StatusBadRequest)
+	if len(admin.calls) != 0 {
+		t.Fatalf("node admin calls = %#v, want none", admin.calls)
+	}
+
+	response = postProtectedForm(handler, "/slurm/nodes/state", url.Values{"name": {"node31"}, "online": {"false"}}, session, csrf)
+	assertStatus(t, response, http.StatusSeeOther)
+	assertHeader(t, response, "Location", "/slurm/nodes?error=update_failed#nodes")
+}
+
 func TestNodesPageSeparatesPartitionAndNodeFailures(t *testing.T) {
 	secret := errors.New("exec /secret/sinfo: credential material")
 	tests := []struct {
@@ -236,6 +279,16 @@ func newSlurmPageHandlerWithPartitions(t *testing.T, nodes cluster.NodeProvider,
 	return handler
 }
 
+func newSlurmPageHandlerWithNodeAdmin(t *testing.T, nodes cluster.NodeProvider, partitions cluster.PartitionProvider, admin cluster.NodeAdmin) http.Handler {
+	t.Helper()
+	handler, err := New(Config{AdminUsername: testUsername, AdminPassword: testPassword, NodeProvider: nodes, PartitionProvider: partitions, NodeAdmin: admin})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	cleanupHandler(t, handler)
+	return handler
+}
+
 func getPartitionAuthenticated(t *testing.T, handler http.Handler, path, lang string) *httptest.ResponseRecorder {
 	t.Helper()
 	request := httptest.NewRequest(http.MethodGet, path, nil)
@@ -274,6 +327,21 @@ type partitionAdminCall struct {
 type stubPartitionAdmin struct {
 	calls []partitionAdminCall
 	err   error
+}
+
+type nodeAdminCall struct {
+	name   string
+	online bool
+}
+
+type stubNodeAdmin struct {
+	calls []nodeAdminCall
+	err   error
+}
+
+func (s *stubNodeAdmin) SetNodeOnline(_ context.Context, name string, online bool) error {
+	s.calls = append(s.calls, nodeAdminCall{name: name, online: online})
+	return s.err
 }
 
 func (s *stubPartitionAdmin) ApplyPartition(_ context.Context, name string, nodes []string) error {

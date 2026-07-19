@@ -9,6 +9,8 @@
       {{template "app-topbar" .}}
       <main class="content data-content">
         {{template "page-heading" .}}
+        {{if .Success}}<div class="data-success" role="status">{{.Success}}</div>{{end}}
+        {{if .Error}}<div class="data-warning" role="alert">{{.Error}}</div>{{end}}
         <section class="data-section" id="partitions">
           <h2>{{.Labels.PartitionStatus}}</h2>
           {{if not .PartitionsAvailable}}
@@ -30,8 +32,8 @@
             <div class="data-empty">{{.Labels.EmptyNodes}}</div>
           {{else}}
             <div class="data-table-wrap"><table class="data-table">
-            <thead><tr><th>{{.Labels.Node}}</th><th>{{.Labels.Partition}}</th><th>{{.Labels.State}}</th><th>{{.Labels.CPUs}}</th><th>{{.Labels.Memory}}</th><th>{{.Labels.GRES}}</th><th>{{.Labels.Availability}}</th></tr></thead>
-            <tbody>{{range .Nodes}}<tr><td><strong>{{.Name}}</strong></td><td>{{.Partition}}</td><td><span class="state-badge">{{.State}}</span></td><td>{{.AllocatedCPUs}} / {{.TotalCPUs}}</td><td>{{.MemoryMB}} MB</td><td class="detail-value">{{if .GRES}}{{.GRES}}{{else}}—{{end}}</td><td><span class="availability{{if not .Online}} offline{{end}}"><i></i>{{if .Online}}{{$.Labels.Online}}{{else}}{{$.Labels.Offline}}{{end}}</span></td></tr>{{end}}</tbody>
+            <thead><tr><th>{{.Labels.Node}}</th><th>{{.Labels.Partition}}</th><th>{{.Labels.State}}</th><th>{{.Labels.CPUs}}</th><th>{{.Labels.Memory}}</th><th>{{.Labels.GRES}}</th><th>{{.Labels.Availability}}</th><th>{{.Labels.Actions}}</th></tr></thead>
+            <tbody>{{range .Nodes}}<tr><td><strong>{{.Name}}</strong></td><td>{{.Partition}}</td><td><span class="state-badge">{{.State}}</span></td><td>{{.AllocatedCPUs}} / {{.TotalCPUs}}</td><td>{{.MemoryMB}} MB</td><td class="detail-value">{{if .GRES}}{{.GRES}}{{else}}—{{end}}</td><td><span class="availability{{if not .Online}} offline{{end}}"><i></i>{{if .Online}}{{$.Labels.Online}}{{else}}{{$.Labels.Offline}}{{end}}</span></td><td class="row-actions"><form action="/slurm/nodes/state" method="post" class="inline-form"><input type="hidden" name="_csrf" value="{{$.CSRFToken}}"><input type="hidden" name="name" value="{{.Name}}"><input type="hidden" name="online" value="{{if .Online}}false{{else}}true{{end}}"><button type="submit" class="{{if .Online}}danger-button{{else}}node-online-button{{end}}">{{if .Online}}{{$.Labels.TakeNodeOffline}}{{else}}{{$.Labels.BringNodeOnline}}{{end}}</button></form></td></tr>{{end}}</tbody>
             </table></div>
           {{end}}
         </section>

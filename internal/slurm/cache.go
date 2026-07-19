@@ -15,6 +15,12 @@ type valueCache[T any] struct {
 	refreshing  chan struct{}
 }
 
+func (c *valueCache[T]) invalidate() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lastAttempt = time.Time{}
+}
+
 func (c *valueCache[T]) get(parent context.Context, loader func(context.Context) (T, error)) (T, error) {
 	for {
 		c.mu.Lock()

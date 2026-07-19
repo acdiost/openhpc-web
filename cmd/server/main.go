@@ -90,6 +90,7 @@ func main() {
 	var directoryProvider directory.Provider
 	var slurmConfigProvider slurmconfig.Provider
 	var partitionAdmin cluster.PartitionAdmin
+	var nodeAdmin cluster.NodeAdmin
 	userStore, userStoreErr := platform.OpenUserStore(databasePath)
 	if userStoreErr != nil {
 		log.Fatalf("initialize platform users: %v", userStoreErr)
@@ -101,6 +102,7 @@ func main() {
 			log.Fatalf("initialize Slurm integration: %v", err)
 		}
 		partitionAdmin = client
+		nodeAdmin = client
 		metricsProvider, nodeProvider, partitionProvider, jobProvider, jobResourceProvider, accountingProvider, associationProvider, coreHourProvider = client, client, client, client, client, client, client, client
 		configRoot := envOr("OPENHPC_SLURM_CONFIG_ROOT", "/usr/local/etc")
 		configProvider, configErr := slurmconfig.New(configRoot, 1<<20)
@@ -136,6 +138,7 @@ func main() {
 		SettingsStore:       settingsStore,
 		SettingsDefaults:    settingsDefaultsFromEnv(),
 		PartitionAdmin:      partitionAdmin,
+		NodeAdmin:           nodeAdmin,
 		SlurmConfigProvider: slurmConfigProvider,
 		PlatformUsers:       userStore,
 	}, slurmConfigProvider)

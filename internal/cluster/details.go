@@ -75,6 +75,10 @@ type NodeProvider interface {
 	Nodes(context.Context) ([]Node, error)
 }
 
+type NodeAdmin interface {
+	SetNodeOnline(context.Context, string, bool) error
+}
+
 type PartitionProvider interface {
 	Partitions(context.Context) ([]Partition, error)
 }
