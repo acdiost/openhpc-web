@@ -50,8 +50,10 @@ type settingFieldView struct {
 
 type settingsView struct {
 	appChrome
-	Groups         []settingsGroupView
-	Error, Success string
+	Groups                       []settingsGroupView
+	GroupCount, FieldCount       int
+	ConfiguredCount, SecretCount int
+	Error, Success               string
 }
 
 type settingsGroupView struct {
@@ -112,6 +114,8 @@ func (a *application) settingsView(c echo.Context, updated bool, message string)
 		}
 	}
 	fields := make([]settingFieldView, 0, len(settingsSpecs))
+	configuredCount := 0
+	secretCount := 0
 	for _, spec := range settingsSpecs {
 		value, source, configured := a.settingsDefaults[spec.Key], "环境变量", strings.TrimSpace(a.settingsDefaults[spec.Key]) != ""
 		if lang == "en" {
@@ -125,6 +129,10 @@ func (a *application) settingsView(c echo.Context, updated bool, message string)
 		}
 		if spec.Secret {
 			value = ""
+			secretCount++
+		}
+		if configured {
+			configuredCount++
 		}
 		label, group := spec.LabelZH, spec.GroupZH
 		if lang == "en" {
@@ -147,7 +155,15 @@ func (a *application) settingsView(c echo.Context, updated bool, message string)
 		}
 		groups[len(groups)-1].Fields = append(groups[len(groups)-1].Fields, field)
 	}
-	return settingsView{appChrome: a.newAppChrome(c, "/settings", a.slurmHealth(c.Request().Context()), pageHeading{Eyebrow: "OPENHPC / SYSTEM", Title: map[bool]string{true: "System settings", false: "系统设置"}[lang == "en"], Description: map[bool]string{true: "Edit persisted Slurm and LDAP overrides", false: "编辑持久化的 Slurm 与 LDAP 覆盖配置"}[lang == "en"]}), Groups: groups, Success: success, Error: message}, nil
+	return settingsView{
+		appChrome: a.newAppChrome(c, "/settings", a.slurmHealth(c.Request().Context()), pageHeading{
+			Eyebrow:     "OPENHPC / SYSTEM",
+			Title:       map[bool]string{true: "System settings", false: "系统设置"}[lang == "en"],
+			Description: map[bool]string{true: "Edit persisted Slurm and LDAP overrides", false: "编辑持久化的 Slurm 与 LDAP 覆盖配置"}[lang == "en"],
+		}),
+		Groups: groups, GroupCount: len(groups), FieldCount: len(fields), ConfiguredCount: configuredCount, SecretCount: secretCount,
+		Success: success, Error: message,
+	}, nil
 }
 
 func (a *application) saveSettings(c echo.Context) error {

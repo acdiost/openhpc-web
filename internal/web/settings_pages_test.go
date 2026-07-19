@@ -26,7 +26,20 @@ func TestSettingsPageIsInSidebarAndRedactsSecretValues(t *testing.T) {
 	cleanupHandler(t, handler)
 	response := getAuthenticated(t, handler, "/settings", "zh")
 	assertStatus(t, response, http.StatusOK)
-	for _, expected := range []string{`href="/settings" class="nav-item sidebar-settings active"`, "系统设置", "LDAP 地址", "ldaps://env.example:636", "已配置", `type="password"`} {
+	for _, expected := range []string{
+		`href="/settings" class="nav-item sidebar-settings active"`,
+		"系统设置",
+		"class=\"settings-hero\"",
+		"class=\"settings-layout\"",
+		"class=\"settings-aside\"",
+		"class=\"settings-panel\"",
+		"class=\"settings-switch\"",
+		"class=\"secondary-button\"",
+		"LDAP 地址",
+		"ldaps://env.example:636",
+		"已配置",
+		`type="password"`,
+	} {
 		assertBodyContains(t, response, expected)
 	}
 	assertBodyNotContains(t, response, "super-secret")
