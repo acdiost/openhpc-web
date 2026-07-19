@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/acdiost/openhpc-web/internal/cluster"
+	"github.com/acdiost/openhpc-web/internal/platform"
+	"golang.org/x/crypto/bcrypt"
 )
 
 const (
@@ -854,7 +856,6 @@ func TestModulePlaceholderRoutes(t *testing.T) {
 		{path: "/slurm/users", label: "/slurm/users"},
 		{path: "/system/files", label: "文件管理"},
 		{path: "/terminal", label: "终端"},
-		{path: "/platform/users", label: "平台用户"},
 	}
 
 	for _, test := range tests {
@@ -869,6 +870,55 @@ func TestModulePlaceholderRoutes(t *testing.T) {
 			assertBodyContains(t, response, "等待系统集成")
 		})
 	}
+	request := httptest.NewRequest(http.MethodGet, "/platform/users", nil)
+	request.AddCookie(session)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	assertStatus(t, response, http.StatusOK)
+	assertBodyContains(t, response, "平台用户")
+	assertBodyContains(t, response, "创建账号")
+}
+
+func TestPlatformUserIsRestrictedToOwnMenuAndJobs(t *testing.T) {
+	store, err := platform.OpenUserStore(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte("ordinary user password"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Upsert(context.Background(), platform.PlatformUser{Username: "alice", PasswordHash: string(hash), Role: platform.RoleUser, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	handler, err := New(Config{AdminUsername: testUsername, AdminPassword: testPassword, PlatformUsers: store, JobProvider: &stubJobProvider{jobs: []cluster.Job{{ID: "1", User: "alice"}, {ID: "2", User: "bob"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupHandler(t, handler)
+	response := postForm(handler, "/login", url.Values{"username": {"alice"}, "password": {"ordinary user password"}}, nil)
+	assertStatus(t, response, http.StatusSeeOther)
+	session := findCookie(t, response.Result().Cookies(), sessionCookie)
+	request := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
+	request.AddCookie(session)
+	dashboard := httptest.NewRecorder()
+	handler.ServeHTTP(dashboard, request)
+	assertBodyContains(t, dashboard, "文件管理")
+	assertBodyContains(t, dashboard, "终端")
+	if strings.Contains(dashboard.Body.String(), `href="/slurm/nodes"`) || strings.Contains(dashboard.Body.String(), `href="/platform/users"`) {
+		t.Fatal("ordinary user sees admin menu")
+	}
+	request = httptest.NewRequest(http.MethodGet, "/settings", nil)
+	request.AddCookie(session)
+	denied := httptest.NewRecorder()
+	handler.ServeHTTP(denied, request)
+	assertStatus(t, denied, http.StatusForbidden)
+	request = httptest.NewRequest(http.MethodGet, "/slurm/jobs", nil)
+	request.AddCookie(session)
+	jobs := httptest.NewRecorder()
+	handler.ServeHTTP(jobs, request)
+	assertBodyContains(t, jobs, `data-job-detail="job-detail-1"`)
+	assertBodyNotContains(t, jobs, `data-job-detail="job-detail-2"`)
 }
 
 func TestResponsesIncludeSecurityHeaders(t *testing.T) {

@@ -55,7 +55,7 @@
     </details>
     <button type="button" class="icon-button notification-button" aria-label="{{.Copy.Notifications}}">♢<i></i></button>
     <details class="popover user-popover">
-      <summary class="user-block"><span class="avatar">AD</span><div><strong>{{.Username}}</strong><span>{{.Copy.PlatformAdmin}}</span></div><span>⌄</span></summary>
+      <summary class="user-block"><span class="avatar">AD</span><div><strong>{{.Username}}</strong><span>{{.RoleLabel}}</span></div><span>⌄</span></summary>
       <form action="/logout" method="post" class="menu-form"><input type="hidden" name="_csrf" value="{{.CSRFToken}}"><button type="submit">{{.Copy.SignOut}}</button></form>
     </details>
   </div>

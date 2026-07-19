@@ -66,7 +66,7 @@ func (a *application) slurmConfig(c echo.Context) error {
 func (a *application) recordSlurmConfigAudit(c echo.Context, outcome string) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.Request().Context()), slurmConfigAuditTimeout)
 	defer cancel()
-	if err := a.audit.Record(ctx, platform.AuditEvent{Actor: a.username, Action: "slurm.config.read", Outcome: outcome, CreatedAt: time.Now()}); err != nil {
+	if err := a.audit.Record(ctx, platform.AuditEvent{Actor: currentPrincipal(c).Username, Action: "slurm.config.read", Outcome: outcome, CreatedAt: time.Now()}); err != nil {
 		log.Printf("audit write failed for Slurm config event")
 		return errors.New("audit unavailable")
 	}

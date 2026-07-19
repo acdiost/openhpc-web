@@ -21,11 +21,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/labstack/echo/v4"
 	"github.com/acdiost/openhpc-web/internal/cluster"
 	"github.com/acdiost/openhpc-web/internal/directory"
 	"github.com/acdiost/openhpc-web/internal/platform"
 	"github.com/acdiost/openhpc-web/internal/slurmconfig"
+	"github.com/labstack/echo/v4"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -61,11 +61,10 @@ type Config struct {
 	SettingsStore       *platform.SettingsStore
 	SettingsDefaults    map[string]string
 	SlurmConfigProvider slurmconfig.Provider
+	PlatformUsers       *platform.UserStore
 }
 
 type application struct {
-	username            string
-	passwordHash        []byte
 	metrics             DashboardMetrics
 	metricsAvailable    bool
 	metricsProvider     cluster.Provider
@@ -84,6 +83,7 @@ type application struct {
 	directorySlots      chan struct{}
 	settingsStore       *platform.SettingsStore
 	settingsDefaults    map[string]string
+	platformUsers       *platform.UserStore
 	templates           *template.Template
 	audit               *platform.AuditStore
 	sessions            *sessionStore
@@ -97,6 +97,7 @@ type Handler struct {
 	jobOutputRoots []jobOutputRoot
 	settingsStore  *platform.SettingsStore
 	configCloser   io.Closer
+	userStore      *platform.UserStore
 }
 
 func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
@@ -108,7 +109,7 @@ func (h *Handler) Close() error {
 	if h.settingsStore != nil {
 		settingsErr = h.settingsStore.Close()
 	}
-	return errors.Join(h.audit.Close(), closeJobOutputRoots(h.jobOutputRoots), settingsErr, closeConfigured(h.configCloser))
+	return errors.Join(h.audit.Close(), closeJobOutputRoots(h.jobOutputRoots), settingsErr, closeConfigured(h.configCloser), closeConfigured(h.userStore))
 }
 
 func closeConfigured(closer io.Closer) error {
@@ -126,7 +127,16 @@ type sessionStore struct {
 type sessionData struct {
 	ExpiresAt time.Time
 	CSRFToken string
+	Username  string
+	Role      platform.UserRole
 }
+
+type principal struct {
+	Username string
+	Role     platform.UserRole
+}
+
+const principalContextKey = "openhpc-principal"
 
 type loginAttemptStore struct {
 	mu       sync.Mutex
@@ -168,6 +178,23 @@ func New(config Config) (http.Handler, error) {
 		_ = audit.Close()
 		return nil, err
 	}
+	userStore := config.PlatformUsers
+	if userStore == nil {
+		userStore, err = platform.OpenUserStore(":memory:")
+		if err != nil {
+			_ = audit.Close()
+			_ = closeJobOutputRoots(jobOutputRoots)
+			return nil, err
+		}
+	}
+	if err := userStore.Upsert(context.Background(), platform.PlatformUser{Username: normalizedUsername, PasswordHash: string(passwordHash), Role: platform.RoleAdmin, Enabled: true}); err != nil {
+		_ = audit.Close()
+		_ = closeJobOutputRoots(jobOutputRoots)
+		if config.PlatformUsers == nil {
+			_ = userStore.Close()
+		}
+		return nil, err
+	}
 	var configCloser io.Closer
 	if closer, ok := config.SlurmConfigProvider.(io.Closer); ok {
 		configCloser = closer
@@ -181,8 +208,6 @@ func New(config Config) (http.Handler, error) {
 	}
 
 	app := &application{
-		username:            normalizedUsername,
-		passwordHash:        passwordHash,
 		metrics:             config.Metrics,
 		metricsAvailable:    config.MetricsAvailable,
 		metricsProvider:     config.MetricsProvider,
@@ -201,6 +226,7 @@ func New(config Config) (http.Handler, error) {
 		directorySlots:      make(chan struct{}, maxConcurrentDirectoryReads),
 		settingsStore:       config.SettingsStore,
 		settingsDefaults:    cloneSettings(config.SettingsDefaults),
+		platformUsers:       userStore,
 		templates:           templates,
 		audit:               audit,
 		sessions:            &sessionStore{tokens: map[string]sessionData{}},
@@ -215,6 +241,9 @@ func New(config Config) (http.Handler, error) {
 		_ = audit.Close()
 		_ = closeJobOutputRoots(jobOutputRoots)
 		_ = closeConfigured(configCloser)
+		if config.PlatformUsers == nil {
+			_ = userStore.Close()
+		}
 		return nil, err
 	}
 	e.Use(requestBodyLimit(16 << 10))
@@ -226,6 +255,9 @@ func New(config Config) (http.Handler, error) {
 		_ = audit.Close()
 		_ = closeJobOutputRoots(jobOutputRoots)
 		_ = closeConfigured(configCloser)
+		if config.PlatformUsers == nil {
+			_ = userStore.Close()
+		}
 		return nil, fmt.Errorf("load static files: %w", err)
 	}
 	e.GET("/static/*", echo.WrapHandler(http.StripPrefix("/static/", http.FileServer(http.FS(staticFiles)))))
@@ -235,18 +267,18 @@ func New(config Config) (http.Handler, error) {
 	protected.Use(app.requireCSRF)
 	protected.GET("/", func(c echo.Context) error { return c.Redirect(http.StatusFound, "/dashboard") })
 	protected.GET("/dashboard", app.dashboard)
-	protected.GET("/slurm/nodes", app.slurmNodes)
+	protected.GET("/slurm/nodes", app.slurmNodes, app.requireAdmin)
 	protected.GET("/slurm/partitions", func(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/slurm/nodes#partitions")
-	})
+	}, app.requireAdmin)
 	protected.GET("/slurm/jobs", app.slurmJobs)
 	protected.GET("/slurm/jobs/:id/resources", app.slurmJobResources)
 	protected.GET("/slurm/jobs/:id/output/:stream", app.slurmJobOutput)
-	protected.GET("/slurm/accounts", app.slurmAccounts)
+	protected.GET("/slurm/accounts", app.slurmAccounts, app.requireAdmin)
 	protected.GET("/slurm/associations", func(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/slurm/accounts#associations")
-	})
-	protected.GET("/slurm/qos", app.slurmQoS)
+	}, app.requireAdmin)
+	protected.GET("/slurm/qos", app.slurmQoS, app.requireAdmin)
 	protected.GET("/slurm/core-hours", func(c echo.Context) error {
 		period := c.QueryParam("period")
 		target := "/slurm/qos?view=core-hours"
@@ -254,26 +286,29 @@ func New(config Config) (http.Handler, error) {
 			target += "&period=" + url.QueryEscape(period)
 		}
 		return c.Redirect(http.StatusFound, target)
-	})
-	protected.GET("/slurm/config", app.slurmConfig)
-	protected.GET("/ldap", app.ldapDirectory)
-	protected.POST("/ldap/search", app.ldapDirectorySearch)
-	protected.GET("/ldap/users/:uid", app.ldapUser)
-	protected.GET("/ldap/groups/:name", app.ldapGroup)
-	protected.GET("/settings", app.settingsPage)
-	protected.POST("/settings", app.saveSettings)
-	protected.GET("/audit", app.auditLog)
+	}, app.requireAdmin)
+	protected.GET("/slurm/config", app.slurmConfig, app.requireAdmin)
+	protected.GET("/ldap", app.ldapDirectory, app.requireAdmin)
+	protected.POST("/ldap/search", app.ldapDirectorySearch, app.requireAdmin)
+	protected.GET("/ldap/users/:uid", app.ldapUser, app.requireAdmin)
+	protected.GET("/ldap/groups/:name", app.ldapGroup, app.requireAdmin)
+	protected.GET("/settings", app.settingsPage, app.requireAdmin)
+	protected.POST("/settings", app.saveSettings, app.requireAdmin)
+	protected.GET("/audit", app.auditLog, app.requireAdmin)
+	protected.GET("/platform/users", app.platformUsersPage, app.requireAdmin)
+	protected.POST("/platform/users", app.createPlatformUser, app.requireAdmin)
+	protected.POST("/platform/users/status", app.setPlatformUserStatus, app.requireAdmin)
 	protected.POST("/preferences/language", app.setLanguage)
 	protected.POST("/preferences/theme", app.setTheme)
 	protected.POST("/logout", app.logout)
 	for _, path := range []string{
 		"/slurm/users",
-		"/system/files", "/terminal", "/platform/users",
+		"/system/files", "/terminal",
 	} {
-		protected.GET(path, app.modulePlaceholder)
+		protected.GET(path, app.authorizedPlaceholder)
 	}
 
-	return &Handler{handler: e, audit: audit, jobOutputRoots: jobOutputRoots, settingsStore: config.SettingsStore, configCloser: configCloser}, nil
+	return &Handler{handler: e, audit: audit, jobOutputRoots: jobOutputRoots, settingsStore: config.SettingsStore, configCloser: configCloser, userStore: userStore}, nil
 }
 
 const auditPageSize = 50
@@ -519,7 +554,7 @@ func (a *application) slurmJobs(c echo.Context) error {
 		if err != nil {
 			log.Printf("Slurm jobs snapshot failed")
 		} else {
-			jobs, available = liveJobs, true
+			jobs, available = filterJobsForPrincipal(liveJobs, currentPrincipal(c)), true
 		}
 	}
 	currentModule := moduleByPath("/slurm/jobs", lang)
@@ -561,9 +596,17 @@ func (a *application) login(c echo.Context) error {
 	if !a.loginAttempts.reserve(clientKey, time.Now()) {
 		return echo.NewHTTPError(http.StatusTooManyRequests, "too many login attempts")
 	}
-	usernameMatches := subtle.ConstantTimeCompare([]byte(username), []byte(a.username)) == 1
-	passwordMatches := bcrypt.CompareHashAndPassword(a.passwordHash, []byte(password)) == nil
-	if !usernameMatches || !passwordMatches {
+	var user platform.PlatformUser
+	found := false
+	var lookupErr error
+	if platform.ValidateUsername(username) == nil {
+		user, found, lookupErr = a.platformUsers.Get(c.Request().Context(), username)
+	}
+	passwordMatches := found && user.Enabled && bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)) == nil
+	if lookupErr != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable)
+	}
+	if !passwordMatches {
 		if err := a.recordAudit(c, platform.AuditEvent{Actor: username, Action: "auth.login", Outcome: "denied", CreatedAt: time.Now()}); err != nil {
 			return echo.NewHTTPError(http.StatusServiceUnavailable)
 		}
@@ -586,7 +629,7 @@ func (a *application) login(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusServiceUnavailable)
 	}
 	a.loginAttempts.reset(clientKey)
-	a.sessions.add(token, sessionData{ExpiresAt: time.Now().Add(12 * time.Hour), CSRFToken: csrfToken})
+	a.sessions.add(token, sessionData{ExpiresAt: time.Now().Add(12 * time.Hour), CSRFToken: csrfToken, Username: user.Username, Role: user.Role})
 	http.SetCookie(c.Response(), &http.Cookie{
 		Name: sessionCookie, Value: token, Path: "/", MaxAge: 12 * 60 * 60,
 		HttpOnly: true, Secure: a.secureCookies, SameSite: http.SameSiteLaxMode,
@@ -646,6 +689,30 @@ func (a *application) modulePlaceholder(c echo.Context) error {
 	return a.render(c, http.StatusOK, "module.html", view)
 }
 
+func (a *application) authorizedPlaceholder(c echo.Context) error {
+	if currentPrincipal(c).Role != platform.RoleAdmin && c.Path() != "/system/files" && c.Path() != "/terminal" {
+		return echo.NewHTTPError(http.StatusForbidden)
+	}
+	return a.modulePlaceholder(c)
+}
+
+func filterJobsForPrincipal(jobs []cluster.Job, identity principal) []cluster.Job {
+	if identity.Role == platform.RoleAdmin {
+		return jobs
+	}
+	filtered := make([]cluster.Job, 0, len(jobs))
+	for _, job := range jobs {
+		if job.User == identity.Username {
+			filtered = append(filtered, job)
+		}
+	}
+	return filtered
+}
+
+func canAccessJob(identity principal, job cluster.Job) bool {
+	return identity.Role == platform.RoleAdmin || job.User == identity.Username
+}
+
 func (a *application) slurmHealth(ctx context.Context) bool {
 	available := a.metricsAvailable
 	if a.metricsProvider == nil {
@@ -660,10 +727,19 @@ func (a *application) slurmHealth(ctx context.Context) bool {
 
 func (a *application) newAppChrome(c echo.Context, activePath string, available bool, heading pageHeading) appChrome {
 	lang := language(c)
+	identity := currentPrincipal(c)
+	roleLabel := copyFor(lang).PlatformAdmin
+	if identity.Role != platform.RoleAdmin {
+		if lang == "en" {
+			roleLabel = "Platform user"
+		} else {
+			roleLabel = "平台用户"
+		}
+	}
 	return appChrome{
-		Language: lang, Theme: theme(c), Username: a.username, CSRFToken: a.csrfToken(c),
+		Language: lang, Theme: theme(c), Username: identity.Username, RoleLabel: roleLabel, CSRFToken: a.csrfToken(c),
 		PageTitle: heading.Title, ActivePath: activePath, Available: available,
-		Copy: copyFor(lang), Modules: modulesFor(lang), Heading: heading,
+		Copy: copyFor(lang), Modules: modulesForRole(lang, identity.Role), Heading: heading,
 	}
 }
 
@@ -704,7 +780,7 @@ func (a *application) logout(c echo.Context) error {
 		Name: csrfCookie, Value: "", Path: "/", MaxAge: -1,
 		HttpOnly: true, Secure: a.secureCookies, SameSite: http.SameSiteStrictMode,
 	})
-	if err := a.recordAudit(c, platform.AuditEvent{Actor: a.username, Action: "auth.logout", Outcome: "success", CreatedAt: time.Now()}); err != nil {
+	if err := a.recordAudit(c, platform.AuditEvent{Actor: currentPrincipal(c).Username, Action: "auth.logout", Outcome: "success", CreatedAt: time.Now()}); err != nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable)
 	}
 	return c.Redirect(http.StatusSeeOther, "/login")
@@ -713,8 +789,29 @@ func (a *application) logout(c echo.Context) error {
 func (a *application) requireAuthentication(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		cookie, err := c.Cookie(sessionCookie)
-		if err != nil || !a.sessions.valid(cookie.Value, time.Now()) {
+		if err != nil {
 			return c.Redirect(http.StatusFound, "/login?next="+url.QueryEscape(c.Request().URL.Path))
+		}
+		identity, valid := a.sessions.identity(cookie.Value, time.Now())
+		if !valid {
+			return c.Redirect(http.StatusFound, "/login?next="+url.QueryEscape(c.Request().URL.Path))
+		}
+		c.Set(principalContextKey, identity)
+		return next(c)
+	}
+}
+
+func currentPrincipal(c echo.Context) principal {
+	if value, ok := c.Get(principalContextKey).(principal); ok {
+		return value
+	}
+	return principal{}
+}
+
+func (a *application) requireAdmin(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		if currentPrincipal(c).Role != platform.RoleAdmin {
+			return echo.NewHTTPError(http.StatusForbidden)
 		}
 		return next(c)
 	}
@@ -861,6 +958,16 @@ func (s *sessionStore) valid(token string, now time.Time) bool {
 	defer s.mu.RUnlock()
 	data, exists := s.tokens[token]
 	return exists && now.Before(data.ExpiresAt)
+}
+
+func (s *sessionStore) identity(token string, now time.Time) (principal, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	data, exists := s.tokens[token]
+	if !exists || !now.Before(data.ExpiresAt) || data.Username == "" {
+		return principal{}, false
+	}
+	return principal{Username: data.Username, Role: data.Role}, true
 }
 
 func (s *sessionStore) csrf(token string, now time.Time) (string, bool) {

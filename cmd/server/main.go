@@ -89,6 +89,10 @@ func main() {
 	var coreHourProvider cluster.CoreHourProvider
 	var directoryProvider directory.Provider
 	var slurmConfigProvider slurmconfig.Provider
+	userStore, userStoreErr := platform.OpenUserStore(databasePath)
+	if userStoreErr != nil {
+		log.Fatalf("initialize platform users: %v", userStoreErr)
+	}
 	if slurmEnabled {
 		client, clientErr := slurm.New(slurmConfig)
 		err = clientErr
@@ -130,8 +134,10 @@ func main() {
 		SettingsStore:       settingsStore,
 		SettingsDefaults:    settingsDefaultsFromEnv(),
 		SlurmConfigProvider: slurmConfigProvider,
+		PlatformUsers:       userStore,
 	}, slurmConfigProvider)
 	if err != nil {
+		_ = userStore.Close()
 		log.Fatalf("initialize server: %v", err)
 	}
 	if closer, ok := handler.(interface{ Close() error }); ok {
