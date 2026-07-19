@@ -65,19 +65,21 @@ func TestParseSettingsKey(t *testing.T) {
 	}
 }
 
-func TestRuntimeUserWarningAllowsRootWithExplicitRiskWarning(t *testing.T) {
-	warning := runtimeUserWarning(0)
-	for _, required := range []string{"WARNING", "root", "does not drop privileges", "owner/UID", "operating-system permissions"} {
-		if !strings.Contains(warning, required) {
-			t.Errorf("runtimeUserWarning(0) = %q, want %q", warning, required)
-		}
+func TestRequireRootAllowsRoot(t *testing.T) {
+	if err := requireRoot(0); err != nil {
+		t.Fatalf("requireRoot(0) error = %v, want nil", err)
 	}
 }
 
-func TestRuntimeUserWarningIsEmptyForNonRoot(t *testing.T) {
+func TestRequireRootRejectsNonRootUsers(t *testing.T) {
 	for _, euid := range []int{1, 1000, 65534} {
-		if warning := runtimeUserWarning(euid); warning != "" {
-			t.Errorf("runtimeUserWarning(%d) = %q, want empty", euid, warning)
+		err := requireRoot(euid)
+		if err == nil {
+			t.Errorf("requireRoot(%d) error = nil, want rejection", euid)
+			continue
+		}
+		if !strings.Contains(err.Error(), "must run as root") {
+			t.Errorf("requireRoot(%d) error = %q, want root requirement", euid, err)
 		}
 	}
 }

@@ -60,6 +60,7 @@ type Config struct {
 	DirectoryProvider   directory.Provider
 	SettingsStore       *platform.SettingsStore
 	PartitionStore      *platform.PartitionStore
+	PartitionAdmin      cluster.PartitionAdmin
 	SettingsDefaults    map[string]string
 	SlurmConfigProvider slurmconfig.Provider
 	PlatformUsers       *platform.UserStore
@@ -84,6 +85,7 @@ type application struct {
 	directorySlots      chan struct{}
 	settingsStore       *platform.SettingsStore
 	partitionStore      *platform.PartitionStore
+	partitionAdmin      cluster.PartitionAdmin
 	settingsDefaults    map[string]string
 	platformUsers       *platform.UserStore
 	templates           *template.Template
@@ -245,6 +247,7 @@ func New(config Config) (http.Handler, error) {
 		directorySlots:      make(chan struct{}, maxConcurrentDirectoryReads),
 		settingsStore:       config.SettingsStore,
 		partitionStore:      partitionStore,
+		partitionAdmin:      config.PartitionAdmin,
 		settingsDefaults:    cloneSettings(config.SettingsDefaults),
 		platformUsers:       userStore,
 		templates:           templates,
@@ -268,6 +271,9 @@ func New(config Config) (http.Handler, error) {
 			_ = userStore.Close()
 		}
 		return nil, err
+	}
+	if err := app.syncStoredPartitions(context.Background()); err != nil {
+		log.Printf("partition restore sync failed: %v", err)
 	}
 	e.Use(requestBodyLimit(16 << 10))
 	e.Use(securityHeaders)

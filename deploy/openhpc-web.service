@@ -5,8 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=openhpc-web
-Group=openhpc-web
+User=root
+Group=root
 WorkingDirectory=/var/lib/openhpc-web
 EnvironmentFile=/etc/openhpc-web/openhpc-web.env
 ExecStart=/usr/local/sbin/openhpc-web

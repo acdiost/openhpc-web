@@ -4,10 +4,10 @@
 
 ## 1. 部署原则
 
-- Web 服务默认使用专用的非 root 账户 `openhpc-web`；也允许按需以 root 运行，并在启动日志中输出警告。
+- Web 服务只能以 root 身份运行；非 root 启动会在读取配置或访问本地资源前失败。
 - Web 服务不通过 SSH root 调用 Slurm，也不直接修改 Slurm 数据库。
 - `/etc/openhpc-web/openhpc-web.env` 建议为 `root:root 0600`，这是 systemd 环境文件保护建议，不是应用启动校验。
-- `/var/lib/openhpc-web` 推荐为运行账户持有且权限为 `0700`。属主或模式不一致时应用只在启动阶段输出 WARNING，实际读写权限由操作系统决定。
+- 部署时应将 `/var/lib/openhpc-web` 设为 `root:root 0700`。属主或模式不一致时应用只会输出 WARNING；实际读写权限仍受操作系统和 systemd sandbox 限制。
 - `/slurm/config` 使用 `OPENHPC_SLURM_CONFIG_ROOT`（默认 `/usr/local/etc`）提供只读配置浏览，不执行重载、不展开 Include。
 - 平台用户保存在 `OPENHPC_DATABASE_PATH` 的 SQLite 数据库中。管理员可在“平台用户”页面创建和停用账号；普通用户仅可访问总览、自己的作业、文件管理和终端，权限由服务端路由和作业用户名双重校验。
 - 首次访问使用 SSH 端口转发；公网或局域网发布前必须增加 TLS 反向代理。
@@ -17,33 +17,33 @@
 在管理节点上执行：
 
 ```bash
-id openhpc-web
+test "$(id -u)" -eq 0
 
-runuser -u openhpc-web -- /usr/local/bin/sinfo \
+/usr/local/bin/sinfo \
   --Node --json
 
-runuser -u openhpc-web -- /usr/local/bin/squeue \
+/usr/local/bin/squeue \
   --json
 
-runuser -u openhpc-web -- /usr/local/bin/sacct \
+/usr/local/bin/sacct \
   --json --allocations --allusers --starttime=today --endtime=now
 
-# 将 32943 替换为 openhpc-web 账号拥有的运行中作业 ID。
-runuser -u openhpc-web -- /usr/local/bin/sstat \
+# 将 32943 替换为运行中作业 ID。
+/usr/local/bin/sstat \
   --jobs=32943 --allsteps --noheader --parsable2 \
   --format=JobID,AveCPU,AveRSS,MaxRSS,AveVMSize,MaxVMSize,TRESUsageInTot
 
-runuser -u openhpc-web -- /usr/local/bin/sacctmgr \
+/usr/local/bin/sacctmgr \
   --json show account WithAssoc
-runuser -u openhpc-web -- /usr/local/bin/sacctmgr \
+/usr/local/bin/sacctmgr \
   --json show user WithAssoc
-runuser -u openhpc-web -- /usr/local/bin/sacctmgr \
+/usr/local/bin/sacctmgr \
   --json show qos
 ```
 
-除 `sstat` 外的六个 Slurm 命令都必须成功。默认 Web 进程不需要 root、SlurmUser 或 MariaDB 直连权限；账户、用户、QoS 和核时页面只读取 SlurmDBD 已授权返回的数据。
+除 `sstat` 外的六个 Slurm 命令都必须成功。Web 进程以 root 运行，但账户、用户、QoS 和核时页面仍只读取 SlurmDBD 已授权返回的数据。
 
-`sstat` 的 step RPC 通常校验调用者 UID。服务账号只能可靠查询自己拥有的作业；查询其他用户作业可能返回 `Invalid user id`。以 root 运行可提供跨用户查询，程序不会额外限制 root 的文件或 Slurm 权限，只输出风险警告。
+`sstat` 的 step RPC 通常校验调用者 UID。以 root 运行可提供跨用户查询；程序不额外限制 root 的文件或 Slurm 权限，具体访问范围仍受 systemd sandbox 限制。
 
 核时页面的统计口径为 allocation 分配 CPU 数乘以所选窗口内墙钟占用时间，仅支持过去 24 小时、7 天和 30 天。该值不是 CPU 实际利用时间，也不包含 GPU/TRES 计费。
 
@@ -116,7 +116,7 @@ scp dist/openhpc-web-linux-amd64 \
 在管理节点上执行：
 
 ```bash
-install -d -o openhpc-web -g openhpc-web -m 0700 /var/lib/openhpc-web
+install -d -o root -g root -m 0700 /var/lib/openhpc-web
 install -d -o root -g root -m 0750 /etc/openhpc-web
 
 install -o root -g root -m 0755 \
@@ -132,25 +132,7 @@ install -o root -g root -m 0644 \
   /etc/systemd/system/openhpc-web.service
 ```
 
-如需以完整 root 权限运行，使用 systemd 覆盖配置变更运行账户并关闭默认 sandbox 限制；无需为了通过应用校验而修改状态目录属主：
-
-```bash
-systemctl edit openhpc-web
-```
-
-在编辑器中写入：
-
-```ini
-[Service]
-User=root
-Group=root
-NoNewPrivileges=false
-PrivateTmp=false
-ProtectSystem=false
-ProtectHome=false
-```
-
-默认服务模板保持非特权账户和 systemd sandbox；上述 root drop-in 才会使进程按标准 root 权限访问主机。应用仍保留 loopback、认证、固定命令参数、禁止 shell、允许目录、普通文件、超时和输出上限。除非确有文件预览需求，否则保持 `OPENHPC_JOB_OUTPUT_ROOTS` 为空。
+服务模板已以 root 运行，并保留 systemd sandbox。应用仍保留 loopback、认证、固定命令参数、禁止 shell、允许目录、普通文件、超时和输出上限。除非确有文件预览需求，否则保持 `OPENHPC_JOB_OUTPUT_ROOTS` 为空。
 
 ## 5. 配置环境文件
 
@@ -197,7 +179,7 @@ OPENHPC_LDAP_MAX_RESULTS=200
 
 必须把 `REPLACE_WITH_A_LONG_RANDOM_PASSWORD` 替换为真实密码。用户名长度为 1 到 64，密码长度至少为 12。不要在聊天记录、命令历史或仓库中保存真实密码。
 
-如需查看 `/home` 下的作业输出，将 `OPENHPC_JOB_OUTPUT_ROOTS` 设置为经过评估的最小绝对目录集合，并用 systemd drop-in 将 `ProtectHome` 改为 `read-only`。还需通过 ACL 或受限用户组授予运行账户所需的目录遍历和文件读取权限。接口仍校验文件位于作业工作目录内且为非符号链接普通文件；UID 不一致不阻断，实际读取能力由进程权限决定，并只读取最新 256 KiB。
+如需查看 `/home` 下的作业输出，将 `OPENHPC_JOB_OUTPUT_ROOTS` 设置为经过评估的最小绝对目录集合，并用 systemd drop-in 将 `ProtectHome` 改为 `read-only`。接口仍校验文件位于作业工作目录内且为非符号链接普通文件；实际读取能力受 systemd sandbox 和操作系统限制，并只读取最新 256 KiB。
 
 再次固定权限：
 
@@ -431,20 +413,20 @@ awk 'BEGIN{FS="="}
 ### Dashboard 显示 Slurm 数据不可用
 
 ```bash
-runuser -u openhpc-web -- /usr/local/bin/sinfo \
+/usr/local/bin/sinfo \
   --Node --json
-runuser -u openhpc-web -- /usr/local/bin/squeue \
+/usr/local/bin/squeue \
   --json
-runuser -u openhpc-web -- /usr/local/bin/sacct \
+/usr/local/bin/sacct \
   --json --allocations --allusers --starttime=today --endtime=now
-runuser -u openhpc-web -- /usr/local/bin/sstat \
+/usr/local/bin/sstat \
   --jobs=32943 --allsteps --noheader --parsable2 \
   --format=JobID,AveCPU,AveRSS,MaxRSS,AveVMSize,MaxVMSize,TRESUsageInTot
-runuser -u openhpc-web -- /usr/local/bin/sacctmgr \
+/usr/local/bin/sacctmgr \
   --json show account WithAssoc
-runuser -u openhpc-web -- /usr/local/bin/sacctmgr \
+/usr/local/bin/sacctmgr \
   --json show user WithAssoc
-runuser -u openhpc-web -- /usr/local/bin/sacctmgr \
+/usr/local/bin/sacctmgr \
   --json show qos
 journalctl -u openhpc-web -n 50 --no-pager
 ```

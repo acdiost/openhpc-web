@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/acdiost/openhpc-web/internal/cluster"
@@ -126,6 +127,24 @@ func TestPartitionManagementPageCreatesAndPatchesStoredPartition(t *testing.T) {
 	}
 }
 
+func TestPartitionManagementPageSyncsPartitionToSlurm(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.db")
+	writer := &stubPartitionAdmin{}
+	handler := newPartitionManagementHandlerWithAdmin(t, path, &partitionNodeProvider{
+		nodes: []cluster.Node{{Name: "node31", Partition: "GPU", State: "idle", TotalCPUs: 128, Online: true}},
+	}, nil, writer)
+	session, csrf := loginWithCSRF(t, handler)
+
+	response := postProtectedForm(handler, "/slurm/partitions", url.Values{
+		"name":  {"GPU"},
+		"nodes": {"node31"},
+	}, session, csrf)
+	assertStatus(t, response, http.StatusSeeOther)
+	if !reflect.DeepEqual(writer.calls, []partitionAdminCall{{name: "GPU", nodes: []string{"node31"}}}) {
+		t.Fatalf("partition admin calls = %#v", writer.calls)
+	}
+}
+
 func TestPartitionManagementPageRequiresAuthentication(t *testing.T) {
 	handler := newPartitionManagementHandler(t, filepath.Join(t.TempDir(), "state.db"), &partitionNodeProvider{}, nil)
 	request := httptest.NewRequest(http.MethodGet, "/slurm/partitions", nil)
@@ -138,6 +157,16 @@ func TestPartitionManagementPageRequiresAuthentication(t *testing.T) {
 func newPartitionManagementHandler(t *testing.T, databasePath string, nodes cluster.NodeProvider, partitions cluster.PartitionProvider) http.Handler {
 	t.Helper()
 	handler, err := New(Config{AdminUsername: testUsername, AdminPassword: testPassword, DatabasePath: databasePath, NodeProvider: nodes, PartitionProvider: partitions})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	cleanupHandler(t, handler)
+	return handler
+}
+
+func newPartitionManagementHandlerWithAdmin(t *testing.T, databasePath string, nodes cluster.NodeProvider, partitions cluster.PartitionProvider, admin cluster.PartitionAdmin) http.Handler {
+	t.Helper()
+	handler, err := New(Config{AdminUsername: testUsername, AdminPassword: testPassword, DatabasePath: databasePath, NodeProvider: nodes, PartitionProvider: partitions, PartitionAdmin: admin})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -183,4 +212,19 @@ type stubPartitionProvider struct {
 func (p *stubPartitionProvider) Partitions(context.Context) ([]cluster.Partition, error) {
 	p.calls++
 	return append([]cluster.Partition(nil), p.partitions...), p.err
+}
+
+type partitionAdminCall struct {
+	name  string
+	nodes []string
+}
+
+type stubPartitionAdmin struct {
+	calls []partitionAdminCall
+	err   error
+}
+
+func (s *stubPartitionAdmin) ApplyPartition(_ context.Context, name string, nodes []string) error {
+	s.calls = append(s.calls, partitionAdminCall{name: name, nodes: append([]string(nil), nodes...)})
+	return s.err
 }

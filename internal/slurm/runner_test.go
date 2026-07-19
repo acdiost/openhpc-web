@@ -176,7 +176,7 @@ func TestNewDefaultRunnerValidatesCommands(t *testing.T) {
 
 func TestNewDefaultRunnerAllowsOwnerAndWritableRisksWithWarnings(t *testing.T) {
 	directory := t.TempDir()
-	for _, command := range []string{"sinfo", "squeue", "sacct", "sacctmgr", "sstat"} {
+	for _, command := range []string{"sinfo", "squeue", "sacct", "sacctmgr", "sstat", "scontrol"} {
 		path := filepath.Join(directory, command)
 		if err := os.WriteFile(path, []byte("test"), 0o700); err != nil {
 			t.Fatal(err)

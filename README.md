@@ -12,7 +12,7 @@ CentOS 7 的完整安装、升级和故障排查步骤见 [部署指南](docs/de
 export OPENHPC_ADMIN_USERNAME=admin
 export OPENHPC_ADMIN_PASSWORD='请替换为高强度密码'
 export OPENHPC_DATABASE_PATH=state/openhpc.db
-go run ./cmd/server
+sudo -E go run ./cmd/server
 ```
 
 浏览器访问 <http://127.0.0.1:8080>。监听地址可通过 `OPENHPC_ADDRESS` 修改。
@@ -28,7 +28,7 @@ go test ./... -cover
 go build ./cmd/server
 ```
 
-程序允许以任意用户（包括 root）运行。UID、目录属主、Slurm 命令属主和作业输出 UID 不作为应用授权边界；应用只在启动阶段输出风险 WARNING，进程最终拥有什么权限完全由操作系统和 systemd 决定。
+程序仅允许以 root 有效 UID 运行；非 root 启动会在读取配置、打开数据库或启动服务前失败。UID、目录属主、Slurm 命令属主和作业输出 UID 不作为应用授权边界；进程可用的具体文件系统权限仍受操作系统和 systemd sandbox 限制。
 
 ## 当前结构
 
@@ -77,7 +77,7 @@ export OPENHPC_JOB_OUTPUT_ROOTS=
 
 管理员使用 `OPENHPC_ADMIN_USERNAME` 和 `OPENHPC_ADMIN_PASSWORD` 初始化或更新管理员账号；平台用户数据保存在 `OPENHPC_DATABASE_PATH` 的 SQLite 数据库中。管理员登录后可从“平台用户”页面创建、启用或停用账号，并分配“管理员”或“普通用户”角色。管理员可查看全部菜单；普通用户只能看到总览、自己的作业、文件管理和终端，作业详情、资源和输出接口也会在服务端按作业用户名再次校验。
 
-`sstat` 通常只允许作业所有者、root 或 SlurmUser 查询 step 数据。默认部署使用专用非特权账号，因此集群若执行 UID 校验，跨用户资源查询会返回不可用；以 root 运行可满足此类部署需求，但应评估权限扩大带来的风险。
+`sstat` 通常只允许作业所有者、root 或 SlurmUser 查询 step 数据。本程序固定以 root 运行，可满足集群的跨用户查询需求；部署时仍应评估该权限边界带来的风险。
 
 当前兼容基线已在 CentOS 7 管理节点、Slurm 25.05.4 上验证。CentOS 7 部署模板位于 `deploy/`。构建静态 Linux 二进制：
 
@@ -107,7 +107,7 @@ export OPENHPC_LDAP_MAX_RESULTS=200
 部署前必须由 root 创建受限目录和环境文件；systemd 会在启动程序前进入工作目录，因此不能依赖应用自行创建 `/var/lib/openhpc-web`：
 
 ```bash
-install -d -o openhpc-web -g openhpc-web -m 0700 /var/lib/openhpc-web
+install -d -o root -g root -m 0700 /var/lib/openhpc-web
 install -d -o root -g root -m 0750 /etc/openhpc-web
 install -o root -g root -m 0600 deploy/openhpc-web.env.example /etc/openhpc-web/openhpc-web.env
 install -o root -g root -m 0644 deploy/openhpc-web.service /etc/systemd/system/openhpc-web.service
@@ -115,23 +115,7 @@ install -o root -g root -m 0644 deploy/openhpc-web.service /etc/systemd/system/o
 
 将环境文件中的管理员密码替换为高强度随机值。仅通过 SSH 端口转发进行初次访问时保留 `OPENHPC_SECURE_COOKIES=false`；接入本机 TLS 反向代理后必须改为 `true`，并设置 `OPENHPC_TRUSTED_PROXY_CIDRS`。
 
-如需以 root 运行，systemd 覆盖配置可将 `User` 和 `Group` 设为 `root`。程序不会要求状态目录必须属于 root：
-
-```bash
-systemctl edit openhpc-web
-```
-
-```ini
-[Service]
-User=root
-Group=root
-NoNewPrivileges=false
-PrivateTmp=false
-ProtectSystem=false
-ProtectHome=false
-```
-
-默认服务模板仍使用 `openhpc-web` 并启用 systemd sandbox。如果需要进程拥有标准 root 文件系统权限，drop-in 还需覆盖 `NoNewPrivileges=false`、`PrivateTmp=false`、`ProtectSystem=false` 和 `ProtectHome=false`。loopback 监听、认证、固定 Slurm argv、禁止 shell、超时和输出上限仍保留。
+默认 systemd 模板以 root 启动服务，并保留 systemd sandbox。loopback 监听、认证、固定 Slurm argv、禁止 shell、超时和输出上限仍保留。
 
 ## 功能
 
@@ -152,7 +136,7 @@ ProtectHome=false
 
 ## 技术栈
 
-单体轻量应用，默认使用专用非 root 账户，也支持在明确需要系统权限时以 root 运行；模块化组件可复用
+单体轻量应用，仅允许以 root 身份运行；模块化组件可复用
 
 - Golang、Echo
 - HTMX

@@ -29,8 +29,8 @@ import (
 var newWebHandler = web.New
 
 func main() {
-	if warning := runtimeUserWarning(os.Geteuid()); warning != "" {
-		log.Print(warning)
+	if err := requireRoot(os.Geteuid()); err != nil {
+		log.Fatal(err)
 	}
 	username := os.Getenv("OPENHPC_ADMIN_USERNAME")
 	password := os.Getenv("OPENHPC_ADMIN_PASSWORD")
@@ -89,6 +89,7 @@ func main() {
 	var coreHourProvider cluster.CoreHourProvider
 	var directoryProvider directory.Provider
 	var slurmConfigProvider slurmconfig.Provider
+	var partitionAdmin cluster.PartitionAdmin
 	userStore, userStoreErr := platform.OpenUserStore(databasePath)
 	if userStoreErr != nil {
 		log.Fatalf("initialize platform users: %v", userStoreErr)
@@ -99,6 +100,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("initialize Slurm integration: %v", err)
 		}
+		partitionAdmin = client
 		metricsProvider, nodeProvider, partitionProvider, jobProvider, jobResourceProvider, accountingProvider, associationProvider, coreHourProvider = client, client, client, client, client, client, client, client
 		configRoot := envOr("OPENHPC_SLURM_CONFIG_ROOT", "/usr/local/etc")
 		configProvider, configErr := slurmconfig.New(configRoot, 1<<20)
@@ -133,6 +135,7 @@ func main() {
 		DirectoryProvider:   directoryProvider,
 		SettingsStore:       settingsStore,
 		SettingsDefaults:    settingsDefaultsFromEnv(),
+		PartitionAdmin:      partitionAdmin,
 		SlurmConfigProvider: slurmConfigProvider,
 		PlatformUsers:       userStore,
 	}, slurmConfigProvider)
@@ -186,11 +189,11 @@ func buildHandler(config web.Config, slurmConfigProvider slurmconfig.Provider) (
 	return handler, nil
 }
 
-func runtimeUserWarning(euid int) string {
-	if euid != 0 {
-		return ""
+func requireRoot(euid int) error {
+	if euid == 0 {
+		return nil
 	}
-	return "WARNING: OpenHPC Web is running as root; the application does not drop privileges or enforce owner/UID authorization. Slurm subprocesses and file reads use the running user's operating-system permissions."
+	return errors.New("OpenHPC Web must run as root")
 }
 
 func parseSlurmConfigFromEnv() (bool, slurm.Config, error) {

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"net/url"
@@ -74,6 +75,12 @@ func (a *application) savePartition(c echo.Context) error {
 		_ = a.recordAudit(c, platform.AuditEvent{Actor: currentPrincipal(c).Username, Action: "slurm.partition.save", Outcome: "failed", CreatedAt: time.Now()})
 		return echo.NewHTTPError(http.StatusServiceUnavailable)
 	}
+	if a.partitionAdmin != nil {
+		if err := a.partitionAdmin.ApplyPartition(c.Request().Context(), name, selected); err != nil {
+			_ = a.recordAudit(c, platform.AuditEvent{Actor: currentPrincipal(c).Username, Action: "slurm.partition.sync", Outcome: "failed", CreatedAt: time.Now()})
+			return echo.NewHTTPError(http.StatusServiceUnavailable)
+		}
+	}
 	outcome := "success"
 	saved := "updated"
 	if change.Created {
@@ -85,6 +92,22 @@ func (a *application) savePartition(c echo.Context) error {
 		log.Printf("partition audit failed")
 	}
 	return c.Redirect(http.StatusSeeOther, "/slurm/partitions?saved="+saved+"&name="+url.QueryEscape(name))
+}
+
+func (a *application) syncStoredPartitions(ctx context.Context) error {
+	if a.partitionStore == nil || a.partitionAdmin == nil {
+		return nil
+	}
+	partitions, err := a.partitionStore.List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, partition := range partitions {
+		if err := a.partitionAdmin.ApplyPartition(ctx, partition.Name, partition.Nodes); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (a *application) loadPartitionNodes(c echo.Context) ([]cluster.Node, bool) {
