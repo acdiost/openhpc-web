@@ -72,6 +72,7 @@ type squeueJSON struct {
 		Name        string      `json:"name"`
 		User        string      `json:"user_name"`
 		UserID      slurmNumber `json:"user_id"`
+		GroupID     slurmNumber `json:"group_id"`
 		Account     string      `json:"account"`
 		Partition   string      `json:"partition"`
 		State       []string    `json:"job_state"`
@@ -85,8 +86,8 @@ type squeueJSON struct {
 		Nodes       string      `json:"nodes"`
 		StateReason string      `json:"state_reason"`
 		WorkDir     string      `json:"current_working_directory"`
-		StdOut      string      `json:"standard_output"`
-		StdErr      string      `json:"standard_error"`
+		StdOut      string      `json:"stdout_expanded"`
+		StdErr      string      `json:"stderr_expanded"`
 		Command     string      `json:"command"`
 	} `json:"jobs"`
 }
@@ -240,12 +241,16 @@ func parseJobsJSON(output []byte, now time.Time) ([]cluster.Job, error) {
 		if record.NodeCount.Number < 0 || record.NodeCount.Number > int64(^uint(0)>>1) {
 			return nil, fmt.Errorf("job %d node count is invalid", record.ID)
 		}
-		if (record.UserID.Set && record.UserID.Number <= 0) || record.CPUs.Number < 0 || record.CPUs.Number > int64(^uint(0)>>1) {
-			return nil, fmt.Errorf("job %d user or CPU count is invalid", record.ID)
+		if (record.UserID.Set && record.UserID.Number <= 0) || (record.GroupID.Set && record.GroupID.Number <= 0) || record.CPUs.Number < 0 || record.CPUs.Number > int64(^uint(0)>>1) {
+			return nil, fmt.Errorf("job %d user, group, or CPU count is invalid", record.ID)
 		}
 		userID := int64(0)
 		if record.UserID.Set {
 			userID = record.UserID.Number
+		}
+		groupID := int64(0)
+		if record.GroupID.Set {
+			groupID = record.GroupID.Number
 		}
 		values := []string{record.Name, record.User, record.Account, record.Partition, record.Nodes, record.StateReason, record.WorkDir, record.StdOut, record.StdErr, record.Command}
 		values = append(values, record.State...)
@@ -264,7 +269,7 @@ func parseJobsJSON(output []byte, now time.Time) ([]cluster.Job, error) {
 			nodes = "—"
 		}
 		jobs = append(jobs, cluster.Job{
-			ID: strconv.FormatInt(record.ID, 10), Name: record.Name, User: record.User, UserID: userID,
+			ID: strconv.FormatInt(record.ID, 10), Name: record.Name, User: record.User, UserID: userID, GroupID: groupID,
 			Account: record.Account, Partition: record.Partition, State: strings.ToUpper(record.State[0]), CPUCount: int(record.CPUs.Number),
 			Elapsed: formatElapsed(record.StartTime, now), TimeLimit: formatTimeLimit(record.TimeLimit), NodeCount: int(record.NodeCount.Number),
 			Nodes: nodes, NodesOrReason: nodesOrReason, SubmitTime: formatSlurmTimestamp(record.SubmitTime, now.Location(), "—"),

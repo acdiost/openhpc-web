@@ -30,63 +30,7 @@ const (
 
 var errJobOutputUnavailable = errors.New("job output unavailable")
 
-type jobOutputRoot struct {
-	path string
-	fd   int
-}
-
-func openJobOutputRoots(configured []string) ([]jobOutputRoot, error) {
-	roots := make([]jobOutputRoot, 0, len(configured))
-	seen := make(map[string]struct{}, len(configured))
-	for _, value := range configured {
-		path := strings.TrimSpace(value)
-		if path == "" || path == string(filepath.Separator) || !filepath.IsAbs(path) || filepath.Clean(path) != path {
-			_ = closeJobOutputRoots(roots)
-			return nil, errors.New("job output roots must be clean absolute paths below the filesystem root")
-		}
-		if _, exists := seen[path]; exists {
-			continue
-		}
-		info, err := os.Lstat(path)
-		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-			_ = closeJobOutputRoots(roots)
-			return nil, fmt.Errorf("job output root %q must be a real directory", path)
-		}
-		resolved, err := filepath.EvalSymlinks(path)
-		if err != nil {
-			_ = closeJobOutputRoots(roots)
-			return nil, fmt.Errorf("resolve job output root %q: %w", path, err)
-		}
-		rootFD, err := openAbsoluteDirectoryNoFollow(resolved)
-		if err != nil {
-			_ = closeJobOutputRoots(roots)
-			return nil, fmt.Errorf("open job output root %q: %w", path, err)
-		}
-		seen[path] = struct{}{}
-		roots = append(roots, jobOutputRoot{path: path, fd: rootFD})
-	}
-	return roots, nil
-}
-
-func closeJobOutputRoots(roots []jobOutputRoot) error {
-	closeErrors := make([]error, 0, len(roots))
-	for _, root := range roots {
-		closeErrors = append(closeErrors, unix.Close(root.fd))
-	}
-	return errors.Join(closeErrors...)
-}
-
-func makeJobOutputSlots(roots []jobOutputRoot) chan struct{} {
-	if len(roots) == 0 {
-		return nil
-	}
-	return make(chan struct{}, maxConcurrentJobOutputReads)
-}
-
 func (a *application) slurmJobOutput(c echo.Context) error {
-	if len(a.jobOutputRoots) == 0 {
-		return echo.NewHTTPError(http.StatusNotFound)
-	}
 	jobID, err := parsePositiveJobID(c.Param("id"))
 	stream := c.Param("stream")
 	if err != nil || (stream != "stdout" && stream != "stderr") {
@@ -148,7 +92,7 @@ func (a *application) slurmJobOutput(c echo.Context) error {
 	slotOwnedByHandler = false
 	go func() {
 		defer func() { <-a.jobOutputSlots }()
-		content, truncated, err := readJobOutput(readContext, job, stream, a.jobOutputRoots)
+		content, truncated, err := readJobOutput(readContext, job, stream)
 		resultChannel <- readResult{content: content, truncated: truncated, err: err}
 	}()
 
@@ -168,6 +112,7 @@ func (a *application) slurmJobOutput(c echo.Context) error {
 		return echo.NewHTTPError(status)
 	}
 	if result.err != nil {
+		log.Printf("job output read failed: job_id=%d stream=%s user_id=%d reason=%v", jobID, stream, job.UserID, result.err)
 		if errors.Is(result.err, context.Canceled) || errors.Is(result.err, context.DeadlineExceeded) {
 			outcome := "cancelled"
 			status := http.StatusRequestTimeout
@@ -210,7 +155,7 @@ func parsePositiveJobID(value string) (int64, error) {
 	return id, nil
 }
 
-func readJobOutput(ctx context.Context, job cluster.Job, stream string, roots []jobOutputRoot) ([]byte, bool, error) {
+func readJobOutput(ctx context.Context, job cluster.Job, stream string) ([]byte, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, false, err
 	}
@@ -218,16 +163,26 @@ func readJobOutput(ctx context.Context, job cluster.Job, stream string, roots []
 	if stream == "stderr" {
 		path = job.StdErr
 	}
-	if !pathWithin(job.WorkDir, path) {
+	if !validJobOutputPath(path) {
 		return nil, false, errJobOutputUnavailable
 	}
-	root, relativePath, found := matchingOutputRoot(roots, job.WorkDir, path)
-	if !found {
+	return readJobOutputAsUser(ctx, job.UserID, job.GroupID, path)
+}
+
+func validJobOutputPath(path string) bool {
+	return filepath.IsAbs(path) && filepath.Clean(path) == path && path != string(filepath.Separator)
+}
+
+func readJobOutputAtCurrentIdentity(ctx context.Context, path string) ([]byte, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
+	if !validJobOutputPath(path) {
 		return nil, false, errJobOutputUnavailable
 	}
-	file, stat, err := openRelativeFileNoFollow(root.fd, relativePath)
+	file, stat, err := openAbsoluteFileNoFollow(path)
 	if err != nil {
-		return nil, false, errJobOutputUnavailable
+		return nil, false, fmt.Errorf("open output file: %w", err)
 	}
 	defer file.Close()
 
@@ -237,14 +192,14 @@ func readJobOutput(ctx context.Context, job cluster.Job, stream string, roots []
 		offset = 0
 	}
 	if _, err := file.Seek(offset, 0); err != nil {
-		return nil, false, errJobOutputUnavailable
+		return nil, false, fmt.Errorf("seek output file: %w", err)
 	}
 	content, err := readBoundedOutput(ctx, file)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, false, err
 		}
-		return nil, false, errJobOutputUnavailable
+		return nil, false, fmt.Errorf("read output file: %w", err)
 	}
 	content = bytes.ToValidUTF8(content, []byte("\uFFFD"))
 	if int64(len(content)) > maxJobOutputBytes {
@@ -257,38 +212,16 @@ func readJobOutput(ctx context.Context, job cluster.Job, stream string, roots []
 	return content, truncated, nil
 }
 
-func matchingOutputRoot(roots []jobOutputRoot, workDir, path string) (jobOutputRoot, string, bool) {
-	selected := jobOutputRoot{}
-	selectedPath := ""
-	for _, root := range roots {
-		if !pathWithin(root.path, workDir) || !pathWithin(root.path, path) || len(root.path) <= len(selected.path) {
-			continue
-		}
-		relativePath, err := filepath.Rel(root.path, path)
-		if err == nil {
-			selected, selectedPath = root, relativePath
-		}
+func openAbsoluteFileNoFollow(path string) (*os.File, *unix.Stat_t, error) {
+	if !validJobOutputPath(path) {
+		return nil, nil, errJobOutputUnavailable
 	}
-	return selected, selectedPath, selectedPath != ""
-}
-
-func pathWithin(base, target string) bool {
-	if !filepath.IsAbs(base) || !filepath.IsAbs(target) {
-		return false
-	}
-	base = filepath.Clean(base)
-	target = filepath.Clean(target)
-	relativePath, err := filepath.Rel(base, target)
-	return err == nil && relativePath != "." && relativePath != ".." && !strings.HasPrefix(relativePath, ".."+string(filepath.Separator))
-}
-
-func openAbsoluteDirectoryNoFollow(path string) (int, error) {
 	rootFD, err := unix.Open(string(filepath.Separator), unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {
-		return -1, err
+		return nil, nil, err
 	}
-	relative := strings.TrimPrefix(path, string(filepath.Separator))
-	return walkOpenNoFollow(rootFD, relative, true)
+	defer unix.Close(rootFD)
+	return openRelativeFileNoFollow(rootFD, strings.TrimPrefix(path, string(filepath.Separator)))
 }
 
 func openRelativeFileNoFollow(rootFD int, relativePath string) (*os.File, *unix.Stat_t, error) {

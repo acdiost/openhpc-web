@@ -59,8 +59,6 @@ export OPENHPC_SLURM_TIMEOUT=3s
 export OPENHPC_SLURM_MAX_OUTPUT=2097152
 export OPENHPC_SLURM_CACHE_TTL=10s
 export OPENHPC_SLURM_CONFIG_ROOT=/usr/local/etc
-# 默认关闭；启用前按部署指南配置最小只读目录权限
-export OPENHPC_JOB_OUTPUT_ROOTS=
 ```
 
 适配器只会执行：
@@ -78,7 +76,7 @@ export OPENHPC_JOB_OUTPUT_ROOTS=
 
 命令通过 `exec.CommandContext` 直接执行，固定 C locale，禁止 shell 和调用方自定义参数。适配器只解析页面所需字段。读取失败时保留页面和导航，但将实时数据标记为不可用。各类快照使用独立的 10 秒缓存与并发合并边界。节点状态由 `sinfo --Node --json` 缓存驱动，分区管理页支持勾选节点创建或更新分区定义，并将结果持久化到 SQLite 以便 Slurm 重启后快速恢复。作业资源弹窗每 5 秒串行采样一次 `sstat`，将累计 CPU 时间换算为 CPU 核数趋势，并独立展示最大 RSS 趋势和 step 明细。核时统计内嵌在“QoS 与核时”页面，仅支持过去 24 小时、7 天和 30 天三个固定周期；口径为 allocation 分配 CPU 数乘以窗口内墙钟占用时间，不代表实际 CPU 利用率，也不包含 GPU/TRES 计费。
 
-作业详情始终显示标准输出和标准错误的查看按钮。配置 `OPENHPC_JOB_OUTPUT_ROOTS` 后，服务端才允许读取输出；未配置时请求会被拒绝。服务端仅接受作业 ID 与 `stdout`/`stderr` 类型，文件路径由当前 Slurm 作业元数据决定；文件必须位于允许根目录及作业工作目录内，并且是非符号链接普通文件。平台管理员可以查看任意作业输出，普通用户只能查看自己的作业输出。文件 UID 与作业用户不一致不会阻断读取，是否可读由进程权限决定；启用该功能时启动日志会输出风险 WARNING。接口只返回最新 256 KiB 纯文本。
+作业详情始终显示标准输出和标准错误的查看按钮。服务端仅接受作业 ID 与 `stdout`/`stderr` 类型，文件路径由当前 Slurm 作业元数据的展开输出路径决定，因此支持作业指定到任意目录的输出。Linux 上读取时会以作业的 UID 打开文件，平台管理员可以发起任意作业的查看，普通用户只能查看自己的作业输出；无有效 UID 的作业输出会被拒绝。接口仍拒绝符号链接和非普通文件，并只返回最新 256 KiB 纯文本。部署单元将 `/home` 设为只读可见；NFS root-squash、ACL 和操作系统权限仍可能阻止读取。
 
 `/slurm/config` 是只读配置文件浏览器，根目录由 `OPENHPC_SLURM_CONFIG_ROOT` 固定（默认 `/usr/local/etc`），不接受请求传入路径，不展开 Include。文件读取使用固定文件名、禁止符号链接和越界，单文件最多读取 1 MiB；密码、Token、Secret、AuthInfo 和 PrivateKey 等键值在页面中显示为 `REDACTED`。
 

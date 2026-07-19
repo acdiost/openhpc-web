@@ -17,6 +17,19 @@ import (
 	"github.com/acdiost/openhpc-web/internal/web"
 )
 
+func TestServiceUnitAllowsReadOnlyJobOutputDirectories(t *testing.T) {
+	contents, err := os.ReadFile("../../deploy/openhpc-web.service")
+	if err != nil {
+		t.Fatalf("read service unit: %v", err)
+	}
+	unit := string(contents)
+	for _, expected := range []string{"ProtectHome=read-only", "NoNewPrivileges=true"} {
+		if !strings.Contains(unit, expected) {
+			t.Errorf("service unit does not contain %q", expected)
+		}
+	}
+}
+
 func TestEnvOr(t *testing.T) {
 	t.Setenv("OPENHPC_TEST_VALUE", "configured")
 	if got := envOr("OPENHPC_TEST_VALUE", "fallback"); got != "configured" {

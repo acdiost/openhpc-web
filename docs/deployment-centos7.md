@@ -141,7 +141,7 @@ install -o root -g root -m 0644 \
   /etc/systemd/system/openhpc-web.service
 ```
 
-服务模板已以 root 运行，并保留 systemd sandbox。应用仍保留 loopback、认证、固定命令参数、禁止 shell、允许目录、普通文件、超时和输出上限。除非确有文件预览需求，否则保持 `OPENHPC_JOB_OUTPUT_ROOTS` 为空。
+服务模板已以 root 运行，并保留 systemd sandbox。应用仍保留 loopback、认证、固定命令参数、禁止 shell、作业 UID 身份读取、普通文件、超时和输出上限。
 
 ## 5. 配置环境文件
 
@@ -169,9 +169,6 @@ OPENHPC_SLURM_TIMEOUT=3s
 OPENHPC_SLURM_MAX_OUTPUT=2097152
 OPENHPC_SLURM_CACHE_TTL=10s
 OPENHPC_SLURM_CONFIG_ROOT=/usr/local/etc
-# 可选；留空时详情中的“查看内容”保持禁用
-OPENHPC_JOB_OUTPUT_ROOTS=
-
 OPENHPC_LDAP_ENABLED=false
 OPENHPC_LDAP_ALLOW_INSECURE=false
 OPENHPC_LDAP_URL=ldaps://ldap.example.com:636
@@ -189,7 +186,7 @@ OPENHPC_LDAP_MAX_RESULTS=200
 
 必须把 `REPLACE_WITH_A_LONG_RANDOM_PASSWORD` 替换为真实密码。用户名长度为 1 到 64，密码长度至少为 12。不要在聊天记录、命令历史或仓库中保存真实密码。
 
-如需查看 `/home` 下的作业输出，将 `OPENHPC_JOB_OUTPUT_ROOTS` 设置为经过评估的最小绝对目录集合，并用 systemd drop-in 将 `ProtectHome` 改为 `read-only`。接口仍校验文件位于作业工作目录内且为非符号链接普通文件；实际读取能力受 systemd sandbox 和操作系统限制，并只读取最新 256 KiB。
+作业输出不再配置静态目录白名单，也不限制在作业工作目录内。接口使用 Slurm 展开的输出路径，并在 Linux 上以 Slurm 作业 UID 打开文件；因此管理员可发起跨用户查看而不会以服务 root 身份读取文件。服务单元使用 `ProtectHome=read-only`，允许读取 `/home` 下的作业输出但不允许修改用户目录。实际读取能力仍受 NFS root-squash、ACL 和操作系统权限限制，并只读取最新 256 KiB。
 
 再次固定权限：
 

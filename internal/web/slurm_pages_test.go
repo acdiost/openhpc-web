@@ -86,6 +86,13 @@ func TestSlurmJobsPageRendersCancelForAdminCrossUserJob(t *testing.T) {
 	assertBodyContains(t, response, `action="/slurm/jobs/32943/cancel"`)
 	assertBodyContains(t, response, `class="job-cancel-button"`)
 	assertBodyContains(t, response, `aria-label="取消作业: 32943"`)
+	for _, value := range []string{
+		`data-job-cancel="32943"`, `aria-haspopup="dialog" aria-controls="job-cancel-modal"`,
+		`<dialog id="job-cancel-modal"`, `data-job-cancel-form`, `data-job-cancel-name`, `data-job-cancel-close`,
+		"取消后无法恢复。",
+	} {
+		assertBodyContains(t, response, value)
+	}
 }
 
 func TestSlurmJobDetailHasNoStandalonePage(t *testing.T) {

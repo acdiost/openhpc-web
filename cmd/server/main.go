@@ -29,6 +29,13 @@ import (
 var newWebHandler = web.New
 
 func main() {
+	if handled, err := web.HandleJobOutputReaderInvocation(os.Args[1:], os.Stdout); handled {
+		if err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := requireRoot(os.Geteuid()); err != nil {
 		log.Fatal(err)
 	}
@@ -65,11 +72,6 @@ func main() {
 			_ = settingsStore.Close()
 		}
 	}()
-	jobOutputRootsValue, err := settingValue(settingsStore, "OPENHPC_JOB_OUTPUT_ROOTS", os.Getenv("OPENHPC_JOB_OUTPUT_ROOTS"))
-	if err != nil {
-		log.Fatalf("read settings: %v", err)
-	}
-	jobOutputRoots := splitList(jobOutputRootsValue)
 	slurmEnabled, slurmConfig, err := parseSlurmConfigFromStore(settingsStore)
 	if err != nil {
 		log.Fatal(err)
@@ -131,8 +133,6 @@ func main() {
 		JobProvider:         jobProvider,
 		JobResourceProvider: jobResourceProvider,
 		JobCanceler:         jobCanceler,
-		JobOutputRoots:      jobOutputRoots,
-		Warning:             func(message string) { log.Print(message) },
 		AccountingProvider:  accountingProvider,
 		AssociationProvider: associationProvider,
 		CoreHourProvider:    coreHourProvider,

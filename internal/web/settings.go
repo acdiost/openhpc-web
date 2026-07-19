@@ -29,7 +29,6 @@ var settingsSpecs = []settingsSpec{
 	{Key: "OPENHPC_SLURM_TIMEOUT", GroupZH: "Slurm", GroupEN: "Slurm", LabelZH: "Slurm 超时", LabelEN: "Slurm timeout", InputType: "text"},
 	{Key: "OPENHPC_SLURM_MAX_OUTPUT", GroupZH: "Slurm", GroupEN: "Slurm", LabelZH: "最大输出字节数", LabelEN: "Maximum output bytes", InputType: "number"},
 	{Key: "OPENHPC_SLURM_CACHE_TTL", GroupZH: "Slurm", GroupEN: "Slurm", LabelZH: "缓存 TTL", LabelEN: "Cache TTL", InputType: "text"},
-	{Key: "OPENHPC_JOB_OUTPUT_ROOTS", GroupZH: "Slurm", GroupEN: "Slurm", LabelZH: "作业输出根目录", LabelEN: "Job output roots", InputType: "text"},
 	{Key: "OPENHPC_LDAP_ENABLED", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "启用 LDAP", LabelEN: "Enable LDAP", InputType: "checkbox"},
 	{Key: "OPENHPC_LDAP_URL", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "LDAP 地址", LabelEN: "LDAP URL", InputType: "url"},
 	{Key: "OPENHPC_LDAP_BASE_DN", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "基础 DN", LabelEN: "Base DN", InputType: "text"},
@@ -278,19 +277,6 @@ func validateSettingFormValue(key, value string) error {
 		if key == "OPENHPC_LDAP_CA_FILE" && value != "" {
 			if err := ldapdirectory.ValidateCAFile(value); err != nil {
 				return errors.New("invalid CA file")
-			}
-		}
-	case "OPENHPC_JOB_OUTPUT_ROOTS":
-		for _, root := range strings.Split(value, ",") {
-			root = strings.TrimSpace(root)
-			if root != "" && (!filepath.IsAbs(root) || filepath.Clean(root) != root || root == string(filepath.Separator)) {
-				return errors.New("invalid output root")
-			}
-			if root != "" {
-				info, err := os.Lstat(root)
-				if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-					return errors.New("invalid output root")
-				}
 			}
 		}
 	}

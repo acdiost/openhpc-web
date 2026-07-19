@@ -18,6 +18,7 @@ type Job struct {
 	Name          string
 	User          string
 	UserID        int64
+	GroupID       int64
 	Account       string
 	Partition     string
 	State         string

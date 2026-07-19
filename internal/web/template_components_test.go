@@ -119,6 +119,45 @@ func TestJobResourceScriptPollsAndCancelsWithModalLifecycle(t *testing.T) {
 	}
 }
 
+func TestJobOutputPreviewSupportsMultilineScrolling(t *testing.T) {
+	template, err := fs.ReadFile(assets, "templates/job_modal.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stylesheet, err := fs.ReadFile(assets, "static/app.tailwind.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(template) + string(stylesheet)
+	for _, expected := range []string{
+		`<pre data-job-output-content tabindex="0"></pre>`,
+		`.job-output-preview pre`,
+		`max-height: min(26rem, 45vh)`,
+		`overflow: auto`,
+		`white-space: pre-wrap`,
+	} {
+		if !strings.Contains(content, expected) {
+			t.Errorf("job output preview does not contain %q", expected)
+		}
+	}
+}
+
+func TestJobCancelModalScriptBindsTheSelectedJob(t *testing.T) {
+	contents, err := fs.ReadFile(assets, "static/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(contents)
+	for _, expected := range []string{
+		"job-cancel-modal", "[data-job-cancel]", "data-job-cancel-form",
+		"data-job-cancel-name", "data-job-cancel-close", "event.preventDefault()",
+	} {
+		if !strings.Contains(script, expected) {
+			t.Errorf("app.js does not contain %q", expected)
+		}
+	}
+}
+
 func TestPartitionModalScriptSupportsCreateEditAndDelete(t *testing.T) {
 	contents, err := fs.ReadFile(assets, "static/app.js")
 	if err != nil {

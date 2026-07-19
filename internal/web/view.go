@@ -109,31 +109,31 @@ func slurmConfigCopyFor(language string) slurmConfigCopy {
 }
 
 type detailCopy struct {
-	Refresh, LiveData, EmptyNodes, EmptyJobs                               string
-	EmptyPartitions, PartitionStatus, NodeStatus                           string
-	Node, Partition, State, CPUs, Memory, GRES, Availability               string
-	OnlineNodes, TotalNodes, OfflineNodes, CPUUtilization                  string
-	JobID, JobName, User, Account, Elapsed, TimeLimit                      string
-	NodesOrReason, Online, Offline, NodeCount                              string
-	BringNodeOnline, DownNode, DrainNode, NodeReason                       string
-	Confirm                                                                string
-	JobDetails, BackToJobs, JobNotFound, Close                             string
-	CPUCount, SubmitTime, StartTime, WorkDir                               string
-	EligibleTime, EndTime, Unknown                                         string
-	StdOut, StdErr, Command, ViewContent                                   string
-	OutputLoading, OutputError                                             string
-	OutputPreview, OutputTruncated, Details, Actions, Cancel               string
-	Resources, ResourceUsage, ResourceLoading, ResourceError               string
-	ResourceEmpty, SampledAt, CPUTime, CPUCoreUsage, MaxRSS, ResourceTrend string
-	Step, AveCPU, TotalCPU, AveRSS, MaxVMSize                              string
-	Accounts, Users, Description, Organization                             string
-	Coordinators, Associations, AdminLevel                                 string
-	AssociationDetails, AssociationID, Cluster                             string
-	AccountLevel, AllPartitions, EmptyAssociations                         string
-	AssociationUnavailable                                                 string
-	PreviousPage, NextPage                                                 string
-	DefaultAccount, DefaultWCKey, Priority, UsageFactor                    string
-	MaxJobs, Unlimited                                                     string
+	Refresh, LiveData, EmptyNodes, EmptyJobs                                string
+	EmptyPartitions, PartitionStatus, NodeStatus                            string
+	Node, Partition, State, CPUs, Memory, GRES, Availability                string
+	OnlineNodes, TotalNodes, OfflineNodes, CPUUtilization                   string
+	JobID, JobName, User, Account, Elapsed, TimeLimit                       string
+	NodesOrReason, Online, Offline, NodeCount                               string
+	BringNodeOnline, DownNode, DrainNode, NodeReason                        string
+	Confirm                                                                 string
+	JobDetails, BackToJobs, JobNotFound, Close                              string
+	CPUCount, SubmitTime, StartTime, WorkDir                                string
+	EligibleTime, EndTime, Unknown                                          string
+	StdOut, StdErr, Command, ViewContent                                    string
+	OutputLoading, OutputError                                              string
+	OutputPreview, OutputTruncated, Details, Actions, Cancel, CancelWarning string
+	Resources, ResourceUsage, ResourceLoading, ResourceError                string
+	ResourceEmpty, SampledAt, CPUTime, CPUCoreUsage, MaxRSS, ResourceTrend  string
+	Step, AveCPU, TotalCPU, AveRSS, MaxVMSize                               string
+	Accounts, Users, Description, Organization                              string
+	Coordinators, Associations, AdminLevel                                  string
+	AssociationDetails, AssociationID, Cluster                              string
+	AccountLevel, AllPartitions, EmptyAssociations                          string
+	AssociationUnavailable                                                  string
+	PreviousPage, NextPage                                                  string
+	DefaultAccount, DefaultWCKey, Priority, UsageFactor                     string
+	MaxJobs, Unlimited                                                      string
 }
 
 type partitionCopy struct {
@@ -445,7 +445,7 @@ func detailCopyFor(language string) detailCopy {
 			EligibleTime: "EligibleTime", EndTime: "EndTime", Unknown: "Unknown",
 			StdOut: "Standard output", StdErr: "Standard error", Command: "Submit command", ViewContent: "View content",
 			OutputLoading: "Loading output...", OutputError: "Output could not be loaded",
-			OutputPreview: "Output preview", OutputTruncated: "latest 256 KiB only", Details: "View details", Actions: "Actions", Cancel: "Cancel job",
+			OutputPreview: "Output preview", OutputTruncated: "latest 256 KiB only", Details: "View details", Actions: "Actions", Cancel: "Cancel job", CancelWarning: "Canceling a job cannot be undone.",
 			Accounts: "Accounts", Users: "Users", Description: "Description", Organization: "Organization", Coordinators: "Coordinators", Associations: "Associations", AdminLevel: "Admin level",
 			AssociationDetails: "Association details", AssociationID: "ID", Cluster: "Cluster", AccountLevel: "Account level", AllPartitions: "All partitions",
 			EmptyAssociations: "No associations reported", AssociationUnavailable: "Association data is temporarily unavailable",
@@ -469,7 +469,7 @@ func detailCopyFor(language string) detailCopy {
 		EligibleTime: "可调度时间", EndTime: "结束时间", Unknown: "未知",
 		StdOut: "标准输出", StdErr: "标准错误", Command: "提交命令", ViewContent: "查看内容",
 		OutputLoading: "正在加载输出...", OutputError: "无法加载输出内容",
-		OutputPreview: "输出内容", OutputTruncated: "仅显示末尾 256 KiB", Details: "查看详情", Actions: "操作", Cancel: "取消作业",
+		OutputPreview: "输出内容", OutputTruncated: "仅显示末尾 256 KiB", Details: "查看详情", Actions: "操作", Cancel: "取消作业", CancelWarning: "取消后无法恢复。",
 		Accounts: "账户", Users: "用户", Description: "描述", Organization: "组织", Coordinators: "协调员", Associations: "关联数", AdminLevel: "管理员级别",
 		AssociationDetails: "关联明细", AssociationID: "ID", Cluster: "集群", AccountLevel: "账户级", AllPartitions: "全部分区",
 		EmptyAssociations: "暂无关联记录", AssociationUnavailable: "关联数据暂不可用",

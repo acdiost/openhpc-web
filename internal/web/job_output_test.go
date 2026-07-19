@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -35,7 +36,7 @@ func TestJobOutputReturnsProviderSelectedPlainText(t *testing.T) {
 	provider := &stubJobProvider{jobs: []cluster.Job{{
 		ID: "32943", UserID: int64(os.Getuid()), WorkDir: workDir, StdOut: stdout,
 	}}}
-	handler := newJobOutputHandler(t, provider, []string{root})
+	handler := newJobOutputHandler(t, provider)
 
 	request := httptest.NewRequest(http.MethodGet, "/slurm/jobs/32943/output/stdout?path=/etc/passwd", nil)
 	request.AddCookie(login(t, handler))
@@ -59,7 +60,7 @@ func TestJobOutputRejectsInvalidRequestBeforeProvider(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "audit.db")
 	handler, err := New(Config{
 		AdminUsername: testUsername, AdminPassword: testPassword, DatabasePath: databasePath,
-		JobProvider: provider, JobOutputRoots: []string{t.TempDir()},
+		JobProvider: provider,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -95,7 +96,7 @@ func TestJobOutputRejectsInvalidRequestBeforeProvider(t *testing.T) {
 
 func TestJobOutputRequiresAuthentication(t *testing.T) {
 	provider := &stubJobProvider{}
-	handler := newJobOutputHandler(t, provider, []string{t.TempDir()})
+	handler := newJobOutputHandler(t, provider)
 	request := httptest.NewRequest(http.MethodGet, "/slurm/jobs/32943/output/stdout", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -105,9 +106,13 @@ func TestJobOutputRequiresAuthentication(t *testing.T) {
 	}
 }
 
-func TestJobOutputButtonsRemainAvailableWithoutAllowedRoots(t *testing.T) {
-	provider := &stubJobProvider{jobs: []cluster.Job{{ID: "32943", StdOut: "/tmp/out.log"}}}
-	handler := newJobOutputHandler(t, provider, nil)
+func TestJobOutputReadsFromSlurmOutputPathWithoutConfiguredRoots(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "out.log")
+	if err := os.WriteFile(path, []byte("work directory output"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	provider := &stubJobProvider{jobs: []cluster.Job{{ID: "32943", UserID: int64(os.Getuid()), WorkDir: "/", StdOut: path}}}
+	handler := newJobOutputHandler(t, provider)
 	page := getAuthenticated(t, handler, "/slurm/jobs", "zh")
 	assertBodyContains(t, page, `data-output-label="标准输出">查看内容`)
 	assertBodyContains(t, page, `data-output-label="标准错误">查看内容`)
@@ -116,54 +121,25 @@ func TestJobOutputButtonsRemainAvailableWithoutAllowedRoots(t *testing.T) {
 	assertBodyNotContains(t, page, "未启用输出内容预览")
 
 	response := getAuthenticated(t, handler, "/slurm/jobs/32943/output/stdout", "zh")
-	assertStatus(t, response, http.StatusNotFound)
-	if provider.jobCalls != 0 {
-		t.Errorf("Job() calls = %d, want 0", provider.jobCalls)
+	assertStatus(t, response, http.StatusOK)
+	assertBodyContains(t, response, "work directory output")
+	if provider.jobCalls != 1 {
+		t.Errorf("Job() calls = %d, want 1", provider.jobCalls)
 	}
 }
 
-func TestJobOutputPreviewWarnsAtStartupAboutProcessPermissions(t *testing.T) {
-	root := t.TempDir()
-	warnings := make([]string, 0, 1)
-	handler, err := New(Config{
-		AdminUsername: testUsername, AdminPassword: testPassword,
-		JobOutputRoots: []string{root},
-		Warning:        func(message string) { warnings = append(warnings, message) },
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	cleanupHandler(t, handler)
-	if len(warnings) != 1 {
-		t.Fatalf("warnings = %q, want one startup warning", warnings)
-	}
-	for _, required := range []string{"WARNING", "running user's operating-system permissions", "UID mismatches are not blocked"} {
-		if !strings.Contains(warnings[0], required) {
-			t.Errorf("startup warning = %q, want %q", warnings[0], required)
-		}
-	}
-}
-
-func TestJobOutputRejectsPathsOutsideSecurityBoundary(t *testing.T) {
+func TestJobOutputReadsConfiguredAbsolutePathsAndRejectsUnsafeFiles(t *testing.T) {
 	root := t.TempDir()
 	workDir := filepath.Join(root, "work")
 	if err := os.Mkdir(workDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	inside := filepath.Join(workDir, "out.log")
-	if err := os.WriteFile(inside, []byte("inside"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	outsideWorkDir := filepath.Join(root, "other.log")
-	if err := os.WriteFile(outsideWorkDir, []byte("other"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	outsideRoot := filepath.Join(t.TempDir(), "outside.log")
-	if err := os.WriteFile(outsideRoot, []byte("outside"), 0o600); err != nil {
+	configuredPath := filepath.Join(t.TempDir(), "outside.log")
+	if err := os.WriteFile(configuredPath, []byte("configured output"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	symlink := filepath.Join(workDir, "link.log")
-	if err := os.Symlink(outsideRoot, symlink); err != nil {
+	if err := os.Symlink(configuredPath, symlink); err != nil {
 		t.Fatal(err)
 	}
 	fifo := filepath.Join(workDir, "output.pipe")
@@ -172,25 +148,30 @@ func TestJobOutputRejectsPathsOutsideSecurityBoundary(t *testing.T) {
 	}
 
 	tests := []struct {
-		name string
-		job  cluster.Job
+		name           string
+		path           string
+		status         int
+		expectedOutput string
 	}{
-		{name: "outside root", job: cluster.Job{ID: "32943", UserID: int64(os.Getuid()), WorkDir: workDir, StdOut: outsideRoot}},
-		{name: "outside work directory", job: cluster.Job{ID: "32943", UserID: int64(os.Getuid()), WorkDir: workDir, StdOut: outsideWorkDir}},
-		{name: "symlink", job: cluster.Job{ID: "32943", UserID: int64(os.Getuid()), WorkDir: workDir, StdOut: symlink}},
-		{name: "named pipe", job: cluster.Job{ID: "32943", UserID: int64(os.Getuid()), WorkDir: workDir, StdOut: fifo}},
+		{name: "configured absolute path", path: configuredPath, status: http.StatusOK, expectedOutput: "configured output"},
+		{name: "relative path", path: "out.log", status: http.StatusNotFound},
+		{name: "symlink", path: symlink, status: http.StatusNotFound},
+		{name: "named pipe", path: fifo, status: http.StatusNotFound},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			handler := newJobOutputHandler(t, &stubJobProvider{jobs: []cluster.Job{test.job}}, []string{root})
+			job := cluster.Job{ID: "32943", UserID: int64(os.Getuid()), WorkDir: "/", StdOut: test.path}
+			handler := newJobOutputHandler(t, &stubJobProvider{jobs: []cluster.Job{job}})
 			response := getAuthenticated(t, handler, "/slurm/jobs/32943/output/stdout", "zh")
-			assertStatus(t, response, http.StatusNotFound)
-			assertBodyNotContains(t, response, outsideRoot)
+			assertStatus(t, response, test.status)
+			if test.expectedOutput != "" {
+				assertBodyContains(t, response, test.expectedOutput)
+			}
 		})
 	}
 }
 
-func TestJobOutputReliesOnProcessPermissionsInsteadOfJobUID(t *testing.T) {
+func TestJobOutputRequiresTheJobUserFilesystemIdentity(t *testing.T) {
 	root := t.TempDir()
 	workDir := filepath.Join(root, "work")
 	if err := os.Mkdir(workDir, 0o700); err != nil {
@@ -200,12 +181,20 @@ func TestJobOutputReliesOnProcessPermissionsInsteadOfJobUID(t *testing.T) {
 	if err := os.WriteFile(path, []byte("readable by service"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, userID := range []int64{0, int64(os.Getuid()) + 1} {
-		t.Run(strconv.FormatInt(userID, 10), func(t *testing.T) {
-			job := cluster.Job{ID: "32943", UserID: userID, WorkDir: workDir, StdOut: path}
-			response := getAuthenticated(t, newJobOutputHandler(t, &stubJobProvider{jobs: []cluster.Job{job}}, []string{root}), "/slurm/jobs/32943/output/stdout", "zh")
-			assertStatus(t, response, http.StatusOK)
-			assertBodyContains(t, response, "readable by service")
+	for _, test := range []struct {
+		userID int64
+		status int
+	}{
+		{userID: int64(os.Getuid()), status: http.StatusOK},
+		{userID: int64(os.Getuid()) + 1, status: http.StatusNotFound},
+	} {
+		t.Run(strconv.FormatInt(test.userID, 10), func(t *testing.T) {
+			job := cluster.Job{ID: "32943", UserID: test.userID, WorkDir: workDir, StdOut: path}
+			response := getAuthenticated(t, newJobOutputHandler(t, &stubJobProvider{jobs: []cluster.Job{job}}), "/slurm/jobs/32943/output/stdout", "zh")
+			assertStatus(t, response, test.status)
+			if test.status == http.StatusOK {
+				assertBodyContains(t, response, "readable by service")
+			}
 		})
 	}
 }
@@ -225,7 +214,7 @@ func TestJobOutputReturnsLatest256KiBAndRepairsInvalidUTF8(t *testing.T) {
 	provider := &stubJobProvider{jobs: []cluster.Job{{
 		ID: "32943", UserID: int64(os.Getuid()), WorkDir: workDir, StdErr: path,
 	}}}
-	handler := newJobOutputHandler(t, provider, []string{root})
+	handler := newJobOutputHandler(t, provider)
 	response := getAuthenticated(t, handler, "/slurm/jobs/32943/output/stderr", "zh")
 
 	assertStatus(t, response, http.StatusOK)
@@ -251,7 +240,7 @@ func TestJobOutputResponseStaysWithinLimitAfterUTF8Repair(t *testing.T) {
 	provider := &stubJobProvider{jobs: []cluster.Job{{
 		ID: "32943", UserID: int64(os.Getuid()), WorkDir: workDir, StdOut: path,
 	}}}
-	response := getAuthenticated(t, newJobOutputHandler(t, provider, []string{root}), "/slurm/jobs/32943/output/stdout", "en")
+	response := getAuthenticated(t, newJobOutputHandler(t, provider), "/slurm/jobs/32943/output/stdout", "en")
 	assertStatus(t, response, http.StatusOK)
 	if response.Body.Len() > 256<<10 {
 		t.Errorf("response bytes = %d, want <= %d", response.Body.Len(), 256<<10)
@@ -264,7 +253,7 @@ func TestJobOutputResponseStaysWithinLimitAfterUTF8Repair(t *testing.T) {
 func TestJobOutputButtonsDoNotRequirePerStreamMetadata(t *testing.T) {
 	root := t.TempDir()
 	provider := &stubJobProvider{jobs: []cluster.Job{{ID: "32943", UserID: int64(os.Getuid()), WorkDir: root, StdOut: filepath.Join(root, "out.log")}}}
-	page := getAuthenticated(t, newJobOutputHandler(t, provider, []string{root}), "/slurm/jobs", "en")
+	page := getAuthenticated(t, newJobOutputHandler(t, provider), "/slurm/jobs", "en")
 	assertStatus(t, page, http.StatusOK)
 	assertBodyContains(t, page, `data-output-stream="stdout"`)
 	assertBodyContains(t, page, `data-output-stream="stderr" data-output-label="Standard error">View content`)
@@ -294,10 +283,9 @@ func TestJobOutputAllowsOwnersButDeniesOtherUsers(t *testing.T) {
 	handler, err := New(Config{
 		AdminUsername: testUsername, AdminPassword: testPassword, PlatformUsers: store,
 		JobProvider: &stubJobProvider{jobs: []cluster.Job{
-			{ID: "32943", User: "alice", WorkDir: workDir, StdOut: path},
-			{ID: "32944", User: "bob", WorkDir: workDir, StdOut: path},
+			{ID: "32943", User: "alice", UserID: int64(os.Getuid()), WorkDir: workDir, StdOut: path},
+			{ID: "32944", User: "bob", UserID: int64(os.Getuid()), WorkDir: workDir, StdOut: path},
 		}},
-		JobOutputRoots: []string{root},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -345,8 +333,7 @@ func TestJobOutputAllowsPlatformAdminToReadOtherUserOutput(t *testing.T) {
 	}
 	handler, err := New(Config{
 		AdminUsername: testUsername, AdminPassword: testPassword, PlatformUsers: store,
-		JobProvider:    &stubJobProvider{jobs: []cluster.Job{{ID: "32943", User: "alice", WorkDir: workDir, StdOut: path}}},
-		JobOutputRoots: []string{root},
+		JobProvider: &stubJobProvider{jobs: []cluster.Job{{ID: "32943", User: "alice", UserID: int64(os.Getuid()), WorkDir: workDir, StdOut: path}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -364,7 +351,7 @@ func TestJobOutputAllowsPlatformAdminToReadOtherUserOutput(t *testing.T) {
 }
 
 func TestJobOutputFrontendHandlesStaleAndTruncatedResponses(t *testing.T) {
-	handler := newJobOutputHandler(t, &stubJobProvider{}, nil)
+	handler := newJobOutputHandler(t, &stubJobProvider{})
 	request := httptest.NewRequest(http.MethodGet, "/static/app.js", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -389,7 +376,7 @@ func TestJobOutputConcurrencyLimitRecoversAfterReadsFinish(t *testing.T) {
 		job:     cluster.Job{ID: "32943", UserID: int64(os.Getuid()), WorkDir: workDir, StdOut: path},
 		entered: make(chan struct{}, maxConcurrentJobOutputReads), release: make(chan struct{}),
 	}
-	handler := newJobOutputHandler(t, provider, []string{root})
+	handler := newJobOutputHandler(t, provider)
 	cookie := login(t, handler)
 
 	responses := make(chan int, maxConcurrentJobOutputReads)
@@ -431,7 +418,7 @@ func TestJobOutputAuditSurvivesRequestCancellation(t *testing.T) {
 	provider := &stubJobProvider{jobs: []cluster.Job{{ID: "32943", UserID: int64(os.Getuid()), WorkDir: workDir, StdOut: path}}}
 	handler, err := New(Config{
 		AdminUsername: testUsername, AdminPassword: testPassword, DatabasePath: databasePath,
-		JobProvider: provider, JobOutputRoots: []string{root},
+		JobProvider: provider,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -472,16 +459,11 @@ func TestReadJobOutputPreservesCancellation(t *testing.T) {
 	if err := os.WriteFile(path, []byte("cancelled"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	roots, err := openJobOutputRoots([]string{root})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer closeJobOutputRoots(roots)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, _, err = readJobOutput(ctx, cluster.Job{
+	_, _, err := readJobOutput(ctx, cluster.Job{
 		UserID: int64(os.Getuid()), WorkDir: workDir, StdOut: path,
-	}, "stdout", roots)
+	}, "stdout")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("readJobOutput error = %v, want context.Canceled", err)
 	}
@@ -501,7 +483,7 @@ func TestJobOutputRecordsSuccessfulAuditEvent(t *testing.T) {
 	provider := &stubJobProvider{jobs: []cluster.Job{{ID: "32943", UserID: int64(os.Getuid()), WorkDir: workDir, StdOut: path}}}
 	handler, err := New(Config{
 		AdminUsername: testUsername, AdminPassword: testPassword, DatabasePath: databasePath,
-		JobProvider: provider, JobOutputRoots: []string{root},
+		JobProvider: provider,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -526,15 +508,37 @@ func TestJobOutputRecordsSuccessfulAuditEvent(t *testing.T) {
 
 func TestJobOutputProviderErrorsAreRedacted(t *testing.T) {
 	provider := &stubJobProvider{err: errors.New("/secret/slurm token=credential")}
-	handler := newJobOutputHandler(t, provider, []string{t.TempDir()})
+	handler := newJobOutputHandler(t, provider)
 	response := getAuthenticated(t, handler, "/slurm/jobs/32943/output/stdout", "zh")
 	assertStatus(t, response, http.StatusServiceUnavailable)
 	assertBodyNotContains(t, response, "/secret/slurm")
 	assertBodyNotContains(t, response, "credential")
 }
 
+func TestJobOutputFailureLogsStageWithoutOutputPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing-output.log")
+	provider := &stubJobProvider{jobs: []cluster.Job{{
+		ID: "32943", UserID: int64(os.Getuid()), StdOut: path,
+	}}}
+	handler := newJobOutputHandler(t, provider)
+	var output bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&output)
+	defer log.SetOutput(previous)
+
+	response := getAuthenticated(t, handler, "/slurm/jobs/32943/output/stdout", "zh")
+	assertStatus(t, response, http.StatusNotFound)
+	assertBodyNotContains(t, response, path)
+	if !strings.Contains(output.String(), "job output read failed: job_id=32943 stream=stdout user_id=") {
+		t.Errorf("log = %q, want failure stage", output.String())
+	}
+	if strings.Contains(output.String(), path) {
+		t.Errorf("log leaked output path: %q", output.String())
+	}
+}
+
 func TestJobOutputFrontendUsesTextContent(t *testing.T) {
-	handler := newJobOutputHandler(t, &stubJobProvider{}, nil)
+	handler := newJobOutputHandler(t, &stubJobProvider{})
 	request := httptest.NewRequest(http.MethodGet, "/static/app.js", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -542,6 +546,8 @@ func TestJobOutputFrontendUsesTextContent(t *testing.T) {
 	assertBodyContains(t, response, ".textContent")
 	assertBodyNotContains(t, response, ".innerHTML")
 	assertBodyContains(t, response, "event.key === 'Escape'")
+	assertBodyContains(t, response, "normalizeOutputLineEndings")
+	assertBodyContains(t, response, `replace(/\r\n?/g, '\n')`)
 }
 
 func TestJobOutputDuplicateFileDescriptorsAreCloseOnExec(t *testing.T) {
@@ -564,11 +570,11 @@ func TestJobOutputDuplicateFileDescriptorsAreCloseOnExec(t *testing.T) {
 	}
 }
 
-func newJobOutputHandler(t *testing.T, jobs cluster.JobProvider, roots []string) http.Handler {
+func newJobOutputHandler(t *testing.T, jobs cluster.JobProvider) http.Handler {
 	t.Helper()
 	handler, err := New(Config{
 		AdminUsername: testUsername, AdminPassword: testPassword,
-		JobProvider: jobs, JobOutputRoots: append([]string(nil), roots...),
+		JobProvider: jobs,
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -578,27 +584,9 @@ func newJobOutputHandler(t *testing.T, jobs cluster.JobProvider, roots []string)
 }
 
 func TestJobOutputRejectsProviderIDMismatch(t *testing.T) {
-	handler := newJobOutputHandler(t, mismatchedJobProvider{}, []string{t.TempDir()})
+	handler := newJobOutputHandler(t, mismatchedJobProvider{})
 	response := getAuthenticated(t, handler, "/slurm/jobs/"+strconv.FormatInt(32943, 10)+"/output/stdout", "zh")
 	assertStatus(t, response, http.StatusNotFound)
-}
-
-func TestNewRejectsUnsafeJobOutputRoots(t *testing.T) {
-	realRoot := t.TempDir()
-	symlink := filepath.Join(t.TempDir(), "root-link")
-	if err := os.Symlink(realRoot, symlink); err != nil {
-		t.Fatal(err)
-	}
-	file := filepath.Join(t.TempDir(), "root-file")
-	if err := os.WriteFile(file, []byte("not a directory"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	for _, root := range []string{"", "relative", realRoot + string(filepath.Separator) + ".", string(filepath.Separator), symlink, file} {
-		_, err := New(Config{AdminUsername: testUsername, AdminPassword: testPassword, JobOutputRoots: []string{root}})
-		if err == nil {
-			t.Errorf("New(JobOutputRoots=%q) error = nil", root)
-		}
-	}
 }
 
 func requestJobOutput(handler http.Handler, cookie *http.Cookie) *httptest.ResponseRecorder {

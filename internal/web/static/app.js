@@ -23,6 +23,9 @@
     if (outputAbortController) outputAbortController.abort();
     outputAbortController = null;
   };
+  var normalizeOutputLineEndings = function (content) {
+    return content.replace(/\r\n?/g, '\n');
+  };
 
   if (jobModal && jobModalBody && jobModalClose) {
     document.addEventListener('click', function (event) {
@@ -60,7 +63,7 @@
             if (result.truncated) {
               outputTitle.textContent += ' · ' + jobModal.getAttribute('data-output-truncated');
             }
-            outputContent.textContent = result.content;
+            outputContent.textContent = normalizeOutputLineEndings(result.content);
             outputContent.focus();
           })
           .catch(function () {
@@ -277,6 +280,34 @@
       resourceHistory = [];
       document.body.classList.remove('modal-open');
       if (resourceTrigger) resourceTrigger.focus();
+    });
+  }
+
+  var jobCancelModal = document.getElementById('job-cancel-modal');
+  var jobCancelForm = document.querySelector('[data-job-cancel-form]');
+  var jobCancelName = document.querySelector('[data-job-cancel-name]');
+  var jobCancelTrigger = null;
+
+  if (jobCancelModal && jobCancelForm && jobCancelName) {
+    document.addEventListener('click', function (event) {
+      var trigger = event.target.closest('[data-job-cancel]');
+      if (!trigger) return;
+      var sourceForm = trigger.closest('form');
+      if (!sourceForm) return;
+      event.preventDefault();
+      jobCancelTrigger = trigger;
+      jobCancelForm.setAttribute('action', sourceForm.getAttribute('action'));
+      jobCancelName.textContent = '#' + trigger.getAttribute('data-job-cancel');
+      document.body.classList.add('modal-open');
+      jobCancelModal.showModal();
+      jobCancelModal.querySelector('[data-job-cancel-close]').focus();
+    });
+    jobCancelModal.addEventListener('click', function (event) {
+      if (event.target === jobCancelModal || event.target.closest('[data-job-cancel-close]')) jobCancelModal.close();
+    });
+    jobCancelModal.addEventListener('close', function () {
+      document.body.classList.remove('modal-open');
+      if (jobCancelTrigger) jobCancelTrigger.focus();
     });
   }
 

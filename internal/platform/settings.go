@@ -22,7 +22,7 @@ var ErrSettingsKeyRequired = errors.New("settings encryption key is required")
 
 var settingSchema = map[string]bool{
 	"OPENHPC_SLURM_ENABLED": false, "OPENHPC_SLURM_BIN_DIR": false, "OPENHPC_SLURM_TIMEOUT": false,
-	"OPENHPC_SLURM_MAX_OUTPUT": false, "OPENHPC_SLURM_CACHE_TTL": false, "OPENHPC_JOB_OUTPUT_ROOTS": false,
+	"OPENHPC_SLURM_MAX_OUTPUT": false, "OPENHPC_SLURM_CACHE_TTL": false,
 	"OPENHPC_LDAP_ENABLED": false, "OPENHPC_LDAP_URL": false, "OPENHPC_LDAP_BASE_DN": false,
 	"OPENHPC_LDAP_USER_BASE_DN": false, "OPENHPC_LDAP_GROUP_BASE_DN": false, "OPENHPC_LDAP_BIND_DN": false,
 	"OPENHPC_LDAP_BIND_PASSWORD": true, "OPENHPC_LDAP_CA_FILE": false, "OPENHPC_LDAP_TIMEOUT": false,

@@ -53,8 +53,6 @@ type Config struct {
 	JobProvider         cluster.JobProvider
 	JobResourceProvider cluster.JobResourceProvider
 	JobCanceler         cluster.JobCanceler
-	JobOutputRoots      []string
-	Warning             func(string)
 	AccountingProvider  cluster.AccountingProvider
 	AssociationProvider cluster.AssociationProvider
 	CoreHourProvider    cluster.CoreHourProvider
@@ -78,7 +76,6 @@ type application struct {
 	jobResourceProvider cluster.JobResourceProvider
 	jobCanceler         cluster.JobCanceler
 	jobResourceSlots    chan struct{}
-	jobOutputRoots      []jobOutputRoot
 	jobOutputSlots      chan struct{}
 	accountingProvider  cluster.AccountingProvider
 	associationProvider cluster.AssociationProvider
@@ -102,7 +99,6 @@ type application struct {
 type Handler struct {
 	handler        http.Handler
 	audit          *platform.AuditStore
-	jobOutputRoots []jobOutputRoot
 	settingsStore  *platform.SettingsStore
 	partitionStore *platform.PartitionStore
 	configCloser   io.Closer
@@ -122,7 +118,7 @@ func (h *Handler) Close() error {
 	if h.partitionStore != nil {
 		partitionErr = h.partitionStore.Close()
 	}
-	return errors.Join(h.audit.Close(), closeJobOutputRoots(h.jobOutputRoots), settingsErr, partitionErr, closeConfigured(h.configCloser), closeConfigured(h.userStore))
+	return errors.Join(h.audit.Close(), settingsErr, partitionErr, closeConfigured(h.configCloser), closeConfigured(h.userStore))
 }
 
 func closeConfigured(closer io.Closer) error {
@@ -190,23 +186,16 @@ func New(config Config) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	jobOutputRoots, err := openJobOutputRoots(config.JobOutputRoots)
-	if err != nil {
-		_ = audit.Close()
-		return nil, err
-	}
 	userStore := config.PlatformUsers
 	if userStore == nil {
 		userStore, err = platform.OpenUserStore(":memory:")
 		if err != nil {
 			_ = audit.Close()
-			_ = closeJobOutputRoots(jobOutputRoots)
 			return nil, err
 		}
 	}
 	if err := userStore.Upsert(context.Background(), platform.PlatformUser{Username: normalizedUsername, PasswordHash: string(passwordHash), Role: platform.RoleAdmin, Enabled: true}); err != nil {
 		_ = audit.Close()
-		_ = closeJobOutputRoots(jobOutputRoots)
 		if config.PlatformUsers == nil {
 			_ = userStore.Close()
 		}
@@ -217,7 +206,6 @@ func New(config Config) (http.Handler, error) {
 		partitionStore, err = platform.OpenPartitionStore(databasePath)
 		if err != nil {
 			_ = audit.Close()
-			_ = closeJobOutputRoots(jobOutputRoots)
 			if config.PlatformUsers == nil {
 				_ = userStore.Close()
 			}
@@ -228,14 +216,6 @@ func New(config Config) (http.Handler, error) {
 	if closer, ok := config.SlurmConfigProvider.(io.Closer); ok {
 		configCloser = closer
 	}
-	if len(jobOutputRoots) > 0 {
-		warning := config.Warning
-		if warning == nil {
-			warning = func(message string) { log.Print(message) }
-		}
-		warning("WARNING: job output preview is enabled; output files are read with the running user's operating-system permissions and Slurm job UID mismatches are not blocked.")
-	}
-
 	app := &application{
 		metrics:             config.Metrics,
 		metricsAvailable:    config.MetricsAvailable,
@@ -246,8 +226,7 @@ func New(config Config) (http.Handler, error) {
 		jobResourceProvider: config.JobResourceProvider,
 		jobCanceler:         config.JobCanceler,
 		jobResourceSlots:    make(chan struct{}, maxConcurrentJobResourceReads),
-		jobOutputRoots:      jobOutputRoots,
-		jobOutputSlots:      makeJobOutputSlots(jobOutputRoots),
+		jobOutputSlots:      make(chan struct{}, maxConcurrentJobOutputReads),
 		accountingProvider:  config.AccountingProvider,
 		associationProvider: config.AssociationProvider,
 		coreHourProvider:    config.CoreHourProvider,
@@ -272,7 +251,6 @@ func New(config Config) (http.Handler, error) {
 	e.HTTPErrorHandler = app.errorHandler
 	if err := configureIPExtractor(e, config.TrustedProxyCIDRs); err != nil {
 		_ = audit.Close()
-		_ = closeJobOutputRoots(jobOutputRoots)
 		if partitionStore != nil {
 			_ = partitionStore.Close()
 		}
@@ -295,7 +273,6 @@ func New(config Config) (http.Handler, error) {
 	staticFiles, err := fs.Sub(assets, "static")
 	if err != nil {
 		_ = audit.Close()
-		_ = closeJobOutputRoots(jobOutputRoots)
 		if partitionStore != nil {
 			_ = partitionStore.Close()
 		}
@@ -356,7 +333,7 @@ func New(config Config) (http.Handler, error) {
 		protected.GET(path, app.authorizedPlaceholder)
 	}
 
-	return &Handler{handler: e, audit: audit, jobOutputRoots: jobOutputRoots, settingsStore: config.SettingsStore, partitionStore: partitionStore, configCloser: configCloser, userStore: userStore}, nil
+	return &Handler{handler: e, audit: audit, settingsStore: config.SettingsStore, partitionStore: partitionStore, configCloser: configCloser, userStore: userStore}, nil
 }
 
 const auditPageSize = 50

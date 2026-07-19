@@ -137,9 +137,6 @@ func TestAuditPageRedactsDatabaseErrors(t *testing.T) {
 	assertBodyContains(t, response, "审计日志暂不可用")
 	assertBodyNotContains(t, response, databasePath)
 	assertBodyNotContains(t, response, "sql: database is closed")
-	if err := closeJobOutputRoots(typedHandler.jobOutputRoots); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func TestAuditTemplateExecutesWithEmptyPage(t *testing.T) {
