@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/acdiost/openhpc-web/internal/cluster"
 	"github.com/acdiost/openhpc-web/internal/directory"
@@ -391,6 +393,14 @@ func (a *application) slurmAccounts(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest)
 	}
+	associationAccount, err := parseAssociationFilter(c.QueryParam("association_account"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest)
+	}
+	associationUser, err := parseAssociationFilter(c.QueryParam("association_user"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest)
+	}
 	lang := language(c)
 	labels := detailCopyFor(lang)
 	currentModule := moduleByPath("/slurm/accounts", lang)
@@ -405,6 +415,8 @@ func (a *application) slurmAccounts(c echo.Context) error {
 		}
 	}
 	var associations []cluster.Association
+	associationCount := 0
+	filteredAssociationCount := 0
 	associationPreviousPage, associationNextPage := 0, 0
 	associationsAvailable := false
 	if a.associationProvider != nil {
@@ -412,7 +424,10 @@ func (a *application) slurmAccounts(c echo.Context) error {
 		if err != nil {
 			log.Printf("Slurm associations snapshot failed")
 		} else {
-			associations, associationPreviousPage, associationNextPage = paginateAssociations(liveAssociations, associationPage)
+			associationCount = len(liveAssociations)
+			filteredAssociations := filterAssociations(liveAssociations, associationAccount, associationUser)
+			filteredAssociationCount = len(filteredAssociations)
+			associations, associationPreviousPage, associationNextPage = paginateAssociations(filteredAssociations, associationPage)
 			associationsAvailable = true
 		}
 	}
@@ -422,15 +437,20 @@ func (a *application) slurmAccounts(c echo.Context) error {
 			RefreshPath: currentModule.Path, RefreshLabel: labels.Refresh,
 		}),
 		Module: currentModule, Labels: labels, Directory: directory,
+		Summary:      accountsSummary{Accounts: len(directory.Accounts), Users: len(directory.Users), Associations: associationCount},
 		Associations: associations, AssociationsAvailable: associationsAvailable,
+		FilteredAssociationCount: filteredAssociationCount, AssociationAccount: associationAccount, AssociationUser: associationUser,
 		AssociationPreviousPage: associationPreviousPage, AssociationNextPage: associationNextPage,
+		AssociationPreviousPath: associationPagePath(associationPreviousPage, associationAccount, associationUser),
+		AssociationNextPath:     associationPagePath(associationNextPage, associationAccount, associationUser),
 	}
 	return a.render(c, http.StatusOK, "accounts.html", view)
 }
 
 const (
-	associationPageSize = 100
-	maxAssociationPages = 100
+	associationPageSize       = 100
+	maxAssociationPages       = 100
+	maxAssociationFilterBytes = 64
 )
 
 func parseAssociationPage(value string) (int, error) {
@@ -450,6 +470,46 @@ func parseAssociationPage(value string) (int, error) {
 		return 0, errors.New("invalid association page")
 	}
 	return page, nil
+}
+
+func parseAssociationFilter(value string) (string, error) {
+	if len(value) > maxAssociationFilterBytes || !utf8.ValidString(value) {
+		return "", errors.New("invalid association filter")
+	}
+	for _, character := range value {
+		if unicode.IsControl(character) {
+			return "", errors.New("invalid association filter")
+		}
+	}
+	return value, nil
+}
+
+func filterAssociations(values []cluster.Association, account, user string) []cluster.Association {
+	filtered := make([]cluster.Association, 0, len(values))
+	for _, value := range values {
+		if account != "" && value.Account != account {
+			continue
+		}
+		if user != "" && value.User != user {
+			continue
+		}
+		filtered = append(filtered, value)
+	}
+	return filtered
+}
+
+func associationPagePath(page int, account, user string) string {
+	if page == 0 {
+		return ""
+	}
+	query := url.Values{"association_page": {strconv.Itoa(page)}}
+	if account != "" {
+		query.Set("association_account", account)
+	}
+	if user != "" {
+		query.Set("association_user", user)
+	}
+	return "/slurm/accounts?" + query.Encode() + "#associations"
 }
 
 func paginateAssociations(values []cluster.Association, page int) ([]cluster.Association, int, int) {

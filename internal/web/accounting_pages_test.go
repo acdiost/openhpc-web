@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/acdiost/openhpc-web/internal/cluster"
@@ -32,6 +33,35 @@ func TestAccountsPageShowsAccountsAndUsersInApplicationShell(t *testing.T) {
 	assertBodyNotContains(t, response, "<research>")
 	if provider.associationCalls != 1 {
 		t.Errorf("association calls = %d, want 1", provider.associationCalls)
+	}
+}
+
+func TestAccountsPageShowsDirectorySummaryAndAccessibleAssociationLinks(t *testing.T) {
+	provider := &stubAccountingProvider{directory: cluster.AccountDirectory{
+		Accounts: []cluster.Account{
+			{Name: "research", AssociationCount: 3},
+			{Name: "training", AssociationCount: 1},
+		},
+		Users: []cluster.SlurmUser{
+			{Name: "alice", AssociationCount: 2},
+			{Name: "bob", AssociationCount: 1},
+			{Name: "chen", AssociationCount: 1},
+		},
+	}, associations: []cluster.Association{
+		{ID: 1, Cluster: "hpc", Account: "research", User: "alice"},
+		{ID: 2, Cluster: "hpc", Account: "research", User: "bob"},
+		{ID: 3, Cluster: "hpc", Account: "research", User: "chen"},
+		{ID: 4, Cluster: "hpc", Account: "training"},
+	}}
+
+	response := getAuthenticated(t, newAccountingHandler(t, provider), "/slurm/accounts", "en")
+	assertStatus(t, response, http.StatusOK)
+	for _, value := range []string{
+		`class="account-summary"`, `class="account-section-count">2</span>`, `class="account-section-count">3</span>`,
+		`aria-label="research Associations: 3"`, `aria-label="alice Associations: 2"`,
+		`href="#associations"`,
+	} {
+		assertBodyContains(t, response, value)
 	}
 }
 
@@ -78,12 +108,77 @@ func TestAccountsPagePaginatesAssociations(t *testing.T) {
 	assertBodyContains(t, second, `href="/slurm/accounts?association_page=1#associations"`)
 }
 
+func TestAccountsPageFiltersAssociationsBeforePagination(t *testing.T) {
+	associations := make([]cluster.Association, 101)
+	for index := range associations {
+		associations[index] = cluster.Association{
+			ID: int64(index + 1), Cluster: "hpc", Account: "general", User: "user-" + strconv.Itoa(index),
+		}
+	}
+	associations[100] = cluster.Association{ID: 101, Cluster: "hpc", Account: "research", User: "alice"}
+	handler := newAccountingHandler(t, &stubAccountingProvider{
+		directory: cluster.AccountDirectory{
+			Accounts: []cluster.Account{{Name: "general", AssociationCount: 100}, {Name: "research", AssociationCount: 1}},
+			Users:    []cluster.SlurmUser{{Name: "alice", AssociationCount: 1}},
+		},
+		associations: associations,
+	})
+
+	response := getAuthenticated(t, handler, "/slurm/accounts?association_account=research", "en")
+	assertStatus(t, response, http.StatusOK)
+	for _, value := range []string{
+		"research", "alice", `class="account-section-count">1</span>`,
+		`href="/slurm/accounts?association_account=research#associations"`,
+		`href="/slurm/accounts?association_user=alice#associations"`,
+		`href="/slurm/accounts#associations"`, "Clear filter",
+	} {
+		assertBodyContains(t, response, value)
+	}
+	assertBodyNotContains(t, response, "user-0</td>")
+}
+
+func TestAccountsPagePreservesAllFiltersAcrossAssociationPages(t *testing.T) {
+	associations := make([]cluster.Association, 101)
+	for index := range associations {
+		associations[index] = cluster.Association{
+			ID: int64(index + 1), Cluster: "hpc", Account: "research", User: "alice",
+		}
+	}
+	handler := newAccountingHandler(t, &stubAccountingProvider{associations: associations})
+	first := getAuthenticated(t, handler, "/slurm/accounts?association_account=research&association_user=alice", "en")
+	assertStatus(t, first, http.StatusOK)
+	assertBodyContains(t, first, `href="/slurm/accounts?association_account=research&amp;association_page=2&amp;association_user=alice#associations"`)
+
+	second := getAuthenticated(t, handler, "/slurm/accounts?association_account=research&association_page=2&association_user=alice", "en")
+	assertStatus(t, second, http.StatusOK)
+	assertBodyContains(t, second, `href="/slurm/accounts?association_account=research&amp;association_page=1&amp;association_user=alice#associations"`)
+}
+
 func TestAccountsPageRejectsInvalidAssociationPagesBeforeProviderCalls(t *testing.T) {
 	provider := &stubAccountingProvider{}
 	handler := newAccountingHandler(t, provider)
 	session := login(t, handler)
 	for _, page := range []string{"0", "-1", "01", "abc", "101", "9223372036854775808"} {
 		request := httptest.NewRequest(http.MethodGet, "/slurm/accounts?association_page="+page, nil)
+		request.AddCookie(session)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		assertStatus(t, response, http.StatusBadRequest)
+	}
+	if provider.associationCalls != 0 {
+		t.Fatalf("association calls = %d, want 0", provider.associationCalls)
+	}
+}
+
+func TestAccountsPageRejectsInvalidAssociationFiltersBeforeProviderCalls(t *testing.T) {
+	provider := &stubAccountingProvider{}
+	handler := newAccountingHandler(t, provider)
+	session := login(t, handler)
+	for _, path := range []string{
+		"/slurm/accounts?association_account=" + strings.Repeat("a", maxAssociationFilterBytes+1),
+		"/slurm/accounts?association_user=%00",
+	} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
 		request.AddCookie(session)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)

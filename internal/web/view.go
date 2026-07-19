@@ -130,7 +130,7 @@ type detailCopy struct {
 	Coordinators, Associations, AdminLevel                                  string
 	AssociationDetails, AssociationID, Cluster                              string
 	AccountLevel, AllPartitions, EmptyAssociations                          string
-	AssociationUnavailable                                                  string
+	AssociationUnavailable, FilteredByAccount, FilteredByUser, ClearFilter  string
 	PreviousPage, NextPage                                                  string
 	DefaultAccount, DefaultWCKey, Priority, UsageFactor                     string
 	MaxJobs, Unlimited                                                      string
@@ -152,13 +152,23 @@ type partitionCopy struct {
 
 type accountsView struct {
 	appChrome
-	Module                  module
-	Labels                  detailCopy
-	Directory               cluster.AccountDirectory
-	Associations            []cluster.Association
-	AssociationsAvailable   bool
-	AssociationPreviousPage int
-	AssociationNextPage     int
+	Module                   module
+	Labels                   detailCopy
+	Directory                cluster.AccountDirectory
+	Summary                  accountsSummary
+	Associations             []cluster.Association
+	AssociationsAvailable    bool
+	FilteredAssociationCount int
+	AssociationAccount       string
+	AssociationUser          string
+	AssociationPreviousPage  int
+	AssociationNextPage      int
+	AssociationPreviousPath  string
+	AssociationNextPath      string
+}
+
+type accountsSummary struct {
+	Accounts, Users, Associations int
 }
 type qosView struct {
 	appChrome
@@ -449,6 +459,7 @@ func detailCopyFor(language string) detailCopy {
 			Accounts: "Accounts", Users: "Users", Description: "Description", Organization: "Organization", Coordinators: "Coordinators", Associations: "Associations", AdminLevel: "Admin level",
 			AssociationDetails: "Association details", AssociationID: "ID", Cluster: "Cluster", AccountLevel: "Account level", AllPartitions: "All partitions",
 			EmptyAssociations: "No associations reported", AssociationUnavailable: "Association data is temporarily unavailable",
+			FilteredByAccount: "Account", FilteredByUser: "User", ClearFilter: "Clear filter",
 			PreviousPage: "Previous page", NextPage: "Next page",
 			DefaultAccount: "Default account", DefaultWCKey: "Default WCKey", Priority: "Priority", UsageFactor: "Usage factor", MaxJobs: "Max jobs", Unlimited: "Unlimited",
 		}
@@ -473,6 +484,7 @@ func detailCopyFor(language string) detailCopy {
 		Accounts: "账户", Users: "用户", Description: "描述", Organization: "组织", Coordinators: "协调员", Associations: "关联数", AdminLevel: "管理员级别",
 		AssociationDetails: "关联明细", AssociationID: "ID", Cluster: "集群", AccountLevel: "账户级", AllPartitions: "全部分区",
 		EmptyAssociations: "暂无关联记录", AssociationUnavailable: "关联数据暂不可用",
+		FilteredByAccount: "账户", FilteredByUser: "用户", ClearFilter: "清除筛选",
 		PreviousPage: "上一页", NextPage: "下一页",
 		DefaultAccount: "默认账户", DefaultWCKey: "默认 WCKey", Priority: "优先级", UsageFactor: "使用因子", MaxJobs: "最大作业数", Unlimited: "无限制",
 	}
