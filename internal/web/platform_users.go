@@ -48,6 +48,7 @@ func (a *application) platformUsersPage(c echo.Context) error {
 		ActiveCount:            activeCount,
 		DisabledCount:          len(rows) - activeCount,
 		ConfirmDisableUsername: confirmDisableUsername,
+		OpenCreate:             c.QueryParam("create") == "1",
 		Success:                platformUserSuccessFor(language(c), c.QueryParam("result")),
 		Error:                  platformUserErrorFor(language(c), c.QueryParam("result")),
 	})

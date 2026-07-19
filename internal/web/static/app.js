@@ -11,6 +11,38 @@
     });
   }
 
+  var platformUserCreateTrigger = document.querySelector('[data-platform-user-create]');
+  var platformUserCreateModal = document.getElementById('platform-user-create-modal');
+  var platformUserCreateInput = document.getElementById('platform-username');
+  if (platformUserCreateTrigger && platformUserCreateModal) {
+    var openPlatformUserCreateModal = function () {
+      if (platformUserCreateModal.open) platformUserCreateModal.close();
+      platformUserCreateModal.showModal();
+      document.body.classList.add('modal-open');
+      platformUserCreateTrigger.setAttribute('aria-expanded', 'true');
+      if (platformUserCreateInput) platformUserCreateInput.focus();
+    };
+    platformUserCreateTrigger.addEventListener('click', function (event) {
+      event.preventDefault();
+      openPlatformUserCreateModal();
+    });
+    platformUserCreateModal.querySelectorAll('[data-platform-user-create-close]').forEach(function (button) {
+      button.addEventListener('click', function (event) {
+        event.preventDefault();
+        platformUserCreateModal.close();
+      });
+    });
+    platformUserCreateModal.addEventListener('click', function (event) {
+      if (event.target === platformUserCreateModal) platformUserCreateModal.close();
+    });
+    platformUserCreateModal.addEventListener('close', function () {
+      document.body.classList.remove('modal-open');
+      platformUserCreateTrigger.setAttribute('aria-expanded', 'false');
+      platformUserCreateTrigger.focus();
+    });
+    if (platformUserCreateModal.hasAttribute('data-platform-user-create-open')) openPlatformUserCreateModal();
+  }
+
   var confirmationForms = document.querySelectorAll('form[data-confirm]');
   confirmationForms.forEach(function (form) {
     form.addEventListener('submit', function (event) {

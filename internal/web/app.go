@@ -302,7 +302,7 @@ func New(config Config) (http.Handler, error) {
 	protected.POST("/slurm/jobs/:id/cancel", app.slurmJobCancel)
 	protected.GET("/slurm/accounts", app.slurmAccounts, app.requireAdmin)
 	protected.GET("/slurm/associations", func(c echo.Context) error {
-		return c.Redirect(http.StatusFound, "/slurm/accounts#associations")
+		return c.Redirect(http.StatusFound, "/slurm/accounts?tab=associations#associations")
 	}, app.requireAdmin)
 	protected.GET("/slurm/qos", app.slurmQoS, app.requireAdmin)
 	protected.GET("/slurm/core-hours", func(c echo.Context) error {
@@ -389,6 +389,10 @@ func parseAuditCursor(value string) (int64, error) {
 }
 
 func (a *application) slurmAccounts(c echo.Context) error {
+	activeTab, err := parseAccountsTab(c.QueryParam("tab"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest)
+	}
 	associationPage, err := parseAssociationPage(c.QueryParam("association_page"))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest)
@@ -400,6 +404,9 @@ func (a *application) slurmAccounts(c echo.Context) error {
 	associationUser, err := parseAssociationFilter(c.QueryParam("association_user"))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest)
+	}
+	if c.QueryParam("tab") == "" && (c.QueryParam("association_page") != "" || associationAccount != "" || associationUser != "") {
+		activeTab = accountsTabAssociations
 	}
 	lang := language(c)
 	labels := detailCopyFor(lang)
@@ -436,7 +443,7 @@ func (a *application) slurmAccounts(c echo.Context) error {
 			Eyebrow: "OPENHPC / SLURM", Title: currentModule.Label, Description: labels.LiveData,
 			RefreshPath: currentModule.Path, RefreshLabel: labels.Refresh,
 		}),
-		Module: currentModule, Labels: labels, Directory: directory,
+		Module: currentModule, Labels: labels, Directory: directory, ActiveTab: activeTab,
 		Summary:      accountsSummary{Accounts: len(directory.Accounts), Users: len(directory.Users), Associations: associationCount},
 		Associations: associations, AssociationsAvailable: associationsAvailable,
 		FilteredAssociationCount: filteredAssociationCount, AssociationAccount: associationAccount, AssociationUser: associationUser,
@@ -452,6 +459,26 @@ const (
 	maxAssociationPages       = 100
 	maxAssociationFilterBytes = 64
 )
+
+type accountsTab string
+
+const (
+	accountsTabAccounts     accountsTab = "accounts"
+	accountsTabUsers        accountsTab = "users"
+	accountsTabAssociations accountsTab = "associations"
+)
+
+func parseAccountsTab(value string) (accountsTab, error) {
+	if value == "" || value == string(accountsTabAccounts) {
+		return accountsTabAccounts, nil
+	}
+	switch accountsTab(value) {
+	case accountsTabUsers, accountsTabAssociations:
+		return accountsTab(value), nil
+	default:
+		return "", errors.New("invalid accounts tab")
+	}
+}
 
 func parseAssociationPage(value string) (int, error) {
 	if value == "" {
@@ -509,6 +536,7 @@ func associationPagePath(page int, account, user string) string {
 	if user != "" {
 		query.Set("association_user", user)
 	}
+	query.Set("tab", string(accountsTabAssociations))
 	return "/slurm/accounts?" + query.Encode() + "#associations"
 }
 

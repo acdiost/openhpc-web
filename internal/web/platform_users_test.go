@@ -120,6 +120,8 @@ func TestPlatformUsersPageShowsAccountSummaryAndManagementGuidance(t *testing.T)
 	for _, value := range []string{
 		`class="platform-user-summary"`, `<span>Total accounts</span><strong>3</strong>`,
 		`<span>Active</span><strong>2</strong>`, `<span>Disabled</span><strong>1</strong>`,
+		`data-platform-user-create`, `aria-haspopup="dialog"`, `id="platform-user-create-modal"`,
+		`aria-labelledby="platform-user-create-title"`, `data-platform-user-create-close`, `href="/platform/users?create=1"`,
 		`data-platform-user-status="enabled"`, `data-platform-user-status="disabled"`,
 		"Use 1-64 letters, digits, dots, underscores, or hyphens.", "Use 12-72 bytes.",
 		`aria-label="Disable alice"`, `data-confirm="Disable alice? Active sessions will end immediately."`,
@@ -129,6 +131,9 @@ func TestPlatformUsersPageShowsAccountSummaryAndManagementGuidance(t *testing.T)
 	}
 	assertBodyNotContains(t, response, `minlength="12"`)
 	assertBodyNotContains(t, response, `maxlength="72"`)
+	createPage := getAuthenticated(t, handler, "/platform/users?create=1", "en")
+	assertStatus(t, createPage, http.StatusOK)
+	assertBodyContains(t, createPage, `data-platform-user-create-open`)
 
 	chineseResponse := getAuthenticated(t, handler, "/platform/users", "zh")
 	assertStatus(t, chineseResponse, http.StatusOK)

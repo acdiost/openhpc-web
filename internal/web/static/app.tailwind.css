@@ -293,6 +293,8 @@
   .account-summary span { color: var(--muted); font-size: 0.75rem; font-weight: 700; }
   .account-summary strong { color: var(--ink); font-size: 1.5rem; font-weight: 760; line-height: 1; }
   .platform-user-overview { margin: 0 0 1.75rem; }
+  .platform-user-section-head { align-items: flex-start; }
+  .platform-user-section-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.75rem; }
   .platform-user-summary {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -332,6 +334,8 @@
   .platform-user-name { overflow-wrap: anywhere; }
   .platform-user-confirmation h2 { margin-bottom: 0.35rem; font-size: 0.9375rem; }
   .platform-user-confirmation p { margin-bottom: 0.75rem; font-size: 0.8125rem; }
+  .platform-user-create-form { margin: 0; }
+  .platform-user-modal-actions { margin-top: auto; }
   .account-section-count {
     display: inline-grid;
     min-width: 1.75rem;

@@ -102,6 +102,7 @@ type platformUsersView struct {
 	ActiveCount            int
 	DisabledCount          int
 	ConfirmDisableUsername string
+	OpenCreate             bool
 	Error, Success         string
 }
 
@@ -160,6 +161,7 @@ type accountsView struct {
 	Labels                   detailCopy
 	Directory                cluster.AccountDirectory
 	Summary                  accountsSummary
+	ActiveTab                accountsTab
 	Associations             []cluster.Association
 	AssociationsAvailable    bool
 	FilteredAssociationCount int
