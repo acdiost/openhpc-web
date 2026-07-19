@@ -10,7 +10,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/openhpc-web/openhpc-web/internal/cluster"
+	"github.com/acdiost/openhpc-web/internal/cluster"
 )
 
 const maxDetailFieldLength = 1024

@@ -7,7 +7,7 @@ import (
 	"math"
 	"sort"
 
-	"github.com/openhpc-web/openhpc-web/internal/cluster"
+	"github.com/acdiost/openhpc-web/internal/cluster"
 )
 
 func (c *Client) Partitions(ctx context.Context) ([]cluster.Partition, error) {

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/openhpc-web/openhpc-web/internal/platform"
+	"github.com/acdiost/openhpc-web/internal/platform"
 )
 
 func TestAuditPageRequiresAuthentication(t *testing.T) {

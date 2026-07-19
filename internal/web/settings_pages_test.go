@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/openhpc-web/openhpc-web/internal/platform"
+	"github.com/acdiost/openhpc-web/internal/platform"
 )
 
 func TestSettingsPageIsInSidebarAndRedactsSecretValues(t *testing.T) {

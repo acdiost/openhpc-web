@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/openhpc-web/openhpc-web/internal/platform"
-	"github.com/openhpc-web/openhpc-web/internal/slurmconfig"
-	"github.com/openhpc-web/openhpc-web/internal/web"
+	"github.com/acdiost/openhpc-web/internal/platform"
+	"github.com/acdiost/openhpc-web/internal/slurmconfig"
+	"github.com/acdiost/openhpc-web/internal/web"
 )
 
 func TestEnvOr(t *testing.T) {

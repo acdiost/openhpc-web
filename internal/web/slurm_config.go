@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/openhpc-web/openhpc-web/internal/platform"
-	"github.com/openhpc-web/openhpc-web/internal/slurmconfig"
+	"github.com/acdiost/openhpc-web/internal/platform"
+	"github.com/acdiost/openhpc-web/internal/slurmconfig"
 )
 
 const slurmConfigAuditTimeout = time.Second

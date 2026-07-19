@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/openhpc-web/openhpc-web/internal/cluster"
+	"github.com/acdiost/openhpc-web/internal/cluster"
 )
 
 func TestJobResourceUsageReturnsAuthenticatedJSON(t *testing.T) {

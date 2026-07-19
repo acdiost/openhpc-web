@@ -16,8 +16,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/labstack/echo/v4"
-	"github.com/openhpc-web/openhpc-web/internal/cluster"
-	"github.com/openhpc-web/openhpc-web/internal/platform"
+	"github.com/acdiost/openhpc-web/internal/cluster"
+	"github.com/acdiost/openhpc-web/internal/platform"
 	"golang.org/x/sys/unix"
 )
 

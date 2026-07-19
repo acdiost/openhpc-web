@@ -12,8 +12,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/labstack/echo/v4"
-	"github.com/openhpc-web/openhpc-web/internal/directory"
-	"github.com/openhpc-web/openhpc-web/internal/platform"
+	"github.com/acdiost/openhpc-web/internal/directory"
+	"github.com/acdiost/openhpc-web/internal/platform"
 )
 
 const (

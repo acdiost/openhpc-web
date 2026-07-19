@@ -13,8 +13,8 @@ import (
 
 	ldap "github.com/go-ldap/ldap/v3"
 	"github.com/labstack/echo/v4"
-	"github.com/openhpc-web/openhpc-web/internal/ldapdirectory"
-	"github.com/openhpc-web/openhpc-web/internal/platform"
+	"github.com/acdiost/openhpc-web/internal/ldapdirectory"
+	"github.com/acdiost/openhpc-web/internal/platform"
 )
 
 type settingsSpec struct {

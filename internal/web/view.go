@@ -5,10 +5,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/openhpc-web/openhpc-web/internal/cluster"
-	"github.com/openhpc-web/openhpc-web/internal/directory"
-	"github.com/openhpc-web/openhpc-web/internal/platform"
-	"github.com/openhpc-web/openhpc-web/internal/slurmconfig"
+	"github.com/acdiost/openhpc-web/internal/cluster"
+	"github.com/acdiost/openhpc-web/internal/directory"
+	"github.com/acdiost/openhpc-web/internal/platform"
+	"github.com/acdiost/openhpc-web/internal/slurmconfig"
 )
 
 type loginView struct {

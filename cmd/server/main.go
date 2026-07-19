@@ -17,13 +17,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/openhpc-web/openhpc-web/internal/cluster"
-	"github.com/openhpc-web/openhpc-web/internal/directory"
-	"github.com/openhpc-web/openhpc-web/internal/ldapdirectory"
-	"github.com/openhpc-web/openhpc-web/internal/platform"
-	"github.com/openhpc-web/openhpc-web/internal/slurm"
-	"github.com/openhpc-web/openhpc-web/internal/slurmconfig"
-	"github.com/openhpc-web/openhpc-web/internal/web"
+	"github.com/acdiost/openhpc-web/internal/cluster"
+	"github.com/acdiost/openhpc-web/internal/directory"
+	"github.com/acdiost/openhpc-web/internal/ldapdirectory"
+	"github.com/acdiost/openhpc-web/internal/platform"
+	"github.com/acdiost/openhpc-web/internal/slurm"
+	"github.com/acdiost/openhpc-web/internal/slurmconfig"
+	"github.com/acdiost/openhpc-web/internal/web"
 )
 
 var newWebHandler = web.New

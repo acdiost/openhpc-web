@@ -1,4 +1,4 @@
-module github.com/openhpc-web/openhpc-web
+module github.com/acdiost/openhpc-web
 
 go 1.25.0
 

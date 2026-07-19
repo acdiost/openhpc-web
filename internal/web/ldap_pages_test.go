@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/openhpc-web/openhpc-web/internal/directory"
+	"github.com/acdiost/openhpc-web/internal/directory"
 )
 
 func TestLDAPPageShowsEscapedUsersGroupsAndSearch(t *testing.T) {

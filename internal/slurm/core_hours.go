@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/openhpc-web/openhpc-web/internal/cluster"
+	"github.com/acdiost/openhpc-web/internal/cluster"
 )
 
 type coreHoursJSON struct {
