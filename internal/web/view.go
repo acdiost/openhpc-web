@@ -138,10 +138,12 @@ type partitionCopy struct {
 	Description, Refresh, EmptyNodes, EmptyPartitions string
 	Unavailable, PartitionName, SelectedNodes         string
 	CreatePartition, UpdatePartition                  string
-	LiveNodes, SavedPartitions, Status                string
+	LiveNodes, SystemPartitions, PlatformPartitions   string
+	Status, ReadOnly, Source, ImportedAt              string
+	EditPartition, DeletePartition, SavePartition     string
 	Matched, Added, Removed                           string
-	Created, Patched, Unchanged                       string
-	Node, Partition, State, Action                   string
+	Created, Patched, Unchanged, Deleted              string
+	Node, Partition, State, Action                    string
 }
 
 type accountsView struct {
@@ -234,25 +236,33 @@ type partitionNodeView struct {
 	Selected  bool
 }
 
-type partitionRowView struct {
+type partitionSystemRowView struct {
+	Name       string
+	Nodes      string
+	ImportedAt string
+}
+
+type partitionManagedRowView struct {
 	Name         string
 	Nodes        string
 	Status       string
 	AddedNodes   string
 	RemovedNodes string
+	UpdatedAt    string
 }
 
 type partitionsView struct {
 	appChrome
-	Module          module
-	Labels          partitionCopy
-	Nodes           []partitionNodeView
-	Partitions      []partitionRowView
-	NodesAvailable  bool
-	PartitionsSaved bool
-	Error           string
-	Success         string
-	SelectedName    string
+	Module              module
+	Labels              partitionCopy
+	Nodes               []partitionNodeView
+	SystemPartitions    []partitionSystemRowView
+	PlatformPartitions  []partitionManagedRowView
+	NodesAvailable      bool
+	PartitionsAvailable bool
+	Error               string
+	Success             string
+	SelectedName        string
 }
 
 type jobsView struct {
@@ -443,23 +453,27 @@ func partitionCopyFor(language string) partitionCopy {
 	if language == "en" {
 		return partitionCopy{
 			Description: "Create or patch partitions by selecting live nodes. Saved definitions are kept in SQLite for fast recovery.",
-			Refresh: "Refresh", EmptyNodes: "No nodes reported", EmptyPartitions: "No saved partitions",
+			Refresh:     "Refresh", EmptyNodes: "No nodes reported", EmptyPartitions: "No saved partitions",
 			Unavailable: "Partition data is temporarily unavailable", PartitionName: "Partition name", SelectedNodes: "Selected nodes",
 			CreatePartition: "Create partition", UpdatePartition: "Patch partition",
-			LiveNodes: "Live nodes", SavedPartitions: "Saved partitions", Status: "Status",
+			LiveNodes: "Live nodes", SystemPartitions: "System partitions", PlatformPartitions: "Platform partitions",
+			Status: "Status", ReadOnly: "Read-only", Source: "Source", ImportedAt: "Imported at",
+			EditPartition: "Edit partition", DeletePartition: "Delete partition", SavePartition: "Save partition",
 			Matched: "Matched", Added: "Added", Removed: "Removed",
-			Created: "Created", Patched: "Patched", Unchanged: "Unchanged",
+			Created: "Created", Patched: "Patched", Unchanged: "Unchanged", Deleted: "Deleted",
 			Node: "Node", Partition: "Partition", State: "State", Action: "Action",
 		}
 	}
 	return partitionCopy{
 		Description: "通过勾选在线节点创建或补丁更新分区。已保存定义写入 SQLite，便于 Slurm 重启后快速恢复。",
-		Refresh: "刷新", EmptyNodes: "未报告节点", EmptyPartitions: "暂无已保存分区",
+		Refresh:     "刷新", EmptyNodes: "未报告节点", EmptyPartitions: "暂无已保存分区",
 		Unavailable: "分区数据暂不可用", PartitionName: "分区名称", SelectedNodes: "已选节点",
 		CreatePartition: "创建分区", UpdatePartition: "补丁更新",
-		LiveNodes: "在线节点", SavedPartitions: "已保存分区", Status: "状态",
+		LiveNodes: "在线节点", SystemPartitions: "系统分区", PlatformPartitions: "平台分区",
+		Status: "状态", ReadOnly: "只读", Source: "来源", ImportedAt: "导入时间",
+		EditPartition: "编辑分区", DeletePartition: "删除分区", SavePartition: "保存分区",
 		Matched: "一致", Added: "新增", Removed: "移除",
-		Created: "已创建", Patched: "已更新", Unchanged: "无变化",
+		Created: "已创建", Patched: "已更新", Unchanged: "无变化", Deleted: "已删除",
 		Node: "节点", Partition: "分区", State: "状态", Action: "操作",
 	}
 }

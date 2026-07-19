@@ -62,6 +62,82 @@ func TestPartitionStorePersistsAndPatchesNodeMembership(t *testing.T) {
 	}
 }
 
+func TestPartitionStoreImportsAndSeparatesManagedPartitions(t *testing.T) {
+	store, err := OpenPartitionStore(":memory:")
+	if err != nil {
+		t.Fatalf("OpenPartitionStore() error = %v", err)
+	}
+	defer store.Close()
+
+	if _, err := store.ImportSystem(context.Background(), PartitionSpec{Name: "GPU", Nodes: []string{"node31", "node32"}}); err != nil {
+		t.Fatalf("ImportSystem() error = %v", err)
+	}
+	if _, err := store.Upsert(context.Background(), PartitionSpec{Name: "test", Nodes: []string{"node33"}}); err != nil {
+		t.Fatalf("Upsert() error = %v", err)
+	}
+
+	system, err := store.ListSystem(context.Background())
+	if err != nil {
+		t.Fatalf("ListSystem() error = %v", err)
+	}
+	managed, err := store.ListManaged(context.Background())
+	if err != nil {
+		t.Fatalf("ListManaged() error = %v", err)
+	}
+	if len(system) != 1 || system[0].Managed || len(managed) != 1 || !managed[0].Managed {
+		t.Fatalf("system=%#v managed=%#v", system, managed)
+	}
+	if system[0].Name != "GPU" || managed[0].Name != "test" {
+		t.Fatalf("system=%#v managed=%#v", system, managed)
+	}
+}
+
+func TestPartitionStoreDeletesManagedPartitionsOnly(t *testing.T) {
+	store, err := OpenPartitionStore(":memory:")
+	if err != nil {
+		t.Fatalf("OpenPartitionStore() error = %v", err)
+	}
+	defer store.Close()
+
+	if _, err := store.ImportSystem(context.Background(), PartitionSpec{Name: "GPU", Nodes: []string{"node31"}}); err != nil {
+		t.Fatalf("ImportSystem() error = %v", err)
+	}
+	if _, err := store.Upsert(context.Background(), PartitionSpec{Name: "test", Nodes: []string{"node32"}}); err != nil {
+		t.Fatalf("Upsert() error = %v", err)
+	}
+	if err := store.DeleteManaged(context.Background(), "test"); err != nil {
+		t.Fatalf("DeleteManaged() error = %v", err)
+	}
+	if _, found, err := store.Get(context.Background(), "test"); err != nil || found {
+		t.Fatalf("managed partition still found: %v %v", found, err)
+	}
+	if err := store.DeleteManaged(context.Background(), "GPU"); err == nil {
+		t.Fatal("DeleteManaged(system) error = nil")
+	}
+}
+
+func TestPartitionStoreImportsSystemSnapshotsWithoutConvertingToManaged(t *testing.T) {
+	store, err := OpenPartitionStore(":memory:")
+	if err != nil {
+		t.Fatalf("OpenPartitionStore() error = %v", err)
+	}
+	defer store.Close()
+
+	if _, err := store.ImportSystem(context.Background(), PartitionSpec{Name: "GPU", Nodes: []string{"node31"}}); err != nil {
+		t.Fatalf("ImportSystem(create) error = %v", err)
+	}
+	if _, err := store.ImportSystem(context.Background(), PartitionSpec{Name: "GPU", Nodes: []string{"node31", "node32"}}); err != nil {
+		t.Fatalf("ImportSystem(update) error = %v", err)
+	}
+	spec, found, err := store.Get(context.Background(), "GPU")
+	if err != nil || !found {
+		t.Fatalf("Get() = %#v, %v, %v", spec, found, err)
+	}
+	if spec.Managed || !reflect.DeepEqual(spec.Nodes, []string{"node31", "node32"}) {
+		t.Fatalf("system partition = %#v", spec)
+	}
+}
+
 func TestPartitionStoreRejectsInvalidInput(t *testing.T) {
 	store, err := OpenPartitionStore(":memory:")
 	if err != nil {
@@ -80,4 +156,3 @@ func TestPartitionStoreRejectsInvalidInput(t *testing.T) {
 		}
 	}
 }
-

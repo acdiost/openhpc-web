@@ -71,12 +71,12 @@ func TestPartitionManagementPageRendersLiveNodesAndStoredPartitions(t *testing.T
 
 	response := getPartitionAuthenticated(t, handler, "/slurm/partitions", "zh")
 	assertStatus(t, response, http.StatusOK)
-	for _, value := range []string{"分区管理", "创建分区", "node31", "node32", `name="name"`, `name="nodes"`, `value="node31"`, `value="node32"`} {
+	for _, value := range []string{"分区管理", "创建分区", "系统分区", "平台分区", "GPU", "node31", "node32", `name="name"`, `name="nodes"`, `value="node31"`, `value="node32"`} {
 		assertBodyContains(t, response, value)
 	}
 }
 
-func TestPartitionManagementPageCreatesAndPatchesStoredPartition(t *testing.T) {
+func TestPartitionManagementPageCreatesPatchesAndDeletesStoredPartition(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.db")
 	handler := newPartitionManagementHandler(t, path, &partitionNodeProvider{
 		nodes: []cluster.Node{{Name: "node31", Partition: "GPU", State: "idle", TotalCPUs: 128, Online: true}, {Name: "node32", Partition: "GPU", State: "idle", TotalCPUs: 128, Online: true}},
@@ -84,46 +84,61 @@ func TestPartitionManagementPageCreatesAndPatchesStoredPartition(t *testing.T) {
 	session, csrf := loginWithCSRF(t, handler)
 
 	response := postProtectedForm(handler, "/slurm/partitions", url.Values{
-		"name":  {"GPU"},
+		"name":  {"test"},
 		"nodes": {"node31", "node32"},
 	}, session, csrf)
 	assertStatus(t, response, http.StatusSeeOther)
-	assertHeader(t, response, "Location", "/slurm/partitions?saved=created&name=GPU")
+	assertHeader(t, response, "Location", "/slurm/partitions?saved=created&name=test#editor")
 
 	response = getPartitionAuthenticated(t, handler, "/slurm/partitions", "en")
 	assertStatus(t, response, http.StatusOK)
-	for _, value := range []string{"Partition management", "GPU", "node31, node32", "Matched"} {
+	for _, value := range []string{"Partition management", "GPU", "test", "node31, node32", "Patched", "Edit partition", "Delete partition"} {
 		assertBodyContains(t, response, value)
 	}
 	store, err := platform.OpenPartitionStore(path)
 	if err != nil {
 		t.Fatalf("OpenPartitionStore() error = %v", err)
 	}
-	spec, found, err := store.Get(context.Background(), "GPU")
+	spec, found, err := store.Get(context.Background(), "test")
 	if err != nil || !found || len(spec.Nodes) != 2 {
 		t.Fatalf("stored partition after create = %#v, %v, %v", spec, found, err)
 	}
 	_ = store.Close()
 
 	response = postProtectedForm(handler, "/slurm/partitions", url.Values{
-		"name":  {"GPU"},
+		"name":  {"test"},
 		"nodes": {"node31"},
 	}, session, csrf)
 	assertStatus(t, response, http.StatusSeeOther)
-	assertHeader(t, response, "Location", "/slurm/partitions?saved=updated&name=GPU")
+	assertHeader(t, response, "Location", "/slurm/partitions?saved=updated&name=test#editor")
 
 	response = getPartitionAuthenticated(t, handler, "/slurm/partitions", "en")
 	assertStatus(t, response, http.StatusOK)
 	assertBodyContains(t, response, "node31")
-	assertBodyNotContains(t, response, "node31, node32")
+	assertBodyContains(t, response, "Patched")
 	store, err = platform.OpenPartitionStore(path)
 	if err != nil {
 		t.Fatalf("OpenPartitionStore() error = %v", err)
 	}
 	defer store.Close()
-	spec, found, err = store.Get(context.Background(), "GPU")
+	spec, found, err = store.Get(context.Background(), "test")
 	if err != nil || !found || len(spec.Nodes) != 1 || spec.Nodes[0] != "node31" {
 		t.Fatalf("stored partition after patch = %#v, %v, %v", spec, found, err)
+	}
+
+	response = postProtectedForm(handler, "/slurm/partitions/delete", url.Values{
+		"name": {"test"},
+	}, session, csrf)
+	assertStatus(t, response, http.StatusSeeOther)
+	assertHeader(t, response, "Location", "/slurm/partitions?saved=deleted#editor")
+
+	store, err = platform.OpenPartitionStore(path)
+	if err != nil {
+		t.Fatalf("OpenPartitionStore() error = %v", err)
+	}
+	defer store.Close()
+	if _, found, err := store.Get(context.Background(), "test"); err != nil || found {
+		t.Fatalf("stored partition after delete = %v, %v", found, err)
 	}
 }
 
@@ -136,13 +151,50 @@ func TestPartitionManagementPageSyncsPartitionToSlurm(t *testing.T) {
 	session, csrf := loginWithCSRF(t, handler)
 
 	response := postProtectedForm(handler, "/slurm/partitions", url.Values{
+		"name":  {"test"},
+		"nodes": {"node31"},
+	}, session, csrf)
+	assertStatus(t, response, http.StatusSeeOther)
+	if !reflect.DeepEqual(writer.calls, []partitionAdminCall{{name: "test", nodes: []string{"node31"}}}) {
+		t.Fatalf("partition admin calls = %#v", writer.calls)
+	}
+}
+
+func TestPartitionManagementPageImportsSystemPartitionsOnStartup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.db")
+	handler := newPartitionManagementHandler(t, path, &partitionNodeProvider{
+		nodes: []cluster.Node{{Name: "node31", Partition: "GPU", State: "idle", TotalCPUs: 128, Online: true}},
+	}, nil)
+
+	response := getPartitionAuthenticated(t, handler, "/slurm/partitions", "en")
+	assertStatus(t, response, http.StatusOK)
+	assertBodyContains(t, response, "System partitions")
+	assertBodyContains(t, response, "GPU")
+	assertBodyContains(t, response, "Read-only")
+	store, err := platform.OpenPartitionStore(path)
+	if err != nil {
+		t.Fatalf("OpenPartitionStore() error = %v", err)
+	}
+	defer store.Close()
+	spec, found, err := store.Get(context.Background(), "GPU")
+	if err != nil || !found || spec.Managed {
+		t.Fatalf("system partition after startup import = %#v, %v, %v", spec, found, err)
+	}
+}
+
+func TestPartitionManagementPageRejectsSystemPartitionEdits(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.db")
+	handler := newPartitionManagementHandler(t, path, &partitionNodeProvider{
+		nodes: []cluster.Node{{Name: "node31", Partition: "GPU", State: "idle", TotalCPUs: 128, Online: true}},
+	}, nil)
+	session, csrf := loginWithCSRF(t, handler)
+
+	response := postProtectedForm(handler, "/slurm/partitions", url.Values{
 		"name":  {"GPU"},
 		"nodes": {"node31"},
 	}, session, csrf)
 	assertStatus(t, response, http.StatusSeeOther)
-	if !reflect.DeepEqual(writer.calls, []partitionAdminCall{{name: "GPU", nodes: []string{"node31"}}}) {
-		t.Fatalf("partition admin calls = %#v", writer.calls)
-	}
+	assertHeader(t, response, "Location", "/slurm/partitions?error=%E5%88%86%E5%8C%BA+GPU+%E4%B8%BA%E5%8F%AA%E8%AF%BB%E3%80%82&name=GPU#editor")
 }
 
 func TestPartitionManagementPageRequiresAuthentication(t *testing.T) {
@@ -226,5 +278,10 @@ type stubPartitionAdmin struct {
 
 func (s *stubPartitionAdmin) ApplyPartition(_ context.Context, name string, nodes []string) error {
 	s.calls = append(s.calls, partitionAdminCall{name: name, nodes: append([]string(nil), nodes...)})
+	return s.err
+}
+
+func (s *stubPartitionAdmin) DeletePartition(_ context.Context, name string) error {
+	s.calls = append(s.calls, partitionAdminCall{name: name, nodes: nil})
 	return s.err
 }

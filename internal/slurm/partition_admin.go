@@ -32,6 +32,24 @@ func (c *Client) ApplyPartition(ctx context.Context, name string, nodes []string
 	}
 }
 
+func (c *Client) DeletePartition(ctx context.Context, name string) error {
+	if strings.TrimSpace(name) == "" {
+		return errors.New("partition name is required")
+	}
+	if err := validateDetailStrings([]string{name}); err != nil {
+		return err
+	}
+	if strings.ContainsAny(name, ", \t\r\n") {
+		return errors.New("partition name must not contain commas or whitespace")
+	}
+	deleteCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	if _, err := c.run(deleteCtx, "scontrol", "delete", "partitionname="+name); err != nil {
+		return fmt.Errorf("delete Slurm partition %s: %w", name, err)
+	}
+	return nil
+}
+
 func validatePartitionDefinition(name string, nodes []string) error {
 	if strings.TrimSpace(name) == "" || len(nodes) == 0 {
 		return errors.New("partition name and nodes are required")

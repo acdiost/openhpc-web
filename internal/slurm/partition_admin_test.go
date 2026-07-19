@@ -89,3 +89,23 @@ func TestClientApplyPartitionRejectsInvalidDefinition(t *testing.T) {
 		}
 	}
 }
+
+func TestClientDeletePartition(t *testing.T) {
+	runner := &scriptedRunner{run: func(_ context.Context, path string, args ...string) ([]byte, error) {
+		switch filepath.Base(path) {
+		case "scontrol":
+			if !reflect.DeepEqual(args, []string{"delete", "partitionname=test"}) {
+				t.Fatalf("delete args = %#v", args)
+			}
+			return nil, nil
+		}
+		return nil, errors.New("unexpected command")
+	}}
+	client, err := New(Config{BinaryDir: "/opt/slurm/bin", Timeout: time.Second, MaxOutputBytes: 16 << 10, Runner: runner})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if err := client.DeletePartition(context.Background(), "test"); err != nil {
+		t.Fatalf("DeletePartition() error = %v", err)
+	}
+}

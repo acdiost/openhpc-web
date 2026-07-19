@@ -13,16 +13,21 @@
         {{if .Error}}<div class="data-warning" role="alert">{{.Error}}</div>{{end}}
 
         <section class="data-section" id="editor">
-          <h2>{{if .SelectedName}}{{.Labels.UpdatePartition}}{{else}}{{.Labels.CreatePartition}}{{end}}</h2>
-          <form action="/slurm/partitions" method="post" class="settings-form">
+          <div class="section-head">
+            <h2>{{if .SelectedName}}{{.Labels.UpdatePartition}}{{else}}{{.Labels.CreatePartition}}{{end}}</h2>
+            {{if .SelectedName}}<a class="table-link" href="/slurm/partitions#editor">{{.Labels.CreatePartition}}</a>{{end}}
+          </div>
+          <form action="/slurm/partitions" method="post" class="settings-form partition-editor">
             <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
             <p class="settings-note">{{.Labels.Description}}</p>
             <div class="settings-field">
               <span><strong>{{.Labels.PartitionName}}</strong><small>/slurm/partitions</small></span>
               <input type="text" name="name" value="{{.SelectedName}}" autocomplete="off" spellcheck="false">
             </div>
-            <section class="data-section">
-              <h2>{{.Labels.LiveNodes}}</h2>
+            <section class="data-section partition-nodes">
+              <div class="section-head">
+                <h3>{{.Labels.LiveNodes}}</h3>
+              </div>
               {{if not .NodesAvailable}}
                 <div class="data-warning" role="status">{{.Labels.Unavailable}}</div>
               {{else if not .Nodes}}
@@ -52,26 +57,65 @@
         </section>
 
         <section class="data-section">
-          <h2>{{.Labels.SavedPartitions}}</h2>
-          {{if not .PartitionsSaved}}
+          <div class="section-head">
+            <h2>{{.Labels.SystemPartitions}}</h2>
+          </div>
+          {{if not .PartitionsAvailable}}
             <div class="data-warning" role="status">{{.Labels.Unavailable}}</div>
-          {{else if not .Partitions}}
+          {{else if not .SystemPartitions}}
             <div class="data-empty">{{.Labels.EmptyPartitions}}</div>
           {{else}}
             <div class="data-table-wrap">
               <table class="data-table partition-table">
                 <thead>
-                  <tr><th>{{.Labels.Partition}}</th><th>{{.Labels.SelectedNodes}}</th><th>{{.Labels.Status}}</th><th>{{.Labels.Added}}</th><th>{{.Labels.Removed}}</th><th>{{.Labels.Action}}</th></tr>
+                  <tr><th>{{.Labels.Partition}}</th><th>{{.Labels.SelectedNodes}}</th><th>{{.Labels.ReadOnly}}</th><th>{{.Labels.ImportedAt}}</th></tr>
                 </thead>
                 <tbody>
-                  {{range .Partitions}}
+                  {{range .SystemPartitions}}
+                    <tr>
+                      <td><strong>{{.Name}}</strong></td>
+                      <td>{{if .Nodes}}{{.Nodes}}{{else}}—{{end}}</td>
+                      <td>{{$.Labels.ReadOnly}}</td>
+                      <td>{{if .ImportedAt}}{{.ImportedAt}}{{else}}—{{end}}</td>
+                    </tr>
+                  {{end}}
+                </tbody>
+              </table>
+            </div>
+          {{end}}
+        </section>
+
+        <section class="data-section">
+          <div class="section-head">
+            <h2>{{.Labels.PlatformPartitions}}</h2>
+          </div>
+          {{if not .PartitionsAvailable}}
+            <div class="data-warning" role="status">{{.Labels.Unavailable}}</div>
+          {{else if not .PlatformPartitions}}
+            <div class="data-empty">{{.Labels.EmptyPartitions}}</div>
+          {{else}}
+            <div class="data-table-wrap">
+              <table class="data-table partition-table">
+                <thead>
+                  <tr><th>{{.Labels.Partition}}</th><th>{{.Labels.SelectedNodes}}</th><th>{{.Labels.Status}}</th><th>{{.Labels.Added}}</th><th>{{.Labels.Removed}}</th><th>{{.Labels.ImportedAt}}</th><th>{{.Labels.Action}}</th></tr>
+                </thead>
+                <tbody>
+                  {{range .PlatformPartitions}}
                     <tr>
                       <td><strong>{{.Name}}</strong></td>
                       <td>{{if .Nodes}}{{.Nodes}}{{else}}—{{end}}</td>
                       <td>{{.Status}}</td>
                       <td>{{if .AddedNodes}}{{.AddedNodes}}{{else}}—{{end}}</td>
                       <td>{{if .RemovedNodes}}{{.RemovedNodes}}{{else}}—{{end}}</td>
-                      <td><a class="table-link" href="/slurm/partitions?name={{.Name}}#editor">{{$.Labels.UpdatePartition}}</a></td>
+                      <td>{{if .UpdatedAt}}{{.UpdatedAt}}{{else}}—{{end}}</td>
+                      <td class="row-actions">
+                        <a class="table-link" href="/slurm/partitions?name={{.Name}}#editor">{{$.Labels.EditPartition}}</a>
+                        <form action="/slurm/partitions/delete" method="post" class="inline-form">
+                          <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+                          <input type="hidden" name="name" value="{{.Name}}">
+                          <button type="submit" class="danger-button">{{$.Labels.DeletePartition}}</button>
+                        </form>
+                      </td>
                     </tr>
                   {{end}}
                 </tbody>

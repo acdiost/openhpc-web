@@ -276,6 +276,9 @@ func New(config Config) (http.Handler, error) {
 		}
 		return nil, err
 	}
+	if err := app.syncSystemPartitions(context.Background()); err != nil {
+		log.Printf("partition system import failed: %v", err)
+	}
 	if err := app.syncStoredPartitions(context.Background()); err != nil {
 		log.Printf("partition restore sync failed: %v", err)
 	}
@@ -306,6 +309,7 @@ func New(config Config) (http.Handler, error) {
 	protected.GET("/slurm/nodes", app.slurmNodes, app.requireAdmin)
 	protected.GET("/slurm/partitions", app.slurmPartitions, app.requireAdmin)
 	protected.POST("/slurm/partitions", app.savePartition, app.requireAdmin)
+	protected.POST("/slurm/partitions/delete", app.deletePartition, app.requireAdmin)
 	protected.GET("/slurm/jobs", app.slurmJobs)
 	protected.GET("/slurm/jobs/:id/resources", app.slurmJobResources)
 	protected.GET("/slurm/jobs/:id/output/:stream", app.slurmJobOutput)
