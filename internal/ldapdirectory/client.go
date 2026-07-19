@@ -261,6 +261,36 @@ func (c *Client) Group(ctx context.Context, name string) (directory.Group, bool,
 	return group, err == nil, err
 }
 
+func (c *Client) Authenticate(ctx context.Context, uid, password string) (bool, error) {
+	if err := validateDirectoryName(uid); err != nil {
+		return false, err
+	}
+	connection, stopCancellation, err := c.open(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer connection.Close()
+	defer stopCancellation()
+	filter := "(&(objectClass=posixAccount)(uid=" + ldap.EscapeFilter(uid) + "))"
+	result, truncated, err := boundedSearch(ctx, connection, c.searchRequest(c.config.UserBaseDN, filter, userAttributes, 2))
+	if err != nil {
+		return false, fmt.Errorf("authenticate LDAP user: %w", err)
+	}
+	if len(result.Entries) == 0 {
+		return false, nil
+	}
+	if truncated || len(result.Entries) != 1 {
+		return false, errors.New("LDAP user identifier is not unique")
+	}
+	if err := connection.Bind(result.Entries[0].DN, password); err != nil {
+		if ldap.IsErrorWithCode(err, ldap.LDAPResultInvalidCredentials) {
+			return false, nil
+		}
+		return false, fmt.Errorf("authenticate LDAP user: %w", err)
+	}
+	return true, nil
+}
+
 func (c *Client) open(ctx context.Context) (ldapConnection, func(), error) {
 	connection, err := c.dial(ctx)
 	if err != nil {

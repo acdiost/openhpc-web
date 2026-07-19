@@ -9,7 +9,7 @@
 - `/etc/openhpc-web/openhpc-web.env` 建议为 `root:root 0600`，这是 systemd 环境文件保护建议，不是应用启动校验。
 - `/var/lib/openhpc-web` 推荐为运行账户持有且权限为 `0700`。属主或模式不一致时应用只在启动阶段输出 WARNING，实际读写权限由操作系统决定。
 - `/slurm/config` 使用 `OPENHPC_SLURM_CONFIG_ROOT`（默认 `/usr/local/etc`）提供只读配置浏览，不执行重载、不展开 Include。
-- 平台用户保存在 `OPENHPC_DATABASE_PATH` 的 SQLite 数据库中。管理员可在“平台用户”页面创建和停用账号；普通用户仅可访问总览、自己的作业、文件管理和终端，权限由服务端路由和作业用户名双重校验。
+- 平台用户保存在 `OPENHPC_DATABASE_PATH` 的 SQLite 数据库中。管理员可在“平台用户”页面创建和停用本地账号；LDAP 用户可直接使用目录账号登录为普通用户。普通用户仅可访问总览、自己的作业、文件管理和终端，权限由服务端路由和作业用户名双重校验。
 - 首次访问使用 SSH 端口转发；公网或局域网发布前必须增加 TLS 反向代理。
 
 ## 2. 验证服务账户

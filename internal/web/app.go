@@ -136,6 +136,10 @@ type principal struct {
 	Role     platform.UserRole
 }
 
+type ldapAuthenticator interface {
+	Authenticate(context.Context, string, string) (bool, error)
+}
+
 const principalContextKey = "openhpc-principal"
 
 type loginAttemptStore struct {
@@ -603,11 +607,18 @@ func (a *application) login(c echo.Context) error {
 	if platform.ValidateUsername(username) == nil {
 		user, found, lookupErr = a.platformUsers.Get(c.Request().Context(), username)
 	}
-	passwordMatches := found && user.Enabled && bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)) == nil
 	if lookupErr != nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable)
 	}
-	if !passwordMatches {
+	passwordMatches := found && user.Enabled && bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)) == nil
+	ldapMatches := false
+	if !passwordMatches && !found {
+		ldapMatches, lookupErr = a.authenticateLDAPUser(c.Request().Context(), username, password)
+		if lookupErr != nil {
+			return echo.NewHTTPError(http.StatusServiceUnavailable)
+		}
+	}
+	if !passwordMatches && !ldapMatches {
 		if err := a.recordAudit(c, platform.AuditEvent{Actor: username, Action: "auth.login", Outcome: "denied", CreatedAt: time.Now()}); err != nil {
 			return echo.NewHTTPError(http.StatusServiceUnavailable)
 		}
@@ -630,7 +641,11 @@ func (a *application) login(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusServiceUnavailable)
 	}
 	a.loginAttempts.reset(clientKey)
-	a.sessions.add(token, sessionData{ExpiresAt: time.Now().Add(12 * time.Hour), CSRFToken: csrfToken, Username: user.Username, Role: user.Role})
+	role := user.Role
+	if ldapMatches {
+		role = platform.RoleUser
+	}
+	a.sessions.add(token, sessionData{ExpiresAt: time.Now().Add(12 * time.Hour), CSRFToken: csrfToken, Username: username, Role: role})
 	http.SetCookie(c.Response(), &http.Cookie{
 		Name: sessionCookie, Value: token, Path: "/", MaxAge: 12 * 60 * 60,
 		HttpOnly: true, Secure: a.secureCookies, SameSite: http.SameSiteLaxMode,
@@ -640,6 +655,17 @@ func (a *application) login(c echo.Context) error {
 		HttpOnly: true, Secure: a.secureCookies, SameSite: http.SameSiteStrictMode,
 	})
 	return c.Redirect(http.StatusSeeOther, next)
+}
+
+func (a *application) authenticateLDAPUser(ctx context.Context, username, password string) (bool, error) {
+	if a.directoryProvider == nil {
+		return false, nil
+	}
+	authenticator, ok := a.directoryProvider.(ldapAuthenticator)
+	if !ok {
+		return false, nil
+	}
+	return authenticator.Authenticate(ctx, username, password)
 }
 
 func (a *application) dashboard(c echo.Context) error {
