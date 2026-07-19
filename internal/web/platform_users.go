@@ -156,6 +156,7 @@ func (a *application) setPlatformUserStatus(c echo.Context) error {
 	}
 	if !enabled {
 		a.sessions.removeUsername(username)
+		a.terminalSessions.CloseUsername(username)
 	}
 	_ = a.recordAudit(c, platform.AuditEvent{Actor: currentPrincipal(c).Username, Action: "platform.user.status", Outcome: "success", CreatedAt: time.Now()})
 	return a.redirectPlatformUsers(c, "updated")

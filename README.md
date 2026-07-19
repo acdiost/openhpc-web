@@ -1,6 +1,6 @@
 # OpenHPC Web
 
-面向单集群环境的轻量 HPC 管理平台。目前仓库已完成平台登录、安全会话、可查询的 SQLite 只读审计日志、集群总览，Slurm 节点、分区、作业、账户、用户、关联和 QoS 只读视图，以及 RFC2307 LDAP 用户/组目录搜索与详情。模块导航、中英文和科研红/Slurm 蓝主题已接入；文件和终端页面已经建立模块边界，真实系统适配器将在后续阶段接入。
+面向单集群环境的轻量 HPC 管理平台。目前仓库已完成平台登录、安全会话、可查询的 SQLite 只读审计日志、集群总览，Slurm 节点、分区、作业、账户、用户、关联和 QoS 只读视图，以及 RFC2307 LDAP 用户/组目录搜索与详情。模块导航、中英文和科研红/Slurm 蓝主题已接入；终端可通过 SSH 连接到管理员配置的集群登录节点。
 
 CentOS 7 的完整安装、升级和故障排查步骤见 [部署指南](docs/deployment-centos7.md)。
 
@@ -17,7 +17,7 @@ sudo -E go run ./cmd/server
 
 浏览器访问 <http://127.0.0.1:8080>。监听地址可通过 `OPENHPC_ADDRESS` 修改。
 
-登录后可从左下角“系统设置”编辑 Slurm 和 LDAP 配置。设置以 SQLite override 保存，优先于同名环境变量，并在服务重启后生效。LDAP Bind 密码使用 `OPENHPC_SETTINGS_KEY`（base64 编码的 32 字节密钥）加密保存；未配置该密钥时不会保存秘密字段。
+登录后可从左下角“系统设置”编辑 Slurm、LDAP 和 SSH 终端配置。设置以 SQLite override 保存，优先于同名环境变量，并在服务重启后生效。LDAP Bind 密码使用 `OPENHPC_SETTINGS_KEY`（base64 编码的 32 字节密钥）加密保存；未配置该密钥时不会保存秘密字段。
 
 生产环境必须通过 loopback 上的本机 TLS 反向代理访问，并设置 `OPENHPC_SECURE_COOKIES=true`；服务会拒绝监听非 loopback 地址。
 反向代理还必须配置入口总速率限制，并通过 `OPENHPC_TRUSTED_PROXY_CIDRS` 指定其 CIDR（多个值用逗号分隔）；仅这些地址提供的 `X-Forwarded-For` 会被信任。
@@ -84,6 +84,12 @@ export OPENHPC_SLURM_CONFIG_ROOT=/usr/local/etc
 
 管理员使用 `OPENHPC_ADMIN_USERNAME` 和 `OPENHPC_ADMIN_PASSWORD` 初始化或更新管理员账号；平台用户数据保存在 `OPENHPC_DATABASE_PATH` 的 SQLite 数据库中。管理员登录后可从“平台用户”页面创建、启用或停用账号，并分配“管理员”或“普通用户”角色。管理员可查看全部菜单；普通用户只能看到总览、自己的作业、文件管理和终端，作业详情、资源和输出接口也会在服务端按作业用户名再次校验。作业取消固定执行 `scancel <job-id>`：平台管理员可代表 root 服务进程取消任意作业，其他用户只能取消其用户名与作业提交者一致的作业；授权、CSRF 校验和作业重新查询均在服务端执行。
 
+## SSH 终端
+
+管理员在系统设置中配置 `OPENHPC_TERMINAL_SSH_ADDRESS`、`OPENHPC_TERMINAL_SSH_KNOWN_HOSTS` 和超时，再启用 `OPENHPC_TERMINAL_ENABLED`。`known_hosts` 必须是绝对路径、普通文件、不可为符号链接且不得被组或其他用户写入；SSH 主机密钥不匹配会被拒绝。
+
+每次创建终端会话时，用户从浏览器选择自己的 SSH 私钥，并按需输入私钥口令。私钥仅用于当次 SSH 公钥认证，应用不会将其写入 SQLite、会话、磁盘、日志或审计事件。会话绑定创建者、仅可附着一次，并在断开、登出、服务关闭或 30 分钟后关闭。终端内容不会被记录；审计日志仅保存会话结果。
+
 `sstat` 通常只允许作业所有者、root 或 SlurmUser 查询 step 数据。本程序固定以 root 运行，可满足集群的跨用户查询需求；部署时仍应评估该权限边界带来的风险。
 
 当前兼容基线已在 CentOS 7 管理节点、Slurm 25.05.4 上验证。CentOS 7 部署模板位于 `deploy/`。构建静态 Linux 二进制：
@@ -141,7 +147,7 @@ install -o root -g root -m 0644 deploy/openhpc-web.service /etc/systemd/system/o
 - slurm 核时管理
 - slurm 作业只读详情与受限输出预览
 - 系统文件管理
-- 终端管理
+- SSH 终端管理
 - 独立管理平台用户（和slurm用户关联）
 - 只读审计日志（保留最近 100000 条事件）
 

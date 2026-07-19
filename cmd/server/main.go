@@ -23,6 +23,7 @@ import (
 	"github.com/acdiost/openhpc-web/internal/platform"
 	"github.com/acdiost/openhpc-web/internal/slurm"
 	"github.com/acdiost/openhpc-web/internal/slurmconfig"
+	"github.com/acdiost/openhpc-web/internal/terminal"
 	"github.com/acdiost/openhpc-web/internal/web"
 )
 
@@ -81,6 +82,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	terminalEnabled, terminalConfig, err := parseTerminalConfigFromStore(settingsStore)
+	if err != nil {
+		log.Fatal(err)
+	}
 	var metricsProvider cluster.Provider
 	var nodeProvider cluster.NodeProvider
 	var partitionProvider cluster.PartitionProvider
@@ -94,6 +99,7 @@ func main() {
 	var slurmConfigProvider slurmconfig.Provider
 	var partitionAdmin cluster.PartitionAdmin
 	var nodeAdmin cluster.NodeAdmin
+	var terminalClient terminal.Client
 	userStore, userStoreErr := platform.OpenUserStore(databasePath)
 	if userStoreErr != nil {
 		log.Fatalf("initialize platform users: %v", userStoreErr)
@@ -121,6 +127,12 @@ func main() {
 			log.Fatalf("initialize LDAP integration: %v", err)
 		}
 	}
+	if terminalEnabled {
+		terminalClient, err = terminal.New(terminalConfig)
+		if err != nil {
+			log.Fatalf("initialize SSH terminal: %v", err)
+		}
+	}
 	handler, err := buildHandler(web.Config{
 		AdminUsername:       username,
 		AdminPassword:       password,
@@ -142,6 +154,7 @@ func main() {
 		PartitionAdmin:      partitionAdmin,
 		NodeAdmin:           nodeAdmin,
 		SlurmConfigProvider: slurmConfigProvider,
+		TerminalClient:      terminalClient,
 		PlatformUsers:       userStore,
 	}, slurmConfigProvider)
 	if err != nil {
@@ -253,6 +266,33 @@ func parseLDAPConfigFromEnv() (bool, ldapdirectory.Config, error) {
 	return parseLDAPConfigFromStore(nil)
 }
 
+func parseTerminalConfigFromStore(store *platform.SettingsStore) (bool, terminal.Config, error) {
+	enabled, err := settingValue(store, "OPENHPC_TERMINAL_ENABLED", os.Getenv("OPENHPC_TERMINAL_ENABLED"))
+	if err != nil {
+		return false, terminal.Config{}, err
+	}
+	if enabled != "true" {
+		return false, terminal.Config{}, nil
+	}
+	address, err := settingValue(store, "OPENHPC_TERMINAL_SSH_ADDRESS", os.Getenv("OPENHPC_TERMINAL_SSH_ADDRESS"))
+	if err != nil {
+		return false, terminal.Config{}, err
+	}
+	knownHostsPath, err := settingValue(store, "OPENHPC_TERMINAL_SSH_KNOWN_HOSTS", os.Getenv("OPENHPC_TERMINAL_SSH_KNOWN_HOSTS"))
+	if err != nil {
+		return false, terminal.Config{}, err
+	}
+	timeoutValue, err := settingValue(store, "OPENHPC_TERMINAL_TIMEOUT", envOr("OPENHPC_TERMINAL_TIMEOUT", "10s"))
+	if err != nil {
+		return false, terminal.Config{}, err
+	}
+	timeout, err := time.ParseDuration(strings.TrimSpace(timeoutValue))
+	if err != nil {
+		return false, terminal.Config{}, fmt.Errorf("parse OPENHPC_TERMINAL_TIMEOUT: %w", err)
+	}
+	return true, terminal.Config{Address: strings.TrimSpace(address), KnownHostsPath: strings.TrimSpace(knownHostsPath), Timeout: timeout}, nil
+}
+
 func parseLDAPConfigFromStore(store *platform.SettingsStore) (bool, ldapdirectory.Config, error) {
 	enabled, err := settingValue(store, "OPENHPC_LDAP_ENABLED", os.Getenv("OPENHPC_LDAP_ENABLED"))
 	if err != nil {
@@ -362,6 +402,9 @@ func settingsDefaultsFromEnv() map[string]string {
 	}
 	if result["OPENHPC_LDAP_MAX_RESULTS"] == "" {
 		result["OPENHPC_LDAP_MAX_RESULTS"] = "200"
+	}
+	if result["OPENHPC_TERMINAL_TIMEOUT"] == "" {
+		result["OPENHPC_TERMINAL_TIMEOUT"] = "10s"
 	}
 	return result
 }

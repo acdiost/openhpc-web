@@ -2,10 +2,12 @@ package web
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/acdiost/openhpc-web/internal/platform"
@@ -35,6 +37,7 @@ func TestSettingsPageIsInSidebarAndRedactsSecretValues(t *testing.T) {
 		"class=\"settings-switch\"",
 		"class=\"secondary-button\"",
 		"LDAP 地址",
+		"SSH 登录节点",
 		"ldaps://env.example:636",
 		"已配置",
 		`type="password"`,
@@ -72,6 +75,46 @@ func TestSettingsSaveRequiresCSRFAndPersistsWithoutLeakingSecret(t *testing.T) {
 	assertBodyNotContains(t, auditResponse, "secret<&")
 }
 
+func TestLDAPConnectivitySuccessRendersOneSuccessNotice(t *testing.T) {
+	provider := &stubDirectoryProvider{}
+	handler, err := New(Config{AdminUsername: testUsername, AdminPassword: testPassword, DirectoryProvider: provider})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupHandler(t, handler)
+	session, csrf := loginWithCSRF(t, handler)
+
+	response := postProtectedForm(handler, "/settings/ldap-test", url.Values{}, session, csrf)
+	assertStatus(t, response, http.StatusOK)
+	if count := strings.Count(response.Body.String(), "LDAP 连通性测试成功。"); count != 1 {
+		t.Fatalf("success notice count = %d, want 1", count)
+	}
+	assertBodyContains(t, response, `role="status">LDAP 连通性测试成功。`)
+	assertBodyNotContains(t, response, `role="alert">LDAP 连通性测试成功。`)
+	if provider.searchCalls != 1 || provider.lastQuery != "" {
+		t.Fatalf("LDAP search calls/query = %d/%q, want 1/empty", provider.searchCalls, provider.lastQuery)
+	}
+}
+
+func TestLDAPConnectivityFailureRendersOneErrorNotice(t *testing.T) {
+	provider := &stubDirectoryProvider{err: errors.New("bind failed")}
+	handler, err := New(Config{AdminUsername: testUsername, AdminPassword: testPassword, DirectoryProvider: provider})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupHandler(t, handler)
+	session, csrf := loginWithCSRF(t, handler)
+
+	response := postProtectedForm(handler, "/settings/ldap-test", url.Values{}, session, csrf)
+	assertStatus(t, response, http.StatusBadGateway)
+	const notice = "LDAP 连通性测试失败，请检查地址、证书、Bind 凭据和基础 DN。"
+	if count := strings.Count(response.Body.String(), notice); count != 1 {
+		t.Fatalf("error notice count = %d, want 1", count)
+	}
+	assertBodyContains(t, response, `role="alert">`+notice)
+	assertBodyNotContains(t, response, `role="status">`+notice)
+}
+
 func TestSettingsRejectsUnknownAndInvalidValuesWithoutWriting(t *testing.T) {
 	store, err := platform.OpenSettingsStore(":memory:", []byte("0123456789abcdef0123456789abcdef"))
 	if err != nil {
@@ -94,6 +137,23 @@ func TestSettingsRejectsUnknownAndInvalidValuesWithoutWriting(t *testing.T) {
 	if _, found, err := store.Get(context.Background(), "OPENHPC_LDAP_URL"); err != nil || found {
 		t.Fatalf("invalid setting persisted: found=%v err=%v", found, err)
 	}
+}
+
+func TestSettingsRejectsIncompleteEnabledTerminalConfiguration(t *testing.T) {
+	store, err := platform.OpenSettingsStore(":memory:", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := New(Config{AdminUsername: testUsername, AdminPassword: testPassword, SettingsStore: store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupHandler(t, handler)
+	session, csrf := loginWithCSRF(t, handler)
+	response := postProtectedForm(handler, "/settings", url.Values{
+		"OPENHPC_TERMINAL_ENABLED": {"true"},
+	}, session, csrf)
+	assertStatus(t, response, http.StatusBadRequest)
 }
 
 func TestSettingsSecretSaveExplainsMissingEncryptionKey(t *testing.T) {

@@ -47,17 +47,18 @@ type pageHeading struct {
 }
 
 type appChrome struct {
-	Language   string
-	Theme      string
-	Username   string
-	RoleLabel  string
-	CSRFToken  string
-	PageTitle  string
-	ActivePath string
-	Available  bool
-	Copy       copySet
-	Modules    []module
-	Heading    pageHeading
+	Language          string
+	Theme             string
+	Username          string
+	RoleLabel         string
+	CanManageSettings bool
+	CSRFToken         string
+	PageTitle         string
+	ActivePath        string
+	Available         bool
+	Copy              copySet
+	Modules           []module
+	Heading           pageHeading
 }
 
 type dashboardView struct {

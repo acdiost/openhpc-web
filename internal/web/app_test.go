@@ -913,7 +913,6 @@ func TestModulePlaceholderRoutes(t *testing.T) {
 	}{
 		{path: "/slurm/users", label: "/slurm/users"},
 		{path: "/system/files", label: "文件管理"},
-		{path: "/terminal", label: "终端"},
 	}
 
 	for _, test := range tests {
@@ -966,6 +965,7 @@ func TestPlatformUserIsRestrictedToOwnMenuAndJobs(t *testing.T) {
 	if strings.Contains(dashboard.Body.String(), `href="/slurm/nodes"`) || strings.Contains(dashboard.Body.String(), `href="/platform/users"`) {
 		t.Fatal("ordinary user sees admin menu")
 	}
+	assertBodyNotContains(t, dashboard, `href="/settings"`)
 	request = httptest.NewRequest(http.MethodGet, "/settings", nil)
 	request.AddCookie(session)
 	denied := httptest.NewRecorder()
@@ -989,7 +989,7 @@ func TestResponsesIncludeSecurityHeaders(t *testing.T) {
 	handler.ServeHTTP(response, request)
 
 	assertStatus(t, response, http.StatusOK)
-	assertHeader(t, response, "Content-Security-Policy", "default-src 'self'; style-src 'self'; img-src 'self' data:; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+	assertHeader(t, response, "Content-Security-Policy", "default-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self' data:; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
 	assertHeader(t, response, "Referrer-Policy", "no-referrer")
 	assertHeader(t, response, "X-Content-Type-Options", "nosniff")
 	assertHeader(t, response, "X-Frame-Options", "DENY")

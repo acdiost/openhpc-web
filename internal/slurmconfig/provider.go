@@ -77,11 +77,11 @@ func (p *LocalProvider) List(ctx context.Context) ([]Entry, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	dup, err := unix.Dup(p.rootFD)
+	fd, err := unix.Openat(p.rootFD, ".", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {
-		return nil, fmt.Errorf("duplicate Slurm config root: %w", err)
+		return nil, fmt.Errorf("open Slurm config root for listing: %w", err)
 	}
-	directory := os.NewFile(uintptr(dup), p.root)
+	directory := os.NewFile(uintptr(fd), p.root)
 	defer directory.Close()
 	entries, err := directory.Readdir(-1)
 	if err != nil {

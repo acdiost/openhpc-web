@@ -27,6 +27,7 @@ import (
 	"github.com/acdiost/openhpc-web/internal/directory"
 	"github.com/acdiost/openhpc-web/internal/platform"
 	"github.com/acdiost/openhpc-web/internal/slurmconfig"
+	"github.com/acdiost/openhpc-web/internal/terminal"
 	"github.com/labstack/echo/v4"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -65,6 +66,7 @@ type Config struct {
 	NodeAdmin           cluster.NodeAdmin
 	SettingsDefaults    map[string]string
 	SlurmConfigProvider slurmconfig.Provider
+	TerminalClient      terminal.Client
 	PlatformUsers       *platform.UserStore
 }
 
@@ -84,6 +86,8 @@ type application struct {
 	coreHourProvider    cluster.CoreHourProvider
 	directoryProvider   directory.Provider
 	slurmConfigProvider slurmconfig.Provider
+	terminalClient      terminal.Client
+	terminalSessions    *terminalSessionStore
 	directorySlots      chan struct{}
 	settingsStore       *platform.SettingsStore
 	partitionStore      *platform.PartitionStore
@@ -99,12 +103,13 @@ type application struct {
 }
 
 type Handler struct {
-	handler        http.Handler
-	audit          *platform.AuditStore
-	settingsStore  *platform.SettingsStore
-	partitionStore *platform.PartitionStore
-	configCloser   io.Closer
-	userStore      *platform.UserStore
+	handler          http.Handler
+	audit            *platform.AuditStore
+	settingsStore    *platform.SettingsStore
+	partitionStore   *platform.PartitionStore
+	configCloser     io.Closer
+	userStore        *platform.UserStore
+	terminalSessions *terminalSessionStore
 }
 
 func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
@@ -120,7 +125,11 @@ func (h *Handler) Close() error {
 	if h.partitionStore != nil {
 		partitionErr = h.partitionStore.Close()
 	}
-	return errors.Join(h.audit.Close(), settingsErr, partitionErr, closeConfigured(h.configCloser), closeConfigured(h.userStore))
+	var terminalErr error
+	if h.terminalSessions != nil {
+		terminalErr = h.terminalSessions.Close()
+	}
+	return errors.Join(h.audit.Close(), settingsErr, partitionErr, terminalErr, closeConfigured(h.configCloser), closeConfigured(h.userStore))
 }
 
 func closeConfigured(closer io.Closer) error {
@@ -234,6 +243,8 @@ func New(config Config) (http.Handler, error) {
 		coreHourProvider:    config.CoreHourProvider,
 		directoryProvider:   config.DirectoryProvider,
 		slurmConfigProvider: config.SlurmConfigProvider,
+		terminalClient:      config.TerminalClient,
+		terminalSessions:    newTerminalSessionStore(),
 		directorySlots:      make(chan struct{}, maxConcurrentDirectoryReads),
 		settingsStore:       config.SettingsStore,
 		partitionStore:      partitionStore,
@@ -314,6 +325,9 @@ func New(config Config) (http.Handler, error) {
 		return c.Redirect(http.StatusFound, target)
 	}, app.requireAdmin)
 	protected.GET("/slurm/config", app.slurmConfig, app.requireAdmin)
+	protected.GET("/terminal", app.terminalPage)
+	protected.POST("/terminal/sessions", app.createTerminalSession)
+	protected.GET("/terminal/sessions/:id/socket", app.terminalSocket)
 	protected.GET("/ldap", app.ldapDirectory, app.requireAdmin)
 	protected.POST("/ldap/search", app.ldapDirectorySearch, app.requireAdmin)
 	protected.GET("/ldap/users/:uid", app.ldapUser, app.requireAdmin)
@@ -331,12 +345,12 @@ func New(config Config) (http.Handler, error) {
 	protected.POST("/logout", app.logout)
 	for _, path := range []string{
 		"/slurm/users",
-		"/system/files", "/terminal",
+		"/system/files",
 	} {
 		protected.GET(path, app.authorizedPlaceholder)
 	}
 
-	return &Handler{handler: e, audit: audit, settingsStore: config.SettingsStore, partitionStore: partitionStore, configCloser: configCloser, userStore: userStore}, nil
+	return &Handler{handler: e, audit: audit, settingsStore: config.SettingsStore, partitionStore: partitionStore, configCloser: configCloser, userStore: userStore, terminalSessions: app.terminalSessions}, nil
 }
 
 const auditPageSize = 50
@@ -967,7 +981,7 @@ func (a *application) newAppChrome(c echo.Context, activePath string, available 
 		}
 	}
 	return appChrome{
-		Language: lang, Theme: theme(c), Username: identity.Username, RoleLabel: roleLabel, CSRFToken: a.csrfToken(c),
+		Language: lang, Theme: theme(c), Username: identity.Username, RoleLabel: roleLabel, CanManageSettings: identity.Role == platform.RoleAdmin, CSRFToken: a.csrfToken(c),
 		PageTitle: heading.Title, ActivePath: activePath, Available: available,
 		Copy: copyFor(lang), Modules: modulesForRole(lang, identity.Role), Heading: heading,
 	}
@@ -999,6 +1013,7 @@ func (a *application) setTheme(c echo.Context) error {
 }
 
 func (a *application) logout(c echo.Context) error {
+	a.terminalSessions.CloseUsername(currentPrincipal(c).Username)
 	if cookie, err := c.Cookie(sessionCookie); err == nil {
 		a.sessions.remove(cookie.Value)
 	}
@@ -1067,7 +1082,10 @@ func (a *application) requireCSRF(next echo.HandlerFunc) echo.HandlerFunc {
 			return echo.NewHTTPError(http.StatusForbidden, "invalid CSRF token")
 		}
 		storedToken, exists := a.sessions.csrf(session.Value, time.Now())
-		formToken := c.FormValue("_csrf")
+		formToken := request.Header.Get("X-CSRF-Token")
+		if formToken == "" && !strings.HasPrefix(request.Header.Get("Content-Type"), "multipart/form-data") {
+			formToken = c.FormValue("_csrf")
+		}
 		if !exists || !constantTimeEqual(storedToken, csrf.Value) || !constantTimeEqual(storedToken, formToken) {
 			return echo.NewHTTPError(http.StatusForbidden, "invalid CSRF token")
 		}
@@ -1134,7 +1152,7 @@ func (a *application) recordAudit(c echo.Context, event platform.AuditEvent) err
 func securityHeaders(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		header := c.Response().Header()
-		header.Set("Content-Security-Policy", "default-src 'self'; style-src 'self'; img-src 'self' data:; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+		header.Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self' data:; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
 		header.Set("Referrer-Policy", "no-referrer")
 		header.Set("X-Content-Type-Options", "nosniff")
 		header.Set("X-Frame-Options", "DENY")

@@ -646,6 +646,13 @@
 
   .config-content pre { max-height: 34rem; overflow: auto; padding: 1rem; border: 1px solid #25313c; border-radius: 5px; background: #1d2731; color: #e1e9ee; font-size: 0.75rem; line-height: 1.6; }
 
+  .terminal-shell { border-radius: 5px; box-shadow: var(--shadow-panel); }
+  .terminal-field span { color: var(--muted); font-size: 0.75rem; font-weight: 700; }
+  .terminal-field input[type="file"], .terminal-field input[type="password"] { min-height: 2.4rem; border: 1px solid var(--line); border-radius: 4px; background: #fff; padding: 0.4rem 0.6rem; color: var(--ink); font-size: 0.8125rem; }
+  .terminal-output { max-height: min(42rem, 62vh); border-radius: 0; background: #18212b; color: #e7eff3; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .terminal-input { border-radius: 4px; color: var(--ink); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+  .terminal-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+
   .job-modal-surface, .partition-modal-surface { border-radius: 6px; }
   .job-modal-surface header, .partition-modal-surface header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--line); }
   .job-modal-surface header h2, .partition-modal-surface header h2 { color: var(--ink); font-size: 1rem; font-weight: 750; }

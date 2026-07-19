@@ -14,6 +14,7 @@ import (
 
 	"github.com/acdiost/openhpc-web/internal/ldapdirectory"
 	"github.com/acdiost/openhpc-web/internal/platform"
+	"github.com/acdiost/openhpc-web/internal/terminal"
 	ldap "github.com/go-ldap/ldap/v3"
 	"github.com/labstack/echo/v4"
 )
@@ -41,6 +42,10 @@ var settingsSpecs = []settingsSpec{
 	{Key: "OPENHPC_LDAP_CA_FILE", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "CA 文件", LabelEN: "CA file", InputType: "text"},
 	{Key: "OPENHPC_LDAP_TIMEOUT", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "LDAP 超时", LabelEN: "LDAP timeout", InputType: "text"},
 	{Key: "OPENHPC_LDAP_MAX_RESULTS", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "最大结果数", LabelEN: "Maximum results", InputType: "number"},
+	{Key: "OPENHPC_TERMINAL_ENABLED", GroupZH: "终端", GroupEN: "Terminal", LabelZH: "启用 SSH 终端", LabelEN: "Enable SSH terminal", InputType: "checkbox"},
+	{Key: "OPENHPC_TERMINAL_SSH_ADDRESS", GroupZH: "终端", GroupEN: "Terminal", LabelZH: "SSH 登录节点", LabelEN: "SSH login node", InputType: "text"},
+	{Key: "OPENHPC_TERMINAL_SSH_KNOWN_HOSTS", GroupZH: "终端", GroupEN: "Terminal", LabelZH: "SSH known_hosts 文件", LabelEN: "SSH known_hosts file", InputType: "text"},
+	{Key: "OPENHPC_TERMINAL_TIMEOUT", GroupZH: "终端", GroupEN: "Terminal", LabelZH: "SSH 连接超时", LabelEN: "SSH connection timeout", InputType: "text"},
 }
 
 type settingFieldView struct {
@@ -63,7 +68,7 @@ type settingsGroupView struct {
 }
 
 func (a *application) settingsPage(c echo.Context) error {
-	view, err := a.settingsView(c, c.QueryParam("updated") == "1", "")
+	view, err := a.settingsView(c, c.QueryParam("updated") == "1", "", "")
 	if err != nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable)
 	}
@@ -72,7 +77,7 @@ func (a *application) settingsPage(c echo.Context) error {
 
 func (a *application) testLDAPConnectivity(c echo.Context) error {
 	if a.directoryProvider == nil {
-		view, err := a.settingsView(c, false, "LDAP 未启用或服务尚未重启加载配置。")
+		view, err := a.settingsView(c, false, "", "LDAP 未启用或服务尚未重启加载配置。")
 		if err != nil {
 			return echo.NewHTTPError(http.StatusServiceUnavailable)
 		}
@@ -85,20 +90,20 @@ func (a *application) testLDAPConnectivity(c echo.Context) error {
 		return err
 	}); err != nil {
 		log.Printf("LDAP connectivity test failed")
-		view, viewErr := a.settingsView(c, false, "LDAP 连通性测试失败，请检查地址、证书、Bind 凭据和基础 DN。")
+		view, viewErr := a.settingsView(c, false, "", "LDAP 连通性测试失败，请检查地址、证书、Bind 凭据和基础 DN。")
 		if viewErr != nil {
 			return echo.NewHTTPError(http.StatusServiceUnavailable)
 		}
 		return a.render(c, http.StatusBadGateway, "settings.html", view)
 	}
-	view, err := a.settingsView(c, false, "LDAP 连通性测试成功。")
+	view, err := a.settingsView(c, false, "LDAP 连通性测试成功。", "")
 	if err != nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable)
 	}
 	return a.render(c, http.StatusOK, "settings.html", view)
 }
 
-func (a *application) settingsView(c echo.Context, updated bool, message string) (settingsView, error) {
+func (a *application) settingsView(c echo.Context, updated bool, success, errorMessage string) (settingsView, error) {
 	lang := language(c)
 	overrides := map[string]platform.Setting{}
 	if a.settingsStore != nil {
@@ -141,7 +146,6 @@ func (a *application) settingsView(c echo.Context, updated bool, message string)
 		}
 		fields = append(fields, settingFieldView{Key: spec.Key, Label: label, Group: group, Value: value, Source: source, InputType: spec.InputType, Secret: spec.Secret, Configured: configured})
 	}
-	success := message
 	if updated && success == "" {
 		if lang == "en" {
 			success = "Settings saved. Restart the service to apply changes."
@@ -163,7 +167,7 @@ func (a *application) settingsView(c echo.Context, updated bool, message string)
 			Description: map[bool]string{true: "Edit persisted Slurm and LDAP overrides", false: "编辑持久化的 Slurm 与 LDAP 覆盖配置"}[lang == "en"],
 		}),
 		Groups: groups, GroupCount: len(groups), FieldCount: len(fields), ConfiguredCount: configuredCount, SecretCount: secretCount,
-		Success: success, Error: message,
+		Success: success, Error: errorMessage,
 	}, nil
 }
 
@@ -213,6 +217,9 @@ func (a *application) saveSettings(c echo.Context) error {
 		}
 		values[spec.Key] = value
 	}
+	if err := validateEnabledTerminalSettings(values); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest)
+	}
 	if err := a.settingsStore.SetMany(c.Request().Context(), values); err != nil {
 		_ = a.recordAudit(c, platform.AuditEvent{Actor: currentPrincipal(c).Username, Action: "settings.update", Outcome: "failed", CreatedAt: time.Now()})
 		if errors.Is(err, platform.ErrSettingsKeyRequired) {
@@ -220,7 +227,7 @@ func (a *application) saveSettings(c echo.Context) error {
 			if language(c) == "en" {
 				message = "Configure OPENHPC_SETTINGS_KEY before saving secret fields."
 			}
-			view, viewErr := a.settingsView(c, false, message)
+			view, viewErr := a.settingsView(c, false, "", message)
 			if viewErr != nil {
 				return echo.NewHTTPError(http.StatusServiceUnavailable)
 			}
@@ -234,16 +241,30 @@ func (a *application) saveSettings(c echo.Context) error {
 	return c.Redirect(http.StatusSeeOther, "/settings?updated=1")
 }
 
+func validateEnabledTerminalSettings(values map[string]string) error {
+	if values["OPENHPC_TERMINAL_ENABLED"] != "true" {
+		return nil
+	}
+	timeout, err := time.ParseDuration(values["OPENHPC_TERMINAL_TIMEOUT"])
+	if err != nil {
+		return err
+	}
+	_, err = terminal.New(terminal.Config{
+		Address: values["OPENHPC_TERMINAL_SSH_ADDRESS"], KnownHostsPath: values["OPENHPC_TERMINAL_SSH_KNOWN_HOSTS"], Timeout: timeout,
+	})
+	return err
+}
+
 func validateSettingFormValue(key, value string) error {
 	if len(value) > 8192 || strings.ContainsAny(value, "\x00\r\n") {
 		return errors.New("invalid setting value")
 	}
 	switch key {
-	case "OPENHPC_SLURM_ENABLED", "OPENHPC_LDAP_ENABLED":
+	case "OPENHPC_SLURM_ENABLED", "OPENHPC_LDAP_ENABLED", "OPENHPC_TERMINAL_ENABLED":
 		if value != "true" && value != "false" {
 			return errors.New("invalid boolean")
 		}
-	case "OPENHPC_SLURM_TIMEOUT", "OPENHPC_SLURM_CACHE_TTL", "OPENHPC_LDAP_TIMEOUT":
+	case "OPENHPC_SLURM_TIMEOUT", "OPENHPC_SLURM_CACHE_TTL", "OPENHPC_LDAP_TIMEOUT", "OPENHPC_TERMINAL_TIMEOUT":
 		duration, err := time.ParseDuration(value)
 		if err != nil || duration <= 0 || duration > 60*time.Second {
 			return errors.New("invalid duration")
@@ -280,6 +301,14 @@ func validateSettingFormValue(key, value string) error {
 			if err := ldapdirectory.ValidateCAFile(value); err != nil {
 				return errors.New("invalid CA file")
 			}
+		}
+	case "OPENHPC_TERMINAL_SSH_ADDRESS":
+		if value != "" {
+			return terminal.ValidateAddress(value)
+		}
+	case "OPENHPC_TERMINAL_SSH_KNOWN_HOSTS":
+		if value != "" {
+			return terminal.ValidateKnownHostsPath(value)
 		}
 	}
 	return nil

@@ -482,6 +482,68 @@
     }
   }
 
+  var terminalPage = document.querySelector('[data-terminal-page]');
+  var terminalForm = document.querySelector('[data-terminal-connect]');
+  if (terminalPage && terminalForm) {
+    var terminalStatus = terminalPage.querySelector('[data-terminal-status]');
+    var terminalOutput = terminalPage.querySelector('[data-terminal-output]');
+    var terminalInput = terminalPage.querySelector('[data-terminal-input]');
+    var terminalOpen = terminalPage.querySelector('[data-terminal-open]');
+    var terminalSocket = null;
+    var appendTerminalOutput = function (text) {
+      terminalOutput.textContent = (terminalOutput.textContent + text).slice(-131072);
+      terminalOutput.scrollTop = terminalOutput.scrollHeight;
+    };
+    var setTerminalStatus = function (text) { terminalStatus.textContent = text; };
+    var closeTerminal = function () {
+      if (terminalSocket) terminalSocket.close();
+      terminalSocket = null;
+      terminalInput.disabled = true;
+    };
+    terminalForm.addEventListener('submit', function (event) {
+      event.preventDefault();
+      closeTerminal();
+      terminalOutput.textContent = '';
+      terminalOpen.disabled = true;
+      setTerminalStatus('Connecting...');
+      fetch('/terminal/sessions', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'X-CSRF-Token': terminalForm.querySelector('input[name="_csrf"]').value },
+        body: new FormData(terminalForm)
+      })
+        .then(function (response) {
+          if (!response.ok) throw new Error('terminal connection failed');
+          return response.json();
+        })
+        .then(function (payload) {
+          terminalForm.reset();
+          var scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+          terminalSocket = new WebSocket(scheme + '//' + window.location.host + '/terminal/sessions/' + encodeURIComponent(payload.session_id) + '/socket');
+          terminalSocket.addEventListener('open', function () {
+            terminalInput.disabled = false;
+            terminalInput.focus();
+            setTerminalStatus('Connected');
+          });
+          terminalSocket.addEventListener('message', function (message) { appendTerminalOutput(String(message.data)); });
+          terminalSocket.addEventListener('close', function () {
+            terminalInput.disabled = true;
+            setTerminalStatus('Disconnected');
+          });
+          terminalSocket.addEventListener('error', function () { setTerminalStatus('Connection failed'); });
+        })
+        .catch(function () { setTerminalStatus('Connection failed'); })
+        .then(function () { terminalOpen.disabled = false; });
+    });
+    terminalInput.addEventListener('keydown', function (event) {
+      if (event.key !== 'Enter' || event.shiftKey || !terminalSocket || terminalSocket.readyState !== WebSocket.OPEN) return;
+      event.preventDefault();
+      terminalSocket.send(terminalInput.value + '\n');
+      terminalInput.value = '';
+    });
+    window.addEventListener('beforeunload', closeTerminal);
+  }
+
   document.addEventListener('keydown', function (event) {
     if (event.key === 'Escape' && menuButton && sidebar && sidebar.classList.contains('open')) {
       setMenuOpen(false);

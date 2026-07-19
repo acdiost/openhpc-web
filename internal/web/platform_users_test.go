@@ -60,6 +60,10 @@ func TestPlatformUserLifecycleCreatesWithoutOverwriteAndRevokesDisabledSessions(
 	aliceLogin := postForm(handler, "/login", url.Values{"username": {"alice"}, "password": {"ordinary user password"}}, nil)
 	assertStatus(t, aliceLogin, http.StatusSeeOther)
 	aliceSession := findCookie(t, aliceLogin.Result().Cookies(), sessionCookie)
+	terminalSession := &stubTerminalSession{}
+	if _, err := handler.(*Handler).terminalSessions.Add("alice", terminalSession); err != nil {
+		t.Fatal(err)
+	}
 
 	confirmation := postProtectedForm(handler, "/platform/users/status", url.Values{"username": {"alice"}, "enabled": {"false"}}, adminSession, csrf)
 	assertStatus(t, confirmation, http.StatusSeeOther)
@@ -77,6 +81,9 @@ func TestPlatformUserLifecycleCreatesWithoutOverwriteAndRevokesDisabledSessions(
 	disable := postProtectedForm(handler, "/platform/users/status", url.Values{"username": {"alice"}, "enabled": {"false"}, "confirmed": {"true"}}, adminSession, csrf)
 	assertStatus(t, disable, http.StatusSeeOther)
 	assertHeader(t, disable, "Location", "/platform/users?result=updated")
+	if terminalSession.closeCalls != 1 {
+		t.Fatalf("terminal session close calls = %d, want 1", terminalSession.closeCalls)
+	}
 
 	request := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
 	request.AddCookie(aliceSession)
