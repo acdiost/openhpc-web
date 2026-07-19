@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -39,5 +40,29 @@ func TestValidatePlatformUserInput(t *testing.T) {
 	}
 	if err := ValidateRole("owner"); err == nil {
 		t.Error("ValidateRole accepted unsupported role")
+	}
+}
+
+func TestUserStoreCreateRejectsDuplicateWithoutOverwritingExistingUser(t *testing.T) {
+	store, err := OpenUserStore(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	original := PlatformUser{Username: "alice", PasswordHash: "original-hash", Role: RoleUser, Enabled: true}
+	if err := store.Create(context.Background(), original); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if err := store.Create(context.Background(), PlatformUser{Username: "alice", PasswordHash: "replacement-hash", Role: RoleAdmin, Enabled: false}); !errors.Is(err, ErrUserExists) {
+		t.Fatalf("Create() error = %v, want ErrUserExists", err)
+	}
+
+	got, found, err := store.Get(context.Background(), "alice")
+	if err != nil || !found {
+		t.Fatalf("Get() = %#v, %v, %v", got, found, err)
+	}
+	if got.PasswordHash != original.PasswordHash || got.Role != original.Role || got.Enabled != original.Enabled {
+		t.Fatalf("duplicate Create() overwrote user: %#v", got)
 	}
 }

@@ -2,10 +2,12 @@
 <!doctype html><html lang="{{.Language}}" data-theme="{{.Theme}}">{{template "document-head" .}}<body>
 <div class="app-shell">{{template "app-sidebar" .}}<div class="main-area">{{template "app-topbar" .}}<main class="content data-content">
 {{template "page-heading" .}}
+{{if .Success}}<div class="data-success" role="status">{{.Success}}</div>{{end}}
+{{if .Error}}<div class="data-warning" role="alert">{{.Error}}</div>{{end}}
 <section class="data-section"><h2>{{if eq .Language "en"}}Create account{{else}}创建账号{{end}}</h2>
 <form action="/platform/users" method="post" class="settings-form"><input type="hidden" name="_csrf" value="{{.CSRFToken}}">
 <div class="settings-field"><label for="platform-username">{{if eq .Language "en"}}Username{{else}}用户名{{end}}</label><input id="platform-username" name="username" required maxlength="64" pattern="[A-Za-z0-9._-]+"></div>
-<div class="settings-field"><label for="platform-password">{{if eq .Language "en"}}Password{{else}}密码{{end}}</label><input id="platform-password" type="password" name="password" required minlength="12" maxlength="256" autocomplete="new-password"></div>
+<div class="settings-field"><label for="platform-password">{{if eq .Language "en"}}Password{{else}}密码{{end}}</label><input id="platform-password" type="password" name="password" required minlength="12" maxlength="72" autocomplete="new-password"></div>
 <div class="settings-field"><label for="platform-role">{{if eq .Language "en"}}Role{{else}}角色{{end}}</label><select id="platform-role" name="role"><option value="user">{{if eq .Language "en"}}Platform user{{else}}普通用户{{end}}</option><option value="admin">{{if eq .Language "en"}}Administrator{{else}}管理员{{end}}</option></select></div>
 <button type="submit" class="primary-button">{{if eq .Language "en"}}Create user{{else}}创建用户{{end}}</button></form></section>
 <section class="data-section"><h2>{{if eq .Language "en"}}Accounts{{else}}账号列表{{end}}</h2><div class="data-table-wrap"><table class="data-table"><thead><tr><th>{{if eq .Language "en"}}Username{{else}}用户名{{end}}</th><th>{{if eq .Language "en"}}Role{{else}}角色{{end}}</th><th>{{if eq .Language "en"}}Status{{else}}状态{{end}}</th><th>{{if eq .Language "en"}}Created{{else}}创建时间{{end}}</th><th>{{if eq .Language "en"}}Action{{else}}操作{{end}}</th></tr></thead><tbody>

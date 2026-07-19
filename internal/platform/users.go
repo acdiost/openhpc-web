@@ -31,6 +31,8 @@ type UserStore struct{ db *sql.DB }
 
 var platformUsernamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
+var ErrUserExists = errors.New("platform user already exists")
+
 func OpenUserStore(path string) (*UserStore, error) {
 	if path != ":memory:" {
 		for _, candidate := range databaseFiles(path) {
@@ -103,6 +105,30 @@ func (s *UserStore) Upsert(ctx context.Context, user PlatformUser) error {
 		return fmt.Errorf("save platform user: %w", err)
 	}
 	return nil
+}
+
+func (s *UserStore) Create(ctx context.Context, user PlatformUser) error {
+	if err := ValidateUsername(user.Username); err != nil {
+		return err
+	}
+	if err := ValidateRole(user.Role); err != nil {
+		return err
+	}
+	if strings.TrimSpace(user.PasswordHash) == "" {
+		return errors.New("password hash is required")
+	}
+	if user.CreatedAt.IsZero() {
+		user.CreatedAt = time.Now().UTC()
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO platform_users(username,password_hash,role,enabled,created_at) VALUES(?,?,?,?,?)`,
+		user.Username, user.PasswordHash, user.Role, user.Enabled, user.CreatedAt.UTC().Format(time.RFC3339Nano))
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+		return ErrUserExists
+	}
+	return fmt.Errorf("create platform user: %w", err)
 }
 
 func (s *UserStore) Get(ctx context.Context, username string) (PlatformUser, bool, error) {

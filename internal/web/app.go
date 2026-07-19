@@ -858,6 +858,14 @@ func (a *application) requireAuthentication(next echo.HandlerFunc) echo.HandlerF
 		if !valid {
 			return c.Redirect(http.StatusFound, "/login?next="+url.QueryEscape(c.Request().URL.Path))
 		}
+		localUser, found, err := a.platformUsers.Get(context.WithoutCancel(c.Request().Context()), identity.Username)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusServiceUnavailable)
+		}
+		if found && !localUser.Enabled {
+			a.sessions.remove(cookie.Value)
+			return c.Redirect(http.StatusFound, "/login?next="+url.QueryEscape(c.Request().URL.Path))
+		}
 		c.Set(principalContextKey, identity)
 		return next(c)
 	}
@@ -1010,6 +1018,18 @@ func (s *sessionStore) remove(token string) {
 	for key, value := range s.tokens {
 		if key != token {
 			updated[key] = value
+		}
+	}
+	s.tokens = updated
+}
+
+func (s *sessionStore) removeUsername(username string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	updated := make(map[string]sessionData, len(s.tokens))
+	for token, value := range s.tokens {
+		if value.Username != username {
+			updated[token] = value
 		}
 	}
 	s.tokens = updated
