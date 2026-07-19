@@ -59,6 +59,7 @@ type Config struct {
 	CoreHourProvider    cluster.CoreHourProvider
 	DirectoryProvider   directory.Provider
 	SettingsStore       *platform.SettingsStore
+	PartitionStore      *platform.PartitionStore
 	SettingsDefaults    map[string]string
 	SlurmConfigProvider slurmconfig.Provider
 	PlatformUsers       *platform.UserStore
@@ -82,6 +83,7 @@ type application struct {
 	slurmConfigProvider slurmconfig.Provider
 	directorySlots      chan struct{}
 	settingsStore       *platform.SettingsStore
+	partitionStore      *platform.PartitionStore
 	settingsDefaults    map[string]string
 	platformUsers       *platform.UserStore
 	templates           *template.Template
@@ -96,6 +98,7 @@ type Handler struct {
 	audit          *platform.AuditStore
 	jobOutputRoots []jobOutputRoot
 	settingsStore  *platform.SettingsStore
+	partitionStore *platform.PartitionStore
 	configCloser   io.Closer
 	userStore      *platform.UserStore
 }
@@ -109,7 +112,11 @@ func (h *Handler) Close() error {
 	if h.settingsStore != nil {
 		settingsErr = h.settingsStore.Close()
 	}
-	return errors.Join(h.audit.Close(), closeJobOutputRoots(h.jobOutputRoots), settingsErr, closeConfigured(h.configCloser), closeConfigured(h.userStore))
+	var partitionErr error
+	if h.partitionStore != nil {
+		partitionErr = h.partitionStore.Close()
+	}
+	return errors.Join(h.audit.Close(), closeJobOutputRoots(h.jobOutputRoots), settingsErr, partitionErr, closeConfigured(h.configCloser), closeConfigured(h.userStore))
 }
 
 func closeConfigured(closer io.Closer) error {
@@ -195,6 +202,18 @@ func New(config Config) (http.Handler, error) {
 		}
 		return nil, err
 	}
+	partitionStore := config.PartitionStore
+	if partitionStore == nil {
+		partitionStore, err = platform.OpenPartitionStore(databasePath)
+		if err != nil {
+			_ = audit.Close()
+			_ = closeJobOutputRoots(jobOutputRoots)
+			if config.PlatformUsers == nil {
+				_ = userStore.Close()
+			}
+			return nil, err
+		}
+	}
 	var configCloser io.Closer
 	if closer, ok := config.SlurmConfigProvider.(io.Closer); ok {
 		configCloser = closer
@@ -225,6 +244,7 @@ func New(config Config) (http.Handler, error) {
 		slurmConfigProvider: config.SlurmConfigProvider,
 		directorySlots:      make(chan struct{}, maxConcurrentDirectoryReads),
 		settingsStore:       config.SettingsStore,
+		partitionStore:      partitionStore,
 		settingsDefaults:    cloneSettings(config.SettingsDefaults),
 		platformUsers:       userStore,
 		templates:           templates,
@@ -240,6 +260,9 @@ func New(config Config) (http.Handler, error) {
 	if err := configureIPExtractor(e, config.TrustedProxyCIDRs); err != nil {
 		_ = audit.Close()
 		_ = closeJobOutputRoots(jobOutputRoots)
+		if partitionStore != nil {
+			_ = partitionStore.Close()
+		}
 		_ = closeConfigured(configCloser)
 		if config.PlatformUsers == nil {
 			_ = userStore.Close()
@@ -254,6 +277,9 @@ func New(config Config) (http.Handler, error) {
 	if err != nil {
 		_ = audit.Close()
 		_ = closeJobOutputRoots(jobOutputRoots)
+		if partitionStore != nil {
+			_ = partitionStore.Close()
+		}
 		_ = closeConfigured(configCloser)
 		if config.PlatformUsers == nil {
 			_ = userStore.Close()
@@ -268,9 +294,8 @@ func New(config Config) (http.Handler, error) {
 	protected.GET("/", func(c echo.Context) error { return c.Redirect(http.StatusFound, "/dashboard") })
 	protected.GET("/dashboard", app.dashboard)
 	protected.GET("/slurm/nodes", app.slurmNodes, app.requireAdmin)
-	protected.GET("/slurm/partitions", func(c echo.Context) error {
-		return c.Redirect(http.StatusFound, "/slurm/nodes#partitions")
-	}, app.requireAdmin)
+	protected.GET("/slurm/partitions", app.slurmPartitions, app.requireAdmin)
+	protected.POST("/slurm/partitions", app.savePartition, app.requireAdmin)
 	protected.GET("/slurm/jobs", app.slurmJobs)
 	protected.GET("/slurm/jobs/:id/resources", app.slurmJobResources)
 	protected.GET("/slurm/jobs/:id/output/:stream", app.slurmJobOutput)
@@ -308,7 +333,7 @@ func New(config Config) (http.Handler, error) {
 		protected.GET(path, app.authorizedPlaceholder)
 	}
 
-	return &Handler{handler: e, audit: audit, jobOutputRoots: jobOutputRoots, settingsStore: config.SettingsStore, configCloser: configCloser, userStore: userStore}, nil
+	return &Handler{handler: e, audit: audit, jobOutputRoots: jobOutputRoots, settingsStore: config.SettingsStore, partitionStore: partitionStore, configCloser: configCloser, userStore: userStore}, nil
 }
 
 const auditPageSize = 50

@@ -134,6 +134,16 @@ type detailCopy struct {
 	MaxJobs, Unlimited                                       string
 }
 
+type partitionCopy struct {
+	Description, Refresh, EmptyNodes, EmptyPartitions string
+	Unavailable, PartitionName, SelectedNodes         string
+	CreatePartition, UpdatePartition                  string
+	LiveNodes, SavedPartitions, Status                string
+	Matched, Added, Removed                           string
+	Created, Patched, Unchanged                       string
+	Node, Partition, State, Action                   string
+}
+
 type accountsView struct {
 	appChrome
 	Module                  module
@@ -215,6 +225,34 @@ type nodesView struct {
 	Partitions          []cluster.Partition
 	NodesAvailable      bool
 	PartitionsAvailable bool
+}
+
+type partitionNodeView struct {
+	Name      string
+	Partition string
+	State     string
+	Selected  bool
+}
+
+type partitionRowView struct {
+	Name         string
+	Nodes        string
+	Status       string
+	AddedNodes   string
+	RemovedNodes string
+}
+
+type partitionsView struct {
+	appChrome
+	Module          module
+	Labels          partitionCopy
+	Nodes           []partitionNodeView
+	Partitions      []partitionRowView
+	NodesAvailable  bool
+	PartitionsSaved bool
+	Error           string
+	Success         string
+	SelectedName    string
 }
 
 type jobsView struct {
@@ -401,6 +439,31 @@ func detailCopyFor(language string) detailCopy {
 	}
 }
 
+func partitionCopyFor(language string) partitionCopy {
+	if language == "en" {
+		return partitionCopy{
+			Description: "Create or patch partitions by selecting live nodes. Saved definitions are kept in SQLite for fast recovery.",
+			Refresh: "Refresh", EmptyNodes: "No nodes reported", EmptyPartitions: "No saved partitions",
+			Unavailable: "Partition data is temporarily unavailable", PartitionName: "Partition name", SelectedNodes: "Selected nodes",
+			CreatePartition: "Create partition", UpdatePartition: "Patch partition",
+			LiveNodes: "Live nodes", SavedPartitions: "Saved partitions", Status: "Status",
+			Matched: "Matched", Added: "Added", Removed: "Removed",
+			Created: "Created", Patched: "Patched", Unchanged: "Unchanged",
+			Node: "Node", Partition: "Partition", State: "State", Action: "Action",
+		}
+	}
+	return partitionCopy{
+		Description: "通过勾选在线节点创建或补丁更新分区。已保存定义写入 SQLite，便于 Slurm 重启后快速恢复。",
+		Refresh: "刷新", EmptyNodes: "未报告节点", EmptyPartitions: "暂无已保存分区",
+		Unavailable: "分区数据暂不可用", PartitionName: "分区名称", SelectedNodes: "已选节点",
+		CreatePartition: "创建分区", UpdatePartition: "补丁更新",
+		LiveNodes: "在线节点", SavedPartitions: "已保存分区", Status: "状态",
+		Matched: "一致", Added: "新增", Removed: "移除",
+		Created: "已创建", Patched: "已更新", Unchanged: "无变化",
+		Node: "节点", Partition: "分区", State: "状态", Action: "操作",
+	}
+}
+
 func copyFor(language string) copySet {
 	if language == "en" {
 		return copySet{
@@ -434,6 +497,7 @@ func modulesFor(language string) []module {
 	zh := []module{
 		{Path: "/dashboard", Label: "总览", Group: "工作台", Icon: "grid"},
 		{Path: "/slurm/nodes", Label: "节点与分区", Group: "Slurm", Icon: "server"},
+		{Path: "/slurm/partitions", Label: "分区管理", Group: "Slurm", Icon: "server"},
 		{Path: "/slurm/jobs", Label: "作业管理", Group: "Slurm", Icon: "jobs"},
 		{Path: "/slurm/accounts", Label: "账户与用户", Group: "Slurm", Icon: "users"},
 		{Path: "/slurm/qos", Label: "QoS 与核时", Group: "Slurm", Icon: "gauge"},
@@ -447,8 +511,8 @@ func modulesFor(language string) []module {
 	if language != "en" {
 		return zh
 	}
-	labels := []string{"Overview", "Nodes & partitions", "Jobs", "Accounts & users", "QoS & core hours", "LDAP directory", "Platform users", "Slurm configuration", "Files", "Terminal", "Audit log"}
-	groups := []string{"Workspace", "Slurm", "Slurm", "Slurm", "Slurm", "Identity", "Identity", "System", "System", "System", "System"}
+	labels := []string{"Overview", "Nodes & partitions", "Partition management", "Jobs", "Accounts & users", "QoS & core hours", "LDAP directory", "Platform users", "Slurm configuration", "Files", "Terminal", "Audit log"}
+	groups := []string{"Workspace", "Slurm", "Slurm", "Slurm", "Slurm", "Slurm", "Identity", "Identity", "System", "System", "System", "System"}
 	result := make([]module, len(zh))
 	for index, item := range zh {
 		result[index] = module{Path: item.Path, Label: labels[index], Group: groups[index], Icon: item.Icon}
