@@ -285,6 +285,7 @@ func parseLDAPConfigFromStore(store *platform.SettingsStore) (bool, ldapdirector
 	config := ldapdirectory.Config{
 		URL: endpoint, BaseDN: baseDN,
 		Timeout: timeout, MaxResults: maxResults,
+		AllowInsecure: strings.EqualFold(strings.TrimSpace(os.Getenv("OPENHPC_LDAP_ALLOW_INSECURE")), "true"),
 	}
 	for key, target := range map[string]*string{"OPENHPC_LDAP_USER_BASE_DN": &config.UserBaseDN, "OPENHPC_LDAP_GROUP_BASE_DN": &config.GroupBaseDN, "OPENHPC_LDAP_BIND_DN": &config.BindDN, "OPENHPC_LDAP_BIND_PASSWORD": &config.BindPassword, "OPENHPC_LDAP_CA_FILE": &config.CAFile} {
 		value, err := settingValue(store, key, os.Getenv(key))
@@ -298,6 +299,9 @@ func parseLDAPConfigFromStore(store *platform.SettingsStore) (bool, ldapdirector
 	}
 	if err := ldapdirectory.ValidateConfig(config); err != nil {
 		return false, ldapdirectory.Config{}, fmt.Errorf("validate LDAP configuration: %w", err)
+	}
+	if config.AllowInsecure {
+		log.Print("WARNING: LDAP insecure mode enabled; Bind credentials will be sent without TLS")
 	}
 	return true, config, nil
 }

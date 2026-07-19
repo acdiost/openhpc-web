@@ -27,5 +27,10 @@
 {{end}}</section>
 {{end}}
 <button type="submit" class="primary-button">{{if eq .Language "en"}}Save settings{{else}}保存设置{{end}}</button>
-</form></main></div></div></body></html>
+</form>
+<form action="/settings/ldap-test" method="post" class="settings-test-form">
+<input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+<button type="submit" class="secondary-button">{{if eq .Language "en"}}Test LDAP connectivity{{else}}测试 LDAP 连通性{{end}}</button>
+</form>
+</main></div></div></body></html>
 {{end}}
