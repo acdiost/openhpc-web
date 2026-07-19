@@ -295,12 +295,12 @@ func parseLDAPConfigFromStore(store *platform.SettingsStore) (bool, ldapdirector
 		Timeout: timeout, MaxResults: maxResults,
 		AllowInsecure: strings.EqualFold(strings.TrimSpace(os.Getenv("OPENHPC_LDAP_ALLOW_INSECURE")), "true"),
 	}
-	for key, target := range map[string]*string{"OPENHPC_LDAP_USER_BASE_DN": &config.UserBaseDN, "OPENHPC_LDAP_GROUP_BASE_DN": &config.GroupBaseDN, "OPENHPC_LDAP_BIND_DN": &config.BindDN, "OPENHPC_LDAP_BIND_PASSWORD": &config.BindPassword, "OPENHPC_LDAP_CA_FILE": &config.CAFile} {
+	for key, target := range map[string]*string{"OPENHPC_LDAP_USER_BASE_DN": &config.UserBaseDN, "OPENHPC_LDAP_GROUP_BASE_DN": &config.GroupBaseDN, "OPENHPC_LDAP_BIND_DN": &config.BindDN, "OPENHPC_LDAP_BIND_PASSWORD": &config.BindPassword, "OPENHPC_LDAP_PROVISION_BIND_DN": &config.ProvisionBindDN, "OPENHPC_LDAP_PROVISION_BIND_PASSWORD": &config.ProvisionBindPassword, "OPENHPC_LDAP_CA_FILE": &config.CAFile} {
 		value, err := settingValue(store, key, os.Getenv(key))
 		if err != nil {
 			return false, ldapdirectory.Config{}, err
 		}
-		if key != "OPENHPC_LDAP_BIND_PASSWORD" {
+		if key != "OPENHPC_LDAP_BIND_PASSWORD" && key != "OPENHPC_LDAP_PROVISION_BIND_PASSWORD" {
 			value = strings.TrimSpace(value)
 		}
 		*target = value

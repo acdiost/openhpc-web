@@ -390,11 +390,13 @@ func TestParseLDAPConfigFromEnvCustomValues(t *testing.T) {
 	t.Setenv("OPENHPC_LDAP_GROUP_BASE_DN", "ou=Group,dc=example,dc=com")
 	t.Setenv("OPENHPC_LDAP_BIND_DN", "cn=reader,dc=example,dc=com")
 	t.Setenv("OPENHPC_LDAP_BIND_PASSWORD", " secret-value ")
+	t.Setenv("OPENHPC_LDAP_PROVISION_BIND_DN", "cn=provisioner,dc=example,dc=com")
+	t.Setenv("OPENHPC_LDAP_PROVISION_BIND_PASSWORD", " provision-secret ")
 	_, config, err := parseLDAPConfigFromEnv()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.UserBaseDN != "ou=People,dc=example,dc=com" || config.GroupBaseDN != "ou=Group,dc=example,dc=com" || config.BindDN == "" || config.BindPassword != " secret-value " {
+	if config.UserBaseDN != "ou=People,dc=example,dc=com" || config.GroupBaseDN != "ou=Group,dc=example,dc=com" || config.BindDN == "" || config.BindPassword != " secret-value " || config.ProvisionBindDN == "" || config.ProvisionBindPassword != " provision-secret " {
 		t.Errorf("config = %#v", config)
 	}
 }
@@ -419,6 +421,8 @@ func setLDAPEnvironment(t *testing.T, enabled, endpoint, baseDN, timeout, limit 
 	t.Setenv("OPENHPC_LDAP_GROUP_BASE_DN", "")
 	t.Setenv("OPENHPC_LDAP_BIND_DN", "")
 	t.Setenv("OPENHPC_LDAP_BIND_PASSWORD", "")
+	t.Setenv("OPENHPC_LDAP_PROVISION_BIND_DN", "")
+	t.Setenv("OPENHPC_LDAP_PROVISION_BIND_PASSWORD", "")
 	t.Setenv("OPENHPC_LDAP_CA_FILE", "")
 	t.Setenv("OPENHPC_LDAP_TIMEOUT", timeout)
 	t.Setenv("OPENHPC_LDAP_MAX_RESULTS", limit)

@@ -2,14 +2,18 @@ package web
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
 
+	"github.com/acdiost/openhpc-web/internal/directory"
 	"github.com/acdiost/openhpc-web/internal/platform"
 	"golang.org/x/crypto/bcrypt"
 )
+
+const testPlatformLDAPPassphrase = "ldap user password"
 
 func TestPlatformUserLifecycleCreatesWithoutOverwriteAndRevokesDisabledSessions(t *testing.T) {
 	store, err := platform.OpenUserStore(":memory:")
@@ -141,3 +145,145 @@ func TestPlatformUsersPageShowsAccountSummaryAndManagementGuidance(t *testing.T)
 		assertBodyContains(t, chineseResponse, value)
 	}
 }
+
+func TestPlatformUserCanCreateLinkedLDAPUser(t *testing.T) {
+	store, err := platform.OpenUserStore(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	provisioner := &stubLDAPUserProvisioner{}
+	if err := store.Create(context.Background(), platform.PlatformUser{Username: "alice", PasswordHash: "hash", Role: platform.RoleUser, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	handler, err := New(Config{AdminUsername: testUsername, AdminPassword: testPassword, PlatformUsers: store, DirectoryProvider: provisioner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupHandler(t, handler)
+
+	page := getAuthenticated(t, handler, "/platform/users?ldap_user=alice", "en")
+	assertStatus(t, page, http.StatusOK)
+	assertBodyContains(t, page, `href="/platform/users?ldap_user=alice"`)
+	assertBodyContains(t, page, `id="platform-ldap-create-modal"`)
+	assertBodyContains(t, page, `name="username" value="alice"`)
+
+	session, csrf := loginWithCSRF(t, handler)
+	created := postProtectedForm(handler, "/platform/users/ldap", url.Values{
+		"username":       {"alice"},
+		"uid_number":     {"1001"},
+		"gid_number":     {"1001"},
+		"home_directory": {"/home/alice"},
+		"login_shell":    {"/bin/bash"},
+		"password":       {testPlatformLDAPPassphrase},
+	}, session, csrf)
+	assertStatus(t, created, http.StatusSeeOther)
+	assertHeader(t, created, "Location", "/platform/users?result=ldap-created")
+	if provisioner.calls != 1 {
+		t.Fatalf("LDAP create calls = %d, want 1", provisioner.calls)
+	}
+	want := directory.UserCreateRequest{UID: "alice", UIDNumber: 1001, GIDNumber: 1001, HomeDirectory: "/home/alice", LoginShell: "/bin/bash", Password: testPlatformLDAPPassphrase}
+	if provisioner.request != want {
+		t.Errorf("LDAP request = %#v, want %#v", provisioner.request, want)
+	}
+	assertAuditOutcome(t, handler.(*Handler).audit, "ldap.user.create", "success")
+
+	unknown := postProtectedForm(handler, "/platform/users/ldap", url.Values{
+		"username": {"missing"}, "uid_number": {"1002"}, "gid_number": {"1002"},
+		"home_directory": {"/home/missing"}, "login_shell": {"/bin/bash"}, "password": {testPlatformLDAPPassphrase},
+	}, session, csrf)
+	assertStatus(t, unknown, http.StatusSeeOther)
+	assertHeader(t, unknown, "Location", "/platform/users?result=ldap-invalid")
+	if provisioner.calls != 1 {
+		t.Fatalf("LDAP create calls after invalid user = %d, want 1", provisioner.calls)
+	}
+	assertAuditOutcome(t, handler.(*Handler).audit, "ldap.user.create", "denied")
+
+	invalid := postProtectedForm(handler, "/platform/users/ldap", url.Values{
+		"username": {"alice"}, "uid_number": {"bad"}, "gid_number": {"1001"},
+		"home_directory": {"/home/alice"}, "login_shell": {"/bin/bash"}, "password": {testPlatformLDAPPassphrase},
+	}, session, csrf)
+	assertStatus(t, invalid, http.StatusSeeOther)
+	assertHeader(t, invalid, "Location", "/platform/users?result=ldap-invalid")
+	assertAuditOutcome(t, handler.(*Handler).audit, "ldap.user.create", "invalid_request")
+
+	provisioner.err = errors.New("bind cn=secret password=hunter2")
+	failure := postProtectedForm(handler, "/platform/users/ldap", url.Values{
+		"username": {"alice"}, "uid_number": {"1003"}, "gid_number": {"1001"},
+		"home_directory": {"/home/alice"}, "login_shell": {"/bin/bash"}, "password": {testPlatformLDAPPassphrase},
+	}, session, csrf)
+	assertStatus(t, failure, http.StatusSeeOther)
+	assertHeader(t, failure, "Location", "/platform/users?result=ldap-error")
+	assertAuditOutcome(t, handler.(*Handler).audit, "ldap.user.create", "failure")
+	errorPage := getAuthenticated(t, handler, "/platform/users?result=ldap-error", "en")
+	assertBodyNotContains(t, errorPage, "cn=secret")
+	assertBodyNotContains(t, errorPage, "hunter2")
+
+	provisioner.err = nil
+	if err := store.SetEnabled(context.Background(), "alice", false); err != nil {
+		t.Fatal(err)
+	}
+	disabled := postProtectedForm(handler, "/platform/users/ldap", url.Values{
+		"username": {"alice"}, "uid_number": {"1004"}, "gid_number": {"1001"},
+		"home_directory": {"/home/alice"}, "login_shell": {"/bin/bash"}, "password": {testPlatformLDAPPassphrase},
+	}, session, csrf)
+	assertStatus(t, disabled, http.StatusSeeOther)
+	assertHeader(t, disabled, "Location", "/platform/users?result=ldap-invalid")
+	assertAuditOutcome(t, handler.(*Handler).audit, "ldap.user.create", "denied")
+}
+
+func TestPlatformUsersHideUnavailableLDAPProvisioning(t *testing.T) {
+	store, err := platform.OpenUserStore(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Create(context.Background(), platform.PlatformUser{Username: "alice", PasswordHash: "hash", Role: platform.RoleUser, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	provisioner := &unavailableLDAPUserProvisioner{}
+	handler, err := New(Config{AdminUsername: testUsername, AdminPassword: testPassword, PlatformUsers: store, DirectoryProvider: provisioner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupHandler(t, handler)
+
+	page := getAuthenticated(t, handler, "/platform/users?ldap_user=alice", "en")
+	assertStatus(t, page, http.StatusOK)
+	assertBodyNotContains(t, page, "Create LDAP user")
+
+	session, csrf := loginWithCSRF(t, handler)
+	response := postProtectedForm(handler, "/platform/users/ldap", url.Values{"username": {"alice"}}, session, csrf)
+	assertStatus(t, response, http.StatusSeeOther)
+	assertHeader(t, response, "Location", "/platform/users?result=ldap-unavailable")
+	if provisioner.calls != 0 {
+		t.Fatalf("LDAP create calls = %d, want 0", provisioner.calls)
+	}
+	assertAuditOutcome(t, handler.(*Handler).audit, "ldap.user.create", "unavailable")
+}
+
+type stubLDAPUserProvisioner struct {
+	calls   int
+	request directory.UserCreateRequest
+	err     error
+}
+
+func (p *stubLDAPUserProvisioner) CreateUser(_ context.Context, request directory.UserCreateRequest) error {
+	p.calls++
+	p.request = request
+	return p.err
+}
+
+func (p *stubLDAPUserProvisioner) Search(context.Context, string) (directory.Page, error) {
+	return directory.Page{}, nil
+}
+
+func (p *stubLDAPUserProvisioner) User(context.Context, string) (directory.User, bool, error) {
+	return directory.User{}, false, nil
+}
+
+func (p *stubLDAPUserProvisioner) Group(context.Context, string) (directory.Group, bool, error) {
+	return directory.Group{}, false, nil
+}
+
+type unavailableLDAPUserProvisioner struct{ stubLDAPUserProvisioner }
+
+func (*unavailableLDAPUserProvisioner) UserProvisioningAvailable() bool { return false }

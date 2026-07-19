@@ -36,6 +36,8 @@ var settingsSpecs = []settingsSpec{
 	{Key: "OPENHPC_LDAP_GROUP_BASE_DN", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "组基础 DN", LabelEN: "Group base DN", InputType: "text"},
 	{Key: "OPENHPC_LDAP_BIND_DN", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "只读 Bind DN", LabelEN: "Read-only bind DN", InputType: "text"},
 	{Key: "OPENHPC_LDAP_BIND_PASSWORD", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "Bind 密码", LabelEN: "Bind password", InputType: "password", Secret: true},
+	{Key: "OPENHPC_LDAP_PROVISION_BIND_DN", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "创建用户 Bind DN", LabelEN: "Provisioning bind DN", InputType: "text"},
+	{Key: "OPENHPC_LDAP_PROVISION_BIND_PASSWORD", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "创建用户 Bind 密码", LabelEN: "Provisioning bind password", InputType: "password", Secret: true},
 	{Key: "OPENHPC_LDAP_CA_FILE", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "CA 文件", LabelEN: "CA file", InputType: "text"},
 	{Key: "OPENHPC_LDAP_TIMEOUT", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "LDAP 超时", LabelEN: "LDAP timeout", InputType: "text"},
 	{Key: "OPENHPC_LDAP_MAX_RESULTS", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "最大结果数", LabelEN: "Maximum results", InputType: "number"},
@@ -264,7 +266,7 @@ func validateSettingFormValue(key, value string) error {
 				return errors.New("invalid LDAP URL")
 			}
 		}
-	case "OPENHPC_LDAP_BASE_DN", "OPENHPC_LDAP_USER_BASE_DN", "OPENHPC_LDAP_GROUP_BASE_DN", "OPENHPC_LDAP_BIND_DN":
+	case "OPENHPC_LDAP_BASE_DN", "OPENHPC_LDAP_USER_BASE_DN", "OPENHPC_LDAP_GROUP_BASE_DN", "OPENHPC_LDAP_BIND_DN", "OPENHPC_LDAP_PROVISION_BIND_DN":
 		if value != "" {
 			if _, err := ldap.ParseDN(value); err != nil {
 				return errors.New("invalid DN")

@@ -336,6 +336,9 @@
   .platform-user-confirmation p { margin-bottom: 0.75rem; font-size: 0.8125rem; }
   .platform-user-create-form { margin: 0; }
   .platform-user-modal-actions { margin-top: auto; }
+  .platform-user-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+  .platform-user-ldap { border-color: #1769aa; color: #0f4d80; }
+  .platform-user-ldap:hover { background: #eef7fd; }
   .account-section-count {
     display: inline-grid;
     min-width: 1.75rem;

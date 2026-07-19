@@ -74,6 +74,8 @@ LDAPTLS_CACERT=/etc/pki/ca-trust/source/anchors/openhpc-ldap-ca.pem \
 
 证书 SAN 必须包含 `OPENHPC_LDAP_URL` 使用的主机名。只读 Bind 账户的 ACL 仅需允许在配置的 Base DN 下搜索和读取：`uid`、`cn`、`mail`、`uidNumber`、`gidNumber`、`homeDirectory`、`loginShell`、`description`、`memberUid` 和 `objectClass`。不要授权 `userPassword`、`authPassword`、SSH key 或写权限。
 
+如需从“平台用户”页面创建 LDAP 用户，另配 `OPENHPC_LDAP_PROVISION_BIND_DN` 和 `OPENHPC_LDAP_PROVISION_BIND_PASSWORD`。该账户应与只读账户分离，只允许搜索 `posixAccount`、`posixGroup`，并在用户基础 DN 下新增 `posixAccount`。此功能仅接受 `ldaps://`；创建前会拒绝同名用户、已用 UID 和不存在或不唯一的主组 GID。为兼容现有 OpenLDAP 部署，密码以 `{SSHA}` 格式写入，由 LDAP 服务器负责校验；平台网页仍使用平台账号本身的密码。
+
 ## 3. 构建与上传
 
 在安装 Go 1.25.12 或更高安全修订版本的开发机仓库根目录构建：
@@ -177,6 +179,10 @@ OPENHPC_LDAP_USER_BASE_DN=ou=People,dc=example,dc=com
 OPENHPC_LDAP_GROUP_BASE_DN=ou=Group,dc=example,dc=com
 OPENHPC_LDAP_BIND_DN=cn=openhpc-reader,dc=example,dc=com
 OPENHPC_LDAP_BIND_PASSWORD=REPLACE_WITH_A_READ_ONLY_BIND_PASSWORD
+# Optional: enables platform-user LDAP creation over LDAPS. This account needs
+# only posixAccount/posixGroup search and posixAccount add permission under User Base DN.
+OPENHPC_LDAP_PROVISION_BIND_DN=cn=openhpc-provisioner,dc=example,dc=com
+OPENHPC_LDAP_PROVISION_BIND_PASSWORD=REPLACE_WITH_A_PROVISION_BIND_PASSWORD
 OPENHPC_LDAP_CA_FILE=/etc/pki/ca-trust/source/anchors/openhpc-ldap-ca.pem
 OPENHPC_LDAP_TIMEOUT=3s
 OPENHPC_LDAP_MAX_RESULTS=200

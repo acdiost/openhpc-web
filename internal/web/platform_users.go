@@ -2,11 +2,14 @@ package web
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/acdiost/openhpc-web/internal/directory"
 	"github.com/acdiost/openhpc-web/internal/platform"
 	"github.com/labstack/echo/v4"
 	"golang.org/x/crypto/bcrypt"
@@ -20,6 +23,7 @@ func (a *application) platformUsersPage(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusServiceUnavailable)
 	}
 	rows := make([]platformUserRow, len(users))
+	ldapProvisioning := ldapUserProvisioningAvailable(a.directoryProvider)
 	activeCount := 0
 	confirmDisableUsername := ""
 	for i, user := range users {
@@ -39,7 +43,16 @@ func (a *application) platformUsersPage(c echo.Context) error {
 		if c.QueryParam("confirm") == "disable" && c.QueryParam("username") == user.Username && user.Enabled && user.Username != currentPrincipal(c).Username {
 			confirmDisableUsername = user.Username
 		}
-		rows[i] = platformUserRow{Username: user.Username, Role: role, Enabled: user.Enabled, CreatedAt: user.CreatedAt.Local().Format("2006-01-02 15:04")}
+		rows[i] = platformUserRow{Username: user.Username, Role: role, Enabled: user.Enabled, CanCreateLDAP: ldapProvisioning && user.Enabled, CreatedAt: user.CreatedAt.Local().Format("2006-01-02 15:04")}
+	}
+	ldapCreateUsername := ""
+	if candidate := c.QueryParam("ldap_user"); platform.ValidateUsername(candidate) == nil {
+		for _, row := range rows {
+			if row.Username == candidate && row.CanCreateLDAP {
+				ldapCreateUsername = candidate
+				break
+			}
+		}
 	}
 	return a.render(c, http.StatusOK, "platform_users.html", platformUsersView{
 		appChrome:              a.newAppChrome(c, "/platform/users", a.slurmHealth(c.Request().Context()), pageHeading{Eyebrow: "OPENHPC / IDENTITY", Title: map[bool]string{true: "Platform users", false: "平台用户"}[language(c) == "en"], Description: map[bool]string{true: "Manage local platform accounts", false: "管理平台本地账号"}[language(c) == "en"]}),
@@ -49,9 +62,59 @@ func (a *application) platformUsersPage(c echo.Context) error {
 		DisabledCount:          len(rows) - activeCount,
 		ConfirmDisableUsername: confirmDisableUsername,
 		OpenCreate:             c.QueryParam("create") == "1",
+		LDAPProvisioning:       ldapProvisioning,
+		LDAPCreateUsername:     ldapCreateUsername,
+		LDAPCreateHome:         "/home/" + ldapCreateUsername,
 		Success:                platformUserSuccessFor(language(c), c.QueryParam("result")),
 		Error:                  platformUserErrorFor(language(c), c.QueryParam("result")),
 	})
+}
+
+func (a *application) createLinkedLDAPUser(c echo.Context) error {
+	creator, supported := a.directoryProvider.(directory.UserCreator)
+	if !supported || !ldapUserProvisioningAvailable(a.directoryProvider) {
+		a.recordLDAPUserCreateAudit(c, "unavailable")
+		return a.redirectPlatformUsers(c, "ldap-unavailable")
+	}
+	uidNumber, uidErr := strconv.ParseInt(c.FormValue("uid_number"), 10, 64)
+	gidNumber, gidErr := strconv.ParseInt(c.FormValue("gid_number"), 10, 64)
+	request := directory.UserCreateRequest{
+		UID:           strings.TrimSpace(c.FormValue("username")),
+		UIDNumber:     uidNumber,
+		GIDNumber:     gidNumber,
+		HomeDirectory: strings.TrimSpace(c.FormValue("home_directory")),
+		LoginShell:    strings.TrimSpace(c.FormValue("login_shell")),
+		Password:      c.FormValue("password"),
+	}
+	if uidErr != nil || gidErr != nil || directory.ValidateUserCreateRequest(request) != nil {
+		a.recordLDAPUserCreateAudit(c, "invalid_request")
+		return a.redirectPlatformUsers(c, "ldap-invalid")
+	}
+	platformUser, found, err := a.platformUsers.Get(c.Request().Context(), request.UID)
+	if err != nil || !found || !platformUser.Enabled {
+		a.recordLDAPUserCreateAudit(c, "denied")
+		return a.redirectPlatformUsers(c, "ldap-invalid")
+	}
+	if err := a.withDirectorySlot(func() error { return creator.CreateUser(c.Request().Context(), request) }); err != nil {
+		log.Printf("LDAP user create failed")
+		a.recordLDAPUserCreateAudit(c, "failure")
+		return a.redirectPlatformUsers(c, "ldap-error")
+	}
+	a.recordLDAPUserCreateAudit(c, "success")
+	return a.redirectPlatformUsers(c, "ldap-created")
+}
+
+func ldapUserProvisioningAvailable(provider directory.Provider) bool {
+	creator, supported := provider.(directory.UserCreator)
+	if !supported {
+		return false
+	}
+	status, reportsStatus := creator.(directory.UserProvisioningStatus)
+	return !reportsStatus || status.UserProvisioningAvailable()
+}
+
+func (a *application) recordLDAPUserCreateAudit(c echo.Context, outcome string) {
+	_ = a.recordAudit(c, platform.AuditEvent{Actor: currentPrincipal(c).Username, Action: "ldap.user.create", Outcome: outcome, CreatedAt: time.Now()})
 }
 
 func (a *application) createPlatformUser(c echo.Context) error {
@@ -109,6 +172,8 @@ func platformUserSuccessFor(language, result string) string {
 			return "Platform user created."
 		case "updated":
 			return "Platform user status updated."
+		case "ldap-created":
+			return "LDAP user created for the platform account."
 		}
 		return ""
 	}
@@ -117,6 +182,8 @@ func platformUserSuccessFor(language, result string) string {
 		return "平台用户已创建。"
 	case "updated":
 		return "平台用户状态已更新。"
+	case "ldap-created":
+		return "已为平台账号创建 LDAP 用户。"
 	}
 	return ""
 }
@@ -130,6 +197,12 @@ func platformUserErrorFor(language, result string) string {
 			return "The submitted platform user details are invalid."
 		case "error":
 			return "The platform user could not be saved."
+		case "ldap-invalid":
+			return "The LDAP user details are invalid or the platform account is unavailable."
+		case "ldap-unavailable":
+			return "LDAP user provisioning is unavailable."
+		case "ldap-error":
+			return "The LDAP user could not be created."
 		}
 		return ""
 	}
@@ -140,6 +213,12 @@ func platformUserErrorFor(language, result string) string {
 		return "提交的平台用户信息无效。"
 	case "error":
 		return "无法保存平台用户。"
+	case "ldap-invalid":
+		return "LDAP 用户信息无效，或平台账号不可用。"
+	case "ldap-unavailable":
+		return "LDAP 用户创建当前不可用。"
+	case "ldap-error":
+		return "无法创建 LDAP 用户。"
 	}
 	return ""
 }

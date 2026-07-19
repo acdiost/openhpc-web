@@ -324,6 +324,7 @@ func New(config Config) (http.Handler, error) {
 	protected.GET("/audit", app.auditLog, app.requireAdmin)
 	protected.GET("/platform/users", app.platformUsersPage, app.requireAdmin)
 	protected.POST("/platform/users", app.createPlatformUser, app.requireAdmin)
+	protected.POST("/platform/users/ldap", app.createLinkedLDAPUser, app.requireAdmin)
 	protected.POST("/platform/users/status", app.setPlatformUserStatus, app.requireAdmin)
 	protected.POST("/preferences/language", app.setLanguage)
 	protected.POST("/preferences/theme", app.setTheme)

@@ -2,8 +2,11 @@ package ldapdirectory
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha1"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
@@ -40,24 +43,28 @@ var (
 	userAttributes  = []string{"uid", "cn", "mail", "uidNumber", "gidNumber", "homeDirectory", "loginShell"}
 	groupAttributes = []string{"cn", "description", "gidNumber", "memberUid"}
 
-	errLDAPSearchResponseTooLarge = errors.New("LDAP search response exceeds resource limit")
+	errLDAPSearchResponseTooLarge  = errors.New("LDAP search response exceeds resource limit")
+	ErrUserProvisioningUnavailable = errors.New("LDAP user provisioning is unavailable")
 )
 
 type Config struct {
-	URL           string
-	BaseDN        string
-	UserBaseDN    string
-	GroupBaseDN   string
-	BindDN        string
-	BindPassword  string
-	CAFile        string
-	Timeout       time.Duration
-	MaxResults    int
-	AllowInsecure bool
+	URL                   string
+	BaseDN                string
+	UserBaseDN            string
+	GroupBaseDN           string
+	BindDN                string
+	BindPassword          string
+	ProvisionBindDN       string
+	ProvisionBindPassword string
+	CAFile                string
+	Timeout               time.Duration
+	MaxResults            int
+	AllowInsecure         bool
 }
 
 type ldapConnection interface {
 	Bind(string, string) error
+	Add(*ldap.AddRequest) error
 	SearchAsync(context.Context, *ldap.SearchRequest, int) ldap.Response
 	SetTimeout(time.Duration)
 	Close() error
@@ -130,8 +137,8 @@ func validateConfig(config Config) (*tls.Config, error) {
 	if err != nil || (endpoint.Scheme != "ldaps" && !(endpoint.Scheme == "ldap" && config.AllowInsecure)) || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || (endpoint.Path != "" && endpoint.Path != "/") {
 		return nil, errors.New("LDAP URL must be an ldaps URL, or ldap when explicitly enabled, without credentials, query or fragment")
 	}
-	for name, value := range map[string]string{"base DN": config.BaseDN, "user base DN": config.UserBaseDN, "group base DN": config.GroupBaseDN, "bind DN": config.BindDN} {
-		if value == "" && (name == "user base DN" || name == "group base DN" || name == "bind DN") {
+	for name, value := range map[string]string{"base DN": config.BaseDN, "user base DN": config.UserBaseDN, "group base DN": config.GroupBaseDN, "bind DN": config.BindDN, "provision bind DN": config.ProvisionBindDN} {
+		if value == "" && (name == "user base DN" || name == "group base DN" || name == "bind DN" || name == "provision bind DN") {
 			continue
 		}
 		if value == "" {
@@ -143,6 +150,9 @@ func validateConfig(config Config) (*tls.Config, error) {
 	}
 	if (config.BindDN == "") != (config.BindPassword == "") {
 		return nil, errors.New("LDAP bind DN and password must be configured together")
+	}
+	if (config.ProvisionBindDN == "") != (config.ProvisionBindPassword == "") {
+		return nil, errors.New("LDAP provision bind DN and password must be configured together")
 	}
 	if config.Timeout <= 0 || config.Timeout > maxLDAPTimeout {
 		return nil, errors.New("LDAP timeout must be between zero and 30 seconds")
@@ -291,15 +301,99 @@ func (c *Client) Authenticate(ctx context.Context, uid, password string) (bool, 
 	return true, nil
 }
 
+func (c *Client) CreateUser(ctx context.Context, request directory.UserCreateRequest) error {
+	if err := directory.ValidateUserCreateRequest(request); err != nil {
+		return err
+	}
+	if !c.UserProvisioningAvailable() {
+		return ErrUserProvisioningUnavailable
+	}
+	connection, stopCancellation, err := c.openWithBind(ctx, c.config.ProvisionBindDN, c.config.ProvisionBindPassword)
+	if err != nil {
+		return err
+	}
+	defer connection.Close()
+	defer stopCancellation()
+	if err := c.ensureUserIdentityAvailable(ctx, connection, request); err != nil {
+		return err
+	}
+	password, err := sshaPassword(request.Password)
+	if err != nil {
+		return errors.New("generate LDAP password hash")
+	}
+	addRequest := ldap.NewAddRequest("uid="+ldap.EscapeDN(request.UID)+","+c.config.UserBaseDN, nil)
+	addRequest.Attribute("objectClass", []string{"top", "posixAccount", "inetOrgPerson"})
+	addRequest.Attribute("uid", []string{request.UID})
+	addRequest.Attribute("cn", []string{request.UID})
+	addRequest.Attribute("sn", []string{request.UID})
+	addRequest.Attribute("uidNumber", []string{strconv.FormatInt(request.UIDNumber, 10)})
+	addRequest.Attribute("gidNumber", []string{strconv.FormatInt(request.GIDNumber, 10)})
+	addRequest.Attribute("homeDirectory", []string{request.HomeDirectory})
+	addRequest.Attribute("loginShell", []string{request.LoginShell})
+	addRequest.Attribute("userPassword", []string{password})
+	if err := connection.Add(addRequest); err != nil {
+		return fmt.Errorf("create LDAP user: %w", err)
+	}
+	return nil
+}
+
+func (c *Client) UserProvisioningAvailable() bool {
+	endpoint, err := url.Parse(c.config.URL)
+	return err == nil && endpoint.Scheme == "ldaps" && c.config.ProvisionBindDN != "" && c.config.ProvisionBindPassword != ""
+}
+
+func (c *Client) ensureUserIdentityAvailable(ctx context.Context, connection ldapConnection, request directory.UserCreateRequest) error {
+	checks := []struct {
+		filter string
+		error  string
+	}{
+		{"(&(objectClass=posixAccount)(uid=" + ldap.EscapeFilter(request.UID) + "))", "LDAP username already exists"},
+		{"(&(objectClass=posixAccount)(uidNumber=" + strconv.FormatInt(request.UIDNumber, 10) + "))", "LDAP UID already exists"},
+	}
+	for _, check := range checks {
+		result, truncated, err := boundedSearch(ctx, connection, c.searchRequest(c.config.UserBaseDN, check.filter, []string{"uid"}, 2))
+		if err != nil {
+			return fmt.Errorf("verify LDAP user identity: %w", err)
+		}
+		if truncated || len(result.Entries) != 0 {
+			return errors.New(check.error)
+		}
+	}
+	filter := "(&(objectClass=posixGroup)(gidNumber=" + strconv.FormatInt(request.GIDNumber, 10) + "))"
+	result, truncated, err := boundedSearch(ctx, connection, c.searchRequest(c.config.GroupBaseDN, filter, []string{"gidNumber"}, 2))
+	if err != nil {
+		return fmt.Errorf("verify LDAP primary group: %w", err)
+	}
+	if truncated || len(result.Entries) != 1 {
+		return errors.New("LDAP primary group does not exist or is not unique")
+	}
+	return nil
+}
+
+func sshaPassword(password string) (string, error) {
+	salt := make([]byte, 8)
+	if _, err := rand.Read(salt); err != nil {
+		return "", err
+	}
+	hash := sha1.New()
+	_, _ = hash.Write([]byte(password))
+	_, _ = hash.Write(salt)
+	return "{SSHA}" + base64.StdEncoding.EncodeToString(append(hash.Sum(nil), salt...)), nil
+}
+
 func (c *Client) open(ctx context.Context) (ldapConnection, func(), error) {
+	return c.openWithBind(ctx, c.config.BindDN, c.config.BindPassword)
+}
+
+func (c *Client) openWithBind(ctx context.Context, bindDN, bindPassword string) (ldapConnection, func(), error) {
 	connection, err := c.dial(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 	connection.SetTimeout(c.config.Timeout)
 	stopCancellation := closeOnContext(ctx, connection)
-	if c.config.BindDN != "" {
-		if err := connection.Bind(c.config.BindDN, c.config.BindPassword); err != nil {
+	if bindDN != "" {
+		if err := connection.Bind(bindDN, bindPassword); err != nil {
 			stopCancellation()
 			_ = connection.Close()
 			if ctx.Err() != nil {

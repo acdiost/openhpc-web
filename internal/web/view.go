@@ -94,6 +94,7 @@ type slurmConfigView struct {
 type platformUserRow struct {
 	Username, Role, CreatedAt string
 	Enabled                   bool
+	CanCreateLDAP             bool
 }
 type platformUsersView struct {
 	appChrome
@@ -103,6 +104,9 @@ type platformUsersView struct {
 	DisabledCount          int
 	ConfirmDisableUsername string
 	OpenCreate             bool
+	LDAPProvisioning       bool
+	LDAPCreateUsername     string
+	LDAPCreateHome         string
 	Error, Success         string
 }
 

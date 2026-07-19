@@ -18,6 +18,13 @@ import (
 	ldap "github.com/go-ldap/ldap/v3"
 )
 
+const (
+	testLDAPPassphrase      = "ldap user password"
+	testDirectoryCredential = "test-password"
+	testProvisionCredential = "provision-password"
+	testInvalidCredential   = "secret"
+)
+
 func TestNewRejectsInvalidConfiguration(t *testing.T) {
 	tests := []Config{
 		{},
@@ -26,7 +33,9 @@ func TestNewRejectsInvalidConfiguration(t *testing.T) {
 		{URL: "ldaps://ldap.example.com:636?secret=true", BaseDN: "dc=example,dc=com", Timeout: time.Second, MaxResults: 10},
 		{URL: "ldaps://ldap.example.com:636", BaseDN: "not a dn", Timeout: time.Second, MaxResults: 10},
 		{URL: "ldaps://ldap.example.com:636", BaseDN: "dc=example,dc=com", BindDN: "cn=reader,dc=example,dc=com", Timeout: time.Second, MaxResults: 10},
-		{URL: "ldaps://ldap.example.com:636", BaseDN: "dc=example,dc=com", BindPassword: "secret", Timeout: time.Second, MaxResults: 10},
+		{URL: "ldaps://ldap.example.com:636", BaseDN: "dc=example,dc=com", BindPassword: testInvalidCredential, Timeout: time.Second, MaxResults: 10},
+		{URL: "ldaps://ldap.example.com:636", BaseDN: "dc=example,dc=com", ProvisionBindDN: "cn=provisioner,dc=example,dc=com", Timeout: time.Second, MaxResults: 10},
+		{URL: "ldaps://ldap.example.com:636", BaseDN: "dc=example,dc=com", ProvisionBindPassword: testInvalidCredential, Timeout: time.Second, MaxResults: 10},
 		{URL: "ldaps://ldap.example.com:636", BaseDN: "dc=example,dc=com", Timeout: 0, MaxResults: 10},
 		{URL: "ldaps://ldap.example.com:636", BaseDN: "dc=example,dc=com", Timeout: time.Second, MaxResults: 0},
 		{URL: "ldaps://ldap.example.com:636", BaseDN: "dc=example,dc=com", Timeout: time.Second, MaxResults: 501},
@@ -188,6 +197,81 @@ func TestClientAuthenticateRejectsInvalidCredentials(t *testing.T) {
 	}
 	if ok {
 		t.Fatal("Authenticate() = true, want false")
+	}
+}
+
+func TestClientCreatesPosixLDAPUserWithSSHAPassword(t *testing.T) {
+	connection := &fakeLDAPConnection{results: []*ldap.SearchResult{{}, {}, {Entries: []*ldap.Entry{ldap.NewEntry("cn=users,dc=example,dc=com", map[string][]string{"cn": {"users"}, "gidNumber": {"1001"}})}}}}
+	client := newTestClient(t, connection, 10)
+	request := directory.UserCreateRequest{UID: "alice", UIDNumber: 1001, GIDNumber: 1001, HomeDirectory: "/home/alice", LoginShell: "/bin/bash", Password: testLDAPPassphrase}
+	if err := client.CreateUser(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	if connection.addRequest == nil {
+		t.Fatal("LDAP add request is missing")
+	}
+	if connection.addRequest.DN != "uid=alice,dc=example,dc=com" {
+		t.Errorf("DN = %q", connection.addRequest.DN)
+	}
+	attributes := map[string][]string{}
+	for _, attribute := range connection.addRequest.Attributes {
+		attributes[attribute.Type] = attribute.Vals
+	}
+	if !reflect.DeepEqual(attributes["objectClass"], []string{"top", "posixAccount", "inetOrgPerson"}) {
+		t.Errorf("objectClass = %#v", attributes["objectClass"])
+	}
+	if attributes["uidNumber"][0] != "1001" || attributes["gidNumber"][0] != "1001" || attributes["homeDirectory"][0] != "/home/alice" {
+		t.Errorf("attributes = %#v", attributes)
+	}
+	if password := attributes["userPassword"][0]; !strings.HasPrefix(password, "{SSHA}") || password == testLDAPPassphrase {
+		t.Errorf("userPassword = %q", password)
+	}
+	if !reflect.DeepEqual(connection.binds, []ldapBind{{"cn=provisioner,dc=example,dc=com", "provision-password"}}) {
+		t.Errorf("binds = %#v", connection.binds)
+	}
+}
+
+func TestClientCreateUserRejectsUnavailableProvisioning(t *testing.T) {
+	connection := &fakeLDAPConnection{}
+	client, err := newClientWithDialer(Config{
+		URL: "ldap://ldap.example.com:389", BaseDN: "dc=example,dc=com", AllowInsecure: true,
+		ProvisionBindDN: "cn=provisioner,dc=example,dc=com", ProvisionBindPassword: testProvisionCredential,
+		Timeout: time.Second, MaxResults: 10,
+	}, func(context.Context) (ldapConnection, error) { return connection, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := directory.UserCreateRequest{UID: "alice", UIDNumber: 1001, GIDNumber: 1001, HomeDirectory: "/home/alice", LoginShell: "/bin/bash", Password: testLDAPPassphrase}
+	if err := client.CreateUser(context.Background(), request); !errors.Is(err, ErrUserProvisioningUnavailable) {
+		t.Fatalf("CreateUser() error = %v, want provisioning unavailable", err)
+	}
+	if connection.addRequest != nil || len(connection.binds) != 0 {
+		t.Fatalf("LDAP write attempted with unavailable provisioning: %#v / %#v", connection.addRequest, connection.binds)
+	}
+}
+
+func TestClientCreateUserRejectsConflictingPOSIXIdentity(t *testing.T) {
+	request := directory.UserCreateRequest{UID: "alice", UIDNumber: 1001, GIDNumber: 1001, HomeDirectory: "/home/alice", LoginShell: "/bin/bash", Password: testLDAPPassphrase}
+	tests := []struct {
+		name    string
+		results []*ldap.SearchResult
+	}{
+		{name: "existing username", results: []*ldap.SearchResult{{Entries: []*ldap.Entry{userEntry("alice", "1001")}}}},
+		{name: "existing uid number", results: []*ldap.SearchResult{{}, {Entries: []*ldap.Entry{userEntry("other", "1001")}}}},
+		{name: "missing primary group", results: []*ldap.SearchResult{{}, {}, {}}},
+		{name: "ambiguous primary group", results: []*ldap.SearchResult{{}, {}, {Entries: []*ldap.Entry{ldap.NewEntry("cn=users,dc=example,dc=com", map[string][]string{"gidNumber": {"1001"}}), ldap.NewEntry("cn=other,dc=example,dc=com", map[string][]string{"gidNumber": {"1001"}})}}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			connection := &fakeLDAPConnection{results: test.results}
+			err := newTestClient(t, connection, 10).CreateUser(context.Background(), request)
+			if err == nil {
+				t.Fatal("CreateUser() error = nil")
+			}
+			if connection.addRequest != nil {
+				t.Fatal("CreateUser() issued an LDAP Add request")
+			}
+		})
 	}
 }
 
@@ -383,7 +467,8 @@ func newTestClientWithConnection(t *testing.T, connection ldapConnection, maxRes
 	t.Helper()
 	config := Config{
 		URL: "ldaps://ldap.example.com:636", BaseDN: "dc=example,dc=com",
-		BindDN: "cn=reader,dc=example,dc=com", BindPassword: "test-password",
+		BindDN: "cn=reader,dc=example,dc=com", BindPassword: testDirectoryCredential,
+		ProvisionBindDN: "cn=provisioner,dc=example,dc=com", ProvisionBindPassword: testProvisionCredential,
 		Timeout: time.Second, MaxResults: maxResults,
 	}
 	client, err := newClientWithDialer(config, func(context.Context) (ldapConnection, error) { return connection, nil })
@@ -418,11 +503,20 @@ type fakeLDAPConnection struct {
 	bindErrors   []error
 	bindUsername string
 	bindPassword string
+	binds        []ldapBind
+	addRequest   *ldap.AddRequest
+	addErr       error
 	closed       bool
+}
+
+func (c *fakeLDAPConnection) Add(request *ldap.AddRequest) error {
+	c.addRequest = request
+	return c.addErr
 }
 
 func (c *fakeLDAPConnection) Bind(username, password string) error {
 	c.bindUsername, c.bindPassword = username, password
+	c.binds = append(c.binds, ldapBind{username, password})
 	if len(c.bindErrors) > 0 {
 		err := c.bindErrors[0]
 		c.bindErrors = c.bindErrors[1:]
@@ -430,6 +524,8 @@ func (c *fakeLDAPConnection) Bind(username, password string) error {
 	}
 	return c.bindErr
 }
+
+type ldapBind struct{ username, password string }
 
 func (c *fakeLDAPConnection) SearchAsync(_ context.Context, request *ldap.SearchRequest, bufferSize int) ldap.Response {
 	if bufferSize != 0 {
@@ -455,6 +551,7 @@ func (c *fakeLDAPConnection) SetTimeout(time.Duration) {}
 func (c *fakeLDAPConnection) Close() error             { c.closed = true; return nil }
 
 var _ directory.Provider = (*Client)(nil)
+var _ directory.UserCreator = (*Client)(nil)
 
 type cancellableConnection struct {
 	started chan struct{}
@@ -477,6 +574,7 @@ func (c *bindBlockingConnection) Bind(string, string) error {
 	<-c.closed
 	return context.Canceled
 }
+func (c *bindBlockingConnection) Add(*ldap.AddRequest) error { return context.Canceled }
 func (c *bindBlockingConnection) SearchAsync(context.Context, *ldap.SearchRequest, int) ldap.Response {
 	return &fakeLDAPResponse{}
 }
@@ -494,8 +592,9 @@ func newCancellableConnection() *cancellableConnection {
 	return &cancellableConnection{started: make(chan struct{}), closed: make(chan struct{})}
 }
 
-func (c *cancellableConnection) Bind(string, string) error { return nil }
-func (c *cancellableConnection) SetTimeout(time.Duration)  {}
+func (c *cancellableConnection) Bind(string, string) error  { return nil }
+func (c *cancellableConnection) Add(*ldap.AddRequest) error { return nil }
+func (c *cancellableConnection) SetTimeout(time.Duration)   {}
 func (c *cancellableConnection) SearchAsync(context.Context, *ldap.SearchRequest, int) ldap.Response {
 	c.once.Do(func() { close(c.started) })
 	return &blockingLDAPResponse{closed: c.closed}

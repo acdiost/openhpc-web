@@ -104,6 +104,10 @@ export OPENHPC_LDAP_USER_BASE_DN=ou=People,dc=example,dc=com
 export OPENHPC_LDAP_GROUP_BASE_DN=ou=Group,dc=example,dc=com
 export OPENHPC_LDAP_BIND_DN=cn=openhpc-reader,dc=example,dc=com
 export OPENHPC_LDAP_BIND_PASSWORD=REPLACE_WITH_A_READ_ONLY_BIND_PASSWORD
+# Optional: enables LDAP user creation from Platform users. Use a separate,
+# least-privilege account; this operation requires ldaps://.
+export OPENHPC_LDAP_PROVISION_BIND_DN=cn=openhpc-provisioner,dc=example,dc=com
+export OPENHPC_LDAP_PROVISION_BIND_PASSWORD=REPLACE_WITH_A_PROVISION_BIND_PASSWORD
 export OPENHPC_LDAP_CA_FILE=/etc/pki/ca-trust/source/anchors/openhpc-ldap-ca.pem
 export OPENHPC_LDAP_TIMEOUT=3s
 export OPENHPC_LDAP_MAX_RESULTS=200
