@@ -98,6 +98,7 @@ LDAP 集成默认关闭。启用后只读取 RFC2307 `posixAccount` 和 `posixGr
 
 ```bash
 export OPENHPC_LDAP_ENABLED=true
+export OPENHPC_LDAP_ALLOW_INSECURE=false
 export OPENHPC_LDAP_URL=ldaps://ldap.example.com:636
 export OPENHPC_LDAP_BASE_DN=dc=example,dc=com
 export OPENHPC_LDAP_USER_BASE_DN=ou=People,dc=example,dc=com
@@ -112,6 +113,8 @@ export OPENHPC_LDAP_CA_FILE=/etc/pki/ca-trust/source/anchors/openhpc-ldap-ca.pem
 export OPENHPC_LDAP_TIMEOUT=3s
 export OPENHPC_LDAP_MAX_RESULTS=200
 ```
+
+Set `OPENHPC_LDAP_ALLOW_INSECURE=true` only on a trusted private network to permit LDAP reads and user provisioning through `ldap://`; the LDAP Bind credentials and password verifier then traverse the network without TLS.
 
 只允许 `ldaps://`，最低 TLS 1.2，启用完整证书链和主机名验证。查询过滤器和属性由服务端固定，浏览器不能提交原始 LDAP filter；搜索值使用 RFC4515 转义。单次最多返回 500 条，Web 层最多并发 4 次目录读取。详细 CA、Bind ACL 和验证步骤见部署指南。
 

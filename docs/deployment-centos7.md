@@ -74,7 +74,7 @@ LDAPTLS_CACERT=/etc/pki/ca-trust/source/anchors/openhpc-ldap-ca.pem \
 
 证书 SAN 必须包含 `OPENHPC_LDAP_URL` 使用的主机名。只读 Bind 账户的 ACL 仅需允许在配置的 Base DN 下搜索和读取：`uid`、`cn`、`mail`、`uidNumber`、`gidNumber`、`homeDirectory`、`loginShell`、`description`、`memberUid` 和 `objectClass`。不要授权 `userPassword`、`authPassword`、SSH key 或写权限。
 
-如需从“平台用户”页面创建 LDAP 用户，另配 `OPENHPC_LDAP_PROVISION_BIND_DN` 和 `OPENHPC_LDAP_PROVISION_BIND_PASSWORD`。该账户应与只读账户分离，只允许搜索 `posixAccount`、`posixGroup`，并在用户基础 DN 下新增 `posixAccount`。此功能仅接受 `ldaps://`；创建前会拒绝同名用户、已用 UID 和不存在或不唯一的主组 GID。为兼容现有 OpenLDAP 部署，密码以 `{SSHA}` 格式写入，由 LDAP 服务器负责校验；平台网页仍使用平台账号本身的密码。
+如需从“平台用户”页面创建 LDAP 用户，另配 `OPENHPC_LDAP_PROVISION_BIND_DN` 和 `OPENHPC_LDAP_PROVISION_BIND_PASSWORD`。该账户应与只读账户分离，只允许搜索 `posixAccount`、`posixGroup`，并在用户基础 DN 下新增 `posixAccount`。默认仅接受 `ldaps://`；设定 `OPENHPC_LDAP_ALLOW_INSECURE=true` 后，也允许通过明文 `ldap://` 读取和创建用户。明文模式会传输 Bind 凭据和密码校验值，只应在可信隔离网络使用。创建前会拒绝同名用户、已用 UID 和不存在或不唯一的主组 GID。为兼容现有 OpenLDAP 部署，密码以 `{SSHA}` 格式写入，由 LDAP 服务器负责校验；平台网页仍使用平台账号本身的密码。
 
 ## 3. 构建与上传
 

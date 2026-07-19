@@ -43,6 +43,21 @@
     if (platformUserCreateModal.hasAttribute('data-platform-user-create-open')) openPlatformUserCreateModal();
   }
 
+  var platformLDAPCreateModal = document.getElementById('platform-ldap-create-modal');
+  var platformLDAPCreateInput = document.getElementById('ldap-uid-number');
+  if (platformLDAPCreateModal && platformLDAPCreateModal.hasAttribute('data-platform-ldap-create-open')) {
+    if (platformLDAPCreateModal.open) platformLDAPCreateModal.close();
+    platformLDAPCreateModal.showModal();
+    document.body.classList.add('modal-open');
+    if (platformLDAPCreateInput) platformLDAPCreateInput.focus();
+    platformLDAPCreateModal.addEventListener('click', function (event) {
+      if (event.target === platformLDAPCreateModal) platformLDAPCreateModal.close();
+    });
+    platformLDAPCreateModal.addEventListener('close', function () {
+      document.body.classList.remove('modal-open');
+    });
+  }
+
   var confirmationForms = document.querySelectorAll('form[data-confirm]');
   confirmationForms.forEach(function (form) {
     form.addEventListener('submit', function (event) {
