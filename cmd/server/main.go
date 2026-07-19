@@ -349,7 +349,7 @@ func parseLDAPConfigFromStore(store *platform.SettingsStore) (bool, ldapdirector
 		return false, ldapdirectory.Config{}, fmt.Errorf("validate LDAP configuration: %w", err)
 	}
 	if config.AllowInsecure {
-		log.Print("WARNING: LDAP insecure mode enabled; Bind credentials will be sent without TLS")
+		log.Print("WARNING: LDAP insecure mode enabled; read and provisioning Bind credentials will be sent without TLS")
 	}
 	return true, config, nil
 }

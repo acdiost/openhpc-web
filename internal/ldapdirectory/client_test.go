@@ -231,8 +231,8 @@ func TestClientCreatesPosixLDAPUserWithSSHAPassword(t *testing.T) {
 	}
 }
 
-func TestClientCreateUserRejectsUnavailableProvisioning(t *testing.T) {
-	connection := &fakeLDAPConnection{}
+func TestClientCreateUserAllowsExplicitInsecureProvisioning(t *testing.T) {
+	connection := &fakeLDAPConnection{results: []*ldap.SearchResult{{}, {}, {Entries: []*ldap.Entry{ldap.NewEntry("cn=users,dc=example,dc=com", map[string][]string{"cn": {"users"}, "gidNumber": {"1001"}})}}}}
 	client, err := newClientWithDialer(Config{
 		URL: "ldap://ldap.example.com:389", BaseDN: "dc=example,dc=com", AllowInsecure: true,
 		ProvisionBindDN: "cn=provisioner,dc=example,dc=com", ProvisionBindPassword: testProvisionCredential,
@@ -242,11 +242,33 @@ func TestClientCreateUserRejectsUnavailableProvisioning(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := directory.UserCreateRequest{UID: "alice", UIDNumber: 1001, GIDNumber: 1001, HomeDirectory: "/home/alice", LoginShell: "/bin/bash", Password: testLDAPPassphrase}
-	if err := client.CreateUser(context.Background(), request); !errors.Is(err, ErrUserProvisioningUnavailable) {
-		t.Fatalf("CreateUser() error = %v, want provisioning unavailable", err)
+	if err := client.CreateUser(context.Background(), request); err != nil {
+		t.Fatalf("CreateUser() error = %v", err)
 	}
-	if connection.addRequest != nil || len(connection.binds) != 0 {
-		t.Fatalf("LDAP write attempted with unavailable provisioning: %#v / %#v", connection.addRequest, connection.binds)
+	if connection.addRequest == nil {
+		t.Fatal("LDAP Add request is missing")
+	}
+}
+
+func TestClientUserProvisioningSupportAllowsExplicitInsecureLDAP(t *testing.T) {
+	secureClient, err := newClientWithDialer(Config{
+		URL: "ldaps://ldap.example.com:636", BaseDN: "dc=example,dc=com", Timeout: time.Second, MaxResults: 10,
+	}, func(context.Context) (ldapConnection, error) { return &fakeLDAPConnection{}, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !secureClient.UserProvisioningSupported() {
+		t.Fatal("UserProvisioningSupported() = false for ldaps URL")
+	}
+
+	insecureClient, err := newClientWithDialer(Config{
+		URL: "ldap://ldap.example.com:389", BaseDN: "dc=example,dc=com", AllowInsecure: true, Timeout: time.Second, MaxResults: 10,
+	}, func(context.Context) (ldapConnection, error) { return &fakeLDAPConnection{}, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !insecureClient.UserProvisioningSupported() {
+		t.Fatal("UserProvisioningSupported() = false for explicitly enabled ldap URL")
 	}
 }
 

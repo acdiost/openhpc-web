@@ -172,6 +172,7 @@ func TestPlatformUserCanCreateLinkedLDAPUser(t *testing.T) {
 	assertStatus(t, page, http.StatusOK)
 	assertBodyContains(t, page, `href="/platform/users?ldap_user=alice"`)
 	assertBodyContains(t, page, `id="platform-ldap-create-modal"`)
+	assertBodyContains(t, page, `data-platform-ldap-create-open`)
 	assertBodyContains(t, page, `name="username" value="alice"`)
 
 	session, csrf := loginWithCSRF(t, handler)
@@ -238,7 +239,7 @@ func TestPlatformUserCanCreateLinkedLDAPUser(t *testing.T) {
 	assertAuditOutcome(t, handler.(*Handler).audit, "ldap.user.create", "denied")
 }
 
-func TestPlatformUsersHideUnavailableLDAPProvisioning(t *testing.T) {
+func TestPlatformUserLDAPCreateDialogLoadsSelectableGroups(t *testing.T) {
 	store, err := platform.OpenUserStore(":memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -246,7 +247,11 @@ func TestPlatformUsersHideUnavailableLDAPProvisioning(t *testing.T) {
 	if err := store.Create(context.Background(), platform.PlatformUser{Username: "alice", PasswordHash: "hash", Role: platform.RoleUser, Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	provisioner := &unavailableLDAPUserProvisioner{}
+	provisioner := &stubLDAPUserProvisioner{page: directory.Page{Groups: []directory.Group{
+		{Name: "root", GIDNumber: 0},
+		{Name: "research", GIDNumber: 2001},
+		{Name: "dev <ops>", GIDNumber: 2002},
+	}}}
 	handler, err := New(Config{AdminUsername: testUsername, AdminPassword: testPassword, PlatformUsers: store, DirectoryProvider: provisioner})
 	if err != nil {
 		t.Fatal(err)
@@ -255,22 +260,46 @@ func TestPlatformUsersHideUnavailableLDAPProvisioning(t *testing.T) {
 
 	page := getAuthenticated(t, handler, "/platform/users?ldap_user=alice", "en")
 	assertStatus(t, page, http.StatusOK)
-	assertBodyNotContains(t, page, "Create LDAP user")
+	assertBodyContains(t, page, `id="ldap-gid-number" name="gid_number" required`)
+	assertBodyContains(t, page, `<option value="2001">research (2001)</option>`)
+	assertBodyContains(t, page, `<option value="2002">dev &lt;ops&gt; (2002)</option>`)
+	assertBodyNotContains(t, page, `<option value="0">root (0)</option>`)
+	if provisioner.searchCalls != 1 {
+		t.Fatalf("LDAP group search calls = %d, want 1", provisioner.searchCalls)
+	}
+}
 
-	session, csrf := loginWithCSRF(t, handler)
-	response := postProtectedForm(handler, "/platform/users/ldap", url.Values{"username": {"alice"}}, session, csrf)
-	assertStatus(t, response, http.StatusSeeOther)
-	assertHeader(t, response, "Location", "/platform/users?result=ldap-unavailable")
+func TestPlatformUsersShowInsecureLDAPProvisioningEntry(t *testing.T) {
+	store, err := platform.OpenUserStore(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Create(context.Background(), platform.PlatformUser{Username: "alice", PasswordHash: "hash", Role: platform.RoleUser, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	provisioner := &insecureLDAPUserProvisioner{}
+	handler, err := New(Config{AdminUsername: testUsername, AdminPassword: testPassword, PlatformUsers: store, DirectoryProvider: provisioner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupHandler(t, handler)
+
+	page := getAuthenticated(t, handler, "/platform/users?ldap_user=alice", "en")
+	assertStatus(t, page, http.StatusOK)
+	assertBodyContains(t, page, `href="/platform/users?ldap_user=alice"`)
+	assertBodyContains(t, page, `id="platform-ldap-create-modal"`)
+
 	if provisioner.calls != 0 {
 		t.Fatalf("LDAP create calls = %d, want 0", provisioner.calls)
 	}
-	assertAuditOutcome(t, handler.(*Handler).audit, "ldap.user.create", "unavailable")
 }
 
 type stubLDAPUserProvisioner struct {
-	calls   int
-	request directory.UserCreateRequest
-	err     error
+	calls       int
+	request     directory.UserCreateRequest
+	err         error
+	page        directory.Page
+	searchCalls int
 }
 
 func (p *stubLDAPUserProvisioner) CreateUser(_ context.Context, request directory.UserCreateRequest) error {
@@ -280,7 +309,8 @@ func (p *stubLDAPUserProvisioner) CreateUser(_ context.Context, request director
 }
 
 func (p *stubLDAPUserProvisioner) Search(context.Context, string) (directory.Page, error) {
-	return directory.Page{}, nil
+	p.searchCalls++
+	return p.page, nil
 }
 
 func (p *stubLDAPUserProvisioner) User(context.Context, string) (directory.User, bool, error) {
@@ -291,6 +321,7 @@ func (p *stubLDAPUserProvisioner) Group(context.Context, string) (directory.Grou
 	return directory.Group{}, false, nil
 }
 
-type unavailableLDAPUserProvisioner struct{ stubLDAPUserProvisioner }
+type insecureLDAPUserProvisioner struct{ stubLDAPUserProvisioner }
 
-func (*unavailableLDAPUserProvisioner) UserProvisioningAvailable() bool { return false }
+func (*insecureLDAPUserProvisioner) UserProvisioningAvailable() bool { return true }
+func (*insecureLDAPUserProvisioner) UserProvisioningSupported() bool { return true }

@@ -108,6 +108,8 @@ type platformUsersView struct {
 	LDAPProvisioning       bool
 	LDAPCreateUsername     string
 	LDAPCreateHome         string
+	LDAPGroups             []directory.Group
+	LDAPGroupsAvailable    bool
 	Error, Success         string
 }
 

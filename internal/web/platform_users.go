@@ -23,7 +23,7 @@ func (a *application) platformUsersPage(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusServiceUnavailable)
 	}
 	rows := make([]platformUserRow, len(users))
-	ldapProvisioning := ldapUserProvisioningAvailable(a.directoryProvider)
+	ldapProvisioning := ldapUserProvisioningVisible(a.directoryProvider)
 	activeCount := 0
 	confirmDisableUsername := ""
 	for i, user := range users {
@@ -54,6 +54,25 @@ func (a *application) platformUsersPage(c echo.Context) error {
 			}
 		}
 	}
+	ldapGroups := make([]directory.Group, 0)
+	ldapGroupsAvailable := false
+	if ldapProvisioning {
+		var ldapPage directory.Page
+		if err := a.withDirectorySlot(func() error {
+			var searchErr error
+			ldapPage, searchErr = a.directoryProvider.Search(c.Request().Context(), "")
+			return searchErr
+		}); err != nil {
+			log.Printf("LDAP group list unavailable for user provisioning")
+		} else {
+			ldapGroupsAvailable = true
+			for _, group := range ldapPage.Groups {
+				if group.GIDNumber >= 1000 {
+					ldapGroups = append(ldapGroups, group)
+				}
+			}
+		}
+	}
 	return a.render(c, http.StatusOK, "platform_users.html", platformUsersView{
 		appChrome:              a.newAppChrome(c, "/platform/users", a.slurmHealth(c.Request().Context()), pageHeading{Eyebrow: "OPENHPC / IDENTITY", Title: map[bool]string{true: "Platform users", false: "平台用户"}[language(c) == "en"], Description: map[bool]string{true: "Manage local platform accounts", false: "管理平台本地账号"}[language(c) == "en"]}),
 		Users:                  rows,
@@ -65,6 +84,8 @@ func (a *application) platformUsersPage(c echo.Context) error {
 		LDAPProvisioning:       ldapProvisioning,
 		LDAPCreateUsername:     ldapCreateUsername,
 		LDAPCreateHome:         "/home/" + ldapCreateUsername,
+		LDAPGroups:             ldapGroups,
+		LDAPGroupsAvailable:    ldapGroupsAvailable,
 		Success:                platformUserSuccessFor(language(c), c.QueryParam("result")),
 		Error:                  platformUserErrorFor(language(c), c.QueryParam("result")),
 	})
@@ -111,6 +132,15 @@ func ldapUserProvisioningAvailable(provider directory.Provider) bool {
 	}
 	status, reportsStatus := creator.(directory.UserProvisioningStatus)
 	return !reportsStatus || status.UserProvisioningAvailable()
+}
+
+func ldapUserProvisioningVisible(provider directory.Provider) bool {
+	creator, supported := provider.(directory.UserCreator)
+	if !supported {
+		return false
+	}
+	status, reportsStatus := creator.(directory.UserProvisioningSupport)
+	return !reportsStatus || status.UserProvisioningSupported()
 }
 
 func (a *application) recordLDAPUserCreateAudit(c echo.Context, outcome string) {

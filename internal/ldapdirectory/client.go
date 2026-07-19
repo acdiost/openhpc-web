@@ -338,8 +338,12 @@ func (c *Client) CreateUser(ctx context.Context, request directory.UserCreateReq
 }
 
 func (c *Client) UserProvisioningAvailable() bool {
+	return c.UserProvisioningSupported() && c.config.ProvisionBindDN != "" && c.config.ProvisionBindPassword != ""
+}
+
+func (c *Client) UserProvisioningSupported() bool {
 	endpoint, err := url.Parse(c.config.URL)
-	return err == nil && endpoint.Scheme == "ldaps" && c.config.ProvisionBindDN != "" && c.config.ProvisionBindPassword != ""
+	return err == nil && (endpoint.Scheme == "ldaps" || (endpoint.Scheme == "ldap" && c.config.AllowInsecure))
 }
 
 func (c *Client) ensureUserIdentityAvailable(ctx context.Context, connection ldapConnection, request directory.UserCreateRequest) error {

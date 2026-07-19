@@ -64,6 +64,12 @@ type UserProvisioningStatus interface {
 	UserProvisioningAvailable() bool
 }
 
+// UserProvisioningSupport reports whether a directory can present LDAP
+// user-provisioning controls with its current transport configuration.
+type UserProvisioningSupport interface {
+	UserProvisioningSupported() bool
+}
+
 func ValidateUserCreateRequest(request UserCreateRequest) error {
 	if !validPOSIXUsername(request.UID) {
 		return errors.New("LDAP username is invalid")
