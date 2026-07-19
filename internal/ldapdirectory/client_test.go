@@ -15,7 +15,7 @@ import (
 
 	ber "github.com/go-asn1-ber/asn1-ber"
 	ldap "github.com/go-ldap/ldap/v3"
-	"github.com/openhpc-web/openhpc-web/internal/directory"
+	"github.com/acdiost/openhpc-web/internal/directory"
 )
 
 func TestNewRejectsInvalidConfiguration(t *testing.T) {

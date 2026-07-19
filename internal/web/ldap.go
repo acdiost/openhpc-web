@@ -12,8 +12,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/labstack/echo/v4"
-	"github.com/openhpc-web/openhpc-web/internal/directory"
-	"github.com/openhpc-web/openhpc-web/internal/platform"
+	"github.com/acdiost/openhpc-web/internal/directory"
+	"github.com/acdiost/openhpc-web/internal/platform"
 )
 
 const (
@@ -256,7 +256,7 @@ func decodeDirectoryKey(value string) (string, error) {
 func (a *application) recordDirectoryAudit(c echo.Context, action, outcome string) error {
 	auditContext, cancel := context.WithTimeout(context.WithoutCancel(c.Request().Context()), directoryAuditTimeout)
 	defer cancel()
-	if err := a.audit.Record(auditContext, platform.AuditEvent{Actor: a.username, Action: action, Outcome: outcome, CreatedAt: time.Now()}); err != nil {
+	if err := a.audit.Record(auditContext, platform.AuditEvent{Actor: currentPrincipal(c).Username, Action: action, Outcome: outcome, CreatedAt: time.Now()}); err != nil {
 		log.Printf("audit write failed for LDAP directory event")
 		return err
 	}

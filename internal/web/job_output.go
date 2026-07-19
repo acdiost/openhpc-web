@@ -15,9 +15,9 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/acdiost/openhpc-web/internal/cluster"
+	"github.com/acdiost/openhpc-web/internal/platform"
 	"github.com/labstack/echo/v4"
-	"github.com/openhpc-web/openhpc-web/internal/cluster"
-	"github.com/openhpc-web/openhpc-web/internal/platform"
 	"golang.org/x/sys/unix"
 )
 
@@ -125,6 +125,12 @@ func (a *application) slurmJobOutput(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusServiceUnavailable)
 	}
 	if !found || job.ID != strconv.FormatInt(jobID, 10) {
+		if err := a.recordJobOutputAudit(c, jobID, stream, "denied"); err != nil {
+			return echo.NewHTTPError(http.StatusServiceUnavailable)
+		}
+		return echo.NewHTTPError(http.StatusNotFound)
+	}
+	if !canAccessJob(currentPrincipal(c), job) {
 		if err := a.recordJobOutputAudit(c, jobID, stream, "denied"); err != nil {
 			return echo.NewHTTPError(http.StatusServiceUnavailable)
 		}
@@ -376,7 +382,7 @@ func (a *application) recordJobOutputAuditEvent(c echo.Context, action, outcome 
 	auditContext, cancel := context.WithTimeout(context.WithoutCancel(c.Request().Context()), jobOutputAuditTimeout)
 	defer cancel()
 	err := a.audit.Record(auditContext, platform.AuditEvent{
-		Actor: a.username, Action: action,
+		Actor: currentPrincipal(c).Username, Action: action,
 		Outcome: outcome, CreatedAt: time.Now(),
 	})
 	if err != nil {

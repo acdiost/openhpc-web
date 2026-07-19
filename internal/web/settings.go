@@ -13,8 +13,8 @@ import (
 
 	ldap "github.com/go-ldap/ldap/v3"
 	"github.com/labstack/echo/v4"
-	"github.com/openhpc-web/openhpc-web/internal/ldapdirectory"
-	"github.com/openhpc-web/openhpc-web/internal/platform"
+	"github.com/acdiost/openhpc-web/internal/ldapdirectory"
+	"github.com/acdiost/openhpc-web/internal/platform"
 )
 
 type settingsSpec struct {
@@ -168,13 +168,13 @@ func (a *application) saveSettings(c echo.Context) error {
 		values[spec.Key] = value
 	}
 	if err := a.settingsStore.SetMany(c.Request().Context(), values); err != nil {
-		_ = a.recordAudit(c, platform.AuditEvent{Actor: a.username, Action: "settings.update", Outcome: "failed", CreatedAt: time.Now()})
+		_ = a.recordAudit(c, platform.AuditEvent{Actor: currentPrincipal(c).Username, Action: "settings.update", Outcome: "failed", CreatedAt: time.Now()})
 		if errors.Is(err, platform.ErrSettingsKeyRequired) {
 			return echo.NewHTTPError(http.StatusServiceUnavailable)
 		}
 		return echo.NewHTTPError(http.StatusServiceUnavailable)
 	}
-	if err := a.recordAudit(c, platform.AuditEvent{Actor: a.username, Action: "settings.update", Outcome: "success", CreatedAt: time.Now()}); err != nil {
+	if err := a.recordAudit(c, platform.AuditEvent{Actor: currentPrincipal(c).Username, Action: "settings.update", Outcome: "success", CreatedAt: time.Now()}); err != nil {
 		log.Printf("settings audit failed")
 	}
 	return c.Redirect(http.StatusSeeOther, "/settings?updated=1")

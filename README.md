@@ -73,6 +73,10 @@ export OPENHPC_JOB_OUTPUT_ROOTS=
 
 `/slurm/config` 是只读配置文件浏览器，根目录由 `OPENHPC_SLURM_CONFIG_ROOT` 固定（默认 `/usr/local/etc`），不接受请求传入路径，不展开 Include。文件读取使用固定文件名、禁止符号链接和越界，单文件最多读取 1 MiB；密码、Token、Secret、AuthInfo 和 PrivateKey 等键值在页面中显示为 `REDACTED`。
 
+## 平台用户与权限
+
+管理员使用 `OPENHPC_ADMIN_USERNAME` 和 `OPENHPC_ADMIN_PASSWORD` 初始化或更新管理员账号；平台用户数据保存在 `OPENHPC_DATABASE_PATH` 的 SQLite 数据库中。管理员登录后可从“平台用户”页面创建、启用或停用账号，并分配“管理员”或“普通用户”角色。管理员可查看全部菜单；普通用户只能看到总览、自己的作业、文件管理和终端，作业详情、资源和输出接口也会在服务端按作业用户名再次校验。
+
 `sstat` 通常只允许作业所有者、root 或 SlurmUser 查询 step 数据。默认部署使用专用非特权账号，因此集群若执行 UID 校验，跨用户资源查询会返回不可用；以 root 运行可满足此类部署需求，但应评估权限扩大带来的风险。
 
 当前兼容基线已在 CentOS 7 管理节点、Slurm 25.05.4 上验证。CentOS 7 部署模板位于 `deploy/`。构建静态 Linux 二进制：

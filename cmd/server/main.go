@@ -17,13 +17,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/openhpc-web/openhpc-web/internal/cluster"
-	"github.com/openhpc-web/openhpc-web/internal/directory"
-	"github.com/openhpc-web/openhpc-web/internal/ldapdirectory"
-	"github.com/openhpc-web/openhpc-web/internal/platform"
-	"github.com/openhpc-web/openhpc-web/internal/slurm"
-	"github.com/openhpc-web/openhpc-web/internal/slurmconfig"
-	"github.com/openhpc-web/openhpc-web/internal/web"
+	"github.com/acdiost/openhpc-web/internal/cluster"
+	"github.com/acdiost/openhpc-web/internal/directory"
+	"github.com/acdiost/openhpc-web/internal/ldapdirectory"
+	"github.com/acdiost/openhpc-web/internal/platform"
+	"github.com/acdiost/openhpc-web/internal/slurm"
+	"github.com/acdiost/openhpc-web/internal/slurmconfig"
+	"github.com/acdiost/openhpc-web/internal/web"
 )
 
 var newWebHandler = web.New
@@ -89,6 +89,10 @@ func main() {
 	var coreHourProvider cluster.CoreHourProvider
 	var directoryProvider directory.Provider
 	var slurmConfigProvider slurmconfig.Provider
+	userStore, userStoreErr := platform.OpenUserStore(databasePath)
+	if userStoreErr != nil {
+		log.Fatalf("initialize platform users: %v", userStoreErr)
+	}
 	if slurmEnabled {
 		client, clientErr := slurm.New(slurmConfig)
 		err = clientErr
@@ -130,8 +134,10 @@ func main() {
 		SettingsStore:       settingsStore,
 		SettingsDefaults:    settingsDefaultsFromEnv(),
 		SlurmConfigProvider: slurmConfigProvider,
+		PlatformUsers:       userStore,
 	}, slurmConfigProvider)
 	if err != nil {
+		_ = userStore.Close()
 		log.Fatalf("initialize server: %v", err)
 	}
 	if closer, ok := handler.(interface{ Close() error }); ok {

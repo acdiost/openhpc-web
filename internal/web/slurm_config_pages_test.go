@@ -8,8 +8,8 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/openhpc-web/openhpc-web/internal/platform"
-	"github.com/openhpc-web/openhpc-web/internal/slurmconfig"
+	"github.com/acdiost/openhpc-web/internal/platform"
+	"github.com/acdiost/openhpc-web/internal/slurmconfig"
 )
 
 func TestSlurmConfigPageListsAndReadsEscapedRedactedFile(t *testing.T) {

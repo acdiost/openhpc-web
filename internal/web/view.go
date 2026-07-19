@@ -5,10 +5,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/openhpc-web/openhpc-web/internal/cluster"
-	"github.com/openhpc-web/openhpc-web/internal/directory"
-	"github.com/openhpc-web/openhpc-web/internal/platform"
-	"github.com/openhpc-web/openhpc-web/internal/slurmconfig"
+	"github.com/acdiost/openhpc-web/internal/cluster"
+	"github.com/acdiost/openhpc-web/internal/directory"
+	"github.com/acdiost/openhpc-web/internal/platform"
+	"github.com/acdiost/openhpc-web/internal/slurmconfig"
 )
 
 type loginView struct {
@@ -50,6 +50,7 @@ type appChrome struct {
 	Language   string
 	Theme      string
 	Username   string
+	RoleLabel  string
 	CSRFToken  string
 	PageTitle  string
 	ActivePath string
@@ -88,6 +89,16 @@ type slurmConfigView struct {
 	Entries   []slurmconfig.Entry
 	Selected  *slurmConfigFileView
 	Available bool
+}
+
+type platformUserRow struct {
+	Username, Role, CreatedAt string
+	Enabled                   bool
+}
+type platformUsersView struct {
+	appChrome
+	Users          []platformUserRow
+	Error, Success string
 }
 
 func slurmConfigCopyFor(language string) slurmConfigCopy {
@@ -443,6 +454,21 @@ func modulesFor(language string) []module {
 		result[index] = module{Path: item.Path, Label: labels[index], Group: groups[index], Icon: item.Icon}
 	}
 	return result
+}
+
+func modulesForRole(language string, role platform.UserRole) []module {
+	all := modulesFor(language)
+	if role == platform.RoleAdmin {
+		return all
+	}
+	allowed := map[string]bool{"/dashboard": true, "/slurm/jobs": true, "/system/files": true, "/terminal": true}
+	filtered := make([]module, 0, len(allowed))
+	for _, item := range all {
+		if allowed[item.Path] {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
 }
 
 func moduleByPath(path, language string) module {

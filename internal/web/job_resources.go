@@ -24,6 +24,9 @@ func (a *application) slurmJobResources(c echo.Context) error {
 	if !found || job.ID != strconv.FormatInt(jobID, 10) {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "job not found"})
 	}
+	if !canAccessJob(currentPrincipal(c), job) {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "job not found"})
+	}
 	select {
 	case a.jobResourceSlots <- struct{}{}:
 		defer func() { <-a.jobResourceSlots }()
