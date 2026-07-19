@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/acdiost/openhpc-web/internal/cluster"
@@ -166,7 +167,9 @@ func TestPartitionManagementPageUsesModalsForPartitionOperations(t *testing.T) {
 		`id="partition-editor-modal"`, `id="partition-delete-modal"`,
 		`data-partition-create`, `data-partition-edit`, `data-partition-delete`,
 		`aria-haspopup="dialog"`, `data-partition-modal-close`,
+		`class="secondary-button min-h-9 border border-rose-600 bg-white px-3 py-1.5 text-sm font-bold text-rose-600 hover:bg-rose-50" data-partition-edit`,
 		`action="/slurm/partitions" method="get"`, `action="/slurm/partitions/delete"`, `href="/slurm/partitions" class="modal-close"`,
+		"This action cannot be undone.",
 	} {
 		assertBodyContains(t, response, value)
 	}
@@ -183,6 +186,31 @@ func TestPartitionManagementPageUsesModalsForPartitionOperations(t *testing.T) {
 	response = getPartitionAuthenticated(t, handler, "/slurm/partitions?saved=created&name=test", "en")
 	assertStatus(t, response, http.StatusOK)
 	assertBodyNotContains(t, response, `data-partition-open`)
+}
+
+func TestPartitionManagementPagePrioritizesEditablePartitions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.db")
+	handler := newPartitionManagementHandler(t, path, &partitionNodeProvider{
+		nodes: []cluster.Node{{Name: "node31", Partition: "GPU", State: "idle", Online: true}},
+	}, nil)
+	session, csrf := loginWithCSRF(t, handler)
+	response := postProtectedForm(handler, "/slurm/partitions", url.Values{
+		"name":  {"test"},
+		"nodes": {"node31"},
+	}, session, csrf)
+	assertStatus(t, response, http.StatusSeeOther)
+
+	response = getPartitionAuthenticated(t, handler, "/slurm/partitions", "en")
+	assertStatus(t, response, http.StatusOK)
+	body := response.Body.String()
+	platformHeading := strings.Index(body, `<section class="data-section partition-operations">`)
+	systemHeading := strings.Index(body, `<section class="data-section partition-reference">`)
+	if platformHeading < 0 || systemHeading < 0 || platformHeading > systemHeading {
+		t.Fatalf("partition section order is not editable-first")
+	}
+	for _, value := range []string{`class="state-badge partition-status"`, `min-w-[920px]`, `class="row-actions partition-actions"`} {
+		assertBodyContains(t, response, value)
+	}
 }
 
 func TestPartitionManagementPageCreatesPatchesAndDeletesStoredPartition(t *testing.T) {

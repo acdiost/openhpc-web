@@ -115,7 +115,7 @@ type detailCopy struct {
 	OnlineNodes, TotalNodes, OfflineNodes, CPUUtilization    string
 	JobID, JobName, User, Account, Elapsed, TimeLimit        string
 	NodesOrReason, Online, Offline, NodeCount                string
-	BringNodeOnline, DownNode, DrainNode, NodeReason  string
+	BringNodeOnline, DownNode, DrainNode, NodeReason         string
 	Confirm                                                  string
 	JobDetails, BackToJobs, JobNotFound, Close               string
 	CPUCount, SubmitTime, StartTime, WorkDir                 string
@@ -144,6 +144,7 @@ type partitionCopy struct {
 	Status, ReadOnly, Source, ImportedAt              string
 	EditPartition, DeletePartition, SavePartition     string
 	Cancel                                            string
+	DeleteWarning                                     string
 	Matched, Added, Removed                           string
 	Created, Patched, Unchanged, Deleted              string
 	Node, Partition, State, Action                    string
@@ -285,6 +286,7 @@ type partitionsView struct {
 	Error               string
 	Success             string
 	SelectedName        string
+	OpenEditor          bool
 }
 
 type jobsView struct {
@@ -482,7 +484,7 @@ func partitionCopyFor(language string) partitionCopy {
 			CreatePartition: "Create partition", UpdatePartition: "Patch partition",
 			LiveNodes: "Live nodes", SystemPartitions: "System partitions", PlatformPartitions: "Platform partitions",
 			Status: "Status", ReadOnly: "Read-only", Source: "Source", ImportedAt: "Imported at",
-			EditPartition: "Edit partition", DeletePartition: "Delete partition", SavePartition: "Save partition", Cancel: "Cancel",
+			EditPartition: "Edit partition", DeletePartition: "Delete partition", SavePartition: "Save partition", Cancel: "Cancel", DeleteWarning: "This action cannot be undone.",
 			Matched: "Matched", Added: "Added", Removed: "Removed",
 			Created: "Created", Patched: "Patched", Unchanged: "Unchanged", Deleted: "Deleted",
 			Node: "Node", Partition: "Partition", State: "State", Action: "Action",
@@ -495,7 +497,7 @@ func partitionCopyFor(language string) partitionCopy {
 		CreatePartition: "创建分区", UpdatePartition: "更新分区",
 		LiveNodes: "在线节点", SystemPartitions: "系统分区", PlatformPartitions: "平台分区",
 		Status: "状态", ReadOnly: "只读", Source: "来源", ImportedAt: "导入时间",
-		EditPartition: "编辑分区", DeletePartition: "删除分区", SavePartition: "保存分区", Cancel: "取消",
+		EditPartition: "编辑分区", DeletePartition: "删除分区", SavePartition: "保存分区", Cancel: "取消", DeleteWarning: "删除后无法恢复。",
 		Matched: "一致", Added: "新增", Removed: "移除",
 		Created: "已创建", Patched: "已更新", Unchanged: "无变化", Deleted: "已删除",
 		Node: "节点", Partition: "分区", State: "状态", Action: "操作",

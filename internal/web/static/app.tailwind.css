@@ -516,6 +516,15 @@
 
   .partition-editor { padding: 1.25rem; border: 1px solid var(--line); border-top: 3px solid var(--accent); border-radius: 5px; background: #fff; box-shadow: var(--shadow-panel); }
   .partition-modal .partition-editor { padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+  .partition-operations { margin-bottom: 2.25rem; }
+  .partition-operations .section-head { align-items: flex-end; }
+  .partition-status { display: inline-block; padding: 0.25rem 0.5rem; font-size: 0.6875rem; font-weight: 800; white-space: nowrap; }
+  .partition-actions { min-width: 11.5rem; }
+  .partition-actions, .partition-actions .inline-form { display: flex; align-items: center; gap: 0.5rem; }
+  .partition-actions .inline-form { margin: 0; }
+  .partition-reference { padding-top: 0.25rem; border-top: 1px solid var(--line); }
+  .partition-delete-warning strong, .partition-delete-warning span { display: block; }
+  .partition-delete-warning strong { margin-bottom: 0.35rem; color: var(--ink); font-weight: 750; }
 
   .page-tabs a, .period-tabs a { padding: 0.55rem 0.75rem; color: var(--muted); font-size: 0.8125rem; font-weight: 700; text-decoration: none; }
   .page-tabs a.active { margin-bottom: -1px; border-bottom: 2px solid var(--accent); color: var(--accent-strong); }
