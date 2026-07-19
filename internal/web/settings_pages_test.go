@@ -83,6 +83,23 @@ func TestSettingsRejectsUnknownAndInvalidValuesWithoutWriting(t *testing.T) {
 	}
 }
 
+func TestSettingsSecretSaveExplainsMissingEncryptionKey(t *testing.T) {
+	store, err := platform.OpenSettingsStore(":memory:", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := New(Config{AdminUsername: testUsername, AdminPassword: testPassword, SettingsStore: store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupHandler(t, handler)
+	session, csrf := loginWithCSRF(t, handler)
+	response := postProtectedForm(handler, "/settings", url.Values{"OPENHPC_LDAP_BIND_PASSWORD": {"secret"}}, session, csrf)
+	assertStatus(t, response, http.StatusServiceUnavailable)
+	assertBodyContains(t, response, "OPENHPC_SETTINGS_KEY")
+	assertBodyNotContains(t, response, "secret")
+}
+
 func TestSettingsPageRequiresAuthentication(t *testing.T) {
 	handler := newTestHandler(t)
 	request := httptest.NewRequest(http.MethodGet, "/settings", nil)

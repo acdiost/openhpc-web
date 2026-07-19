@@ -357,7 +357,7 @@ func TestProtectedPagesShareApplicationChrome(t *testing.T) {
 		{path: "/slurm/partitions", heading: "分区管理", active: "/slurm/partitions", expectedCSRF: 4},
 		{path: "/slurm/jobs", heading: "作业管理", active: "/slurm/jobs", expectedCSRF: 3},
 		{path: "/ldap", heading: "LDAP 目录", active: "/ldap", expectedCSRF: 4},
-		{path: "/settings", heading: "系统设置", active: "/settings", activeMarkup: `href="/settings" class="nav-item sidebar-settings active" aria-current="page"`, expectedCSRF: 4},
+		{path: "/settings", heading: "系统设置", active: "/settings", activeMarkup: `href="/settings" class="nav-item sidebar-settings active" aria-current="page"`, expectedCSRF: 5},
 	}
 
 	for _, test := range tests {

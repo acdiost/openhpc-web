@@ -319,6 +319,7 @@ func New(config Config) (http.Handler, error) {
 	protected.GET("/ldap/groups/:name", app.ldapGroup, app.requireAdmin)
 	protected.GET("/settings", app.settingsPage, app.requireAdmin)
 	protected.POST("/settings", app.saveSettings, app.requireAdmin)
+	protected.POST("/settings/ldap-test", app.testLDAPConnectivity, app.requireAdmin)
 	protected.GET("/audit", app.auditLog, app.requireAdmin)
 	protected.GET("/platform/users", app.platformUsersPage, app.requireAdmin)
 	protected.POST("/platform/users", app.createPlatformUser, app.requireAdmin)

@@ -17,9 +17,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/acdiost/openhpc-web/internal/directory"
 	ber "github.com/go-asn1-ber/asn1-ber"
 	ldap "github.com/go-ldap/ldap/v3"
-	"github.com/acdiost/openhpc-web/internal/directory"
 )
 
 const (
@@ -44,15 +44,16 @@ var (
 )
 
 type Config struct {
-	URL          string
-	BaseDN       string
-	UserBaseDN   string
-	GroupBaseDN  string
-	BindDN       string
-	BindPassword string
-	CAFile       string
-	Timeout      time.Duration
-	MaxResults   int
+	URL           string
+	BaseDN        string
+	UserBaseDN    string
+	GroupBaseDN   string
+	BindDN        string
+	BindPassword  string
+	CAFile        string
+	Timeout       time.Duration
+	MaxResults    int
+	AllowInsecure bool
 }
 
 type ldapConnection interface {
@@ -79,13 +80,19 @@ func New(config Config) (*Client, error) {
 	if endpoint.Port() == "" {
 		address = net.JoinHostPort(endpoint.Hostname(), "636")
 	}
-	dialer := &tls.Dialer{NetDialer: &net.Dialer{Timeout: config.Timeout}, Config: tlsConfig}
+	netDialer := &net.Dialer{Timeout: config.Timeout}
 	return &Client{config: normalizeConfig(config), dial: func(ctx context.Context) (ldapConnection, error) {
-		networkConnection, err := dialer.DialContext(ctx, "tcp", address)
+		var networkConnection net.Conn
+		var err error
+		if endpoint.Scheme == "ldaps" {
+			networkConnection, err = (&tls.Dialer{NetDialer: netDialer, Config: tlsConfig}).DialContext(ctx, "tcp", address)
+		} else {
+			networkConnection, err = netDialer.DialContext(ctx, "tcp", address)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("connect LDAP directory: %w", err)
 		}
-		connection := ldap.NewConn(networkConnection, true)
+		connection := ldap.NewConn(networkConnection, endpoint.Scheme == "ldaps")
 		connection.Start()
 		return connection, nil
 	}}, nil
@@ -120,8 +127,8 @@ func normalizeConfig(config Config) Config {
 
 func validateConfig(config Config) (*tls.Config, error) {
 	endpoint, err := url.Parse(config.URL)
-	if err != nil || endpoint.Scheme != "ldaps" || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || (endpoint.Path != "" && endpoint.Path != "/") {
-		return nil, errors.New("LDAP URL must be an ldaps URL without credentials, query or fragment")
+	if err != nil || (endpoint.Scheme != "ldaps" && !(endpoint.Scheme == "ldap" && config.AllowInsecure)) || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || (endpoint.Path != "" && endpoint.Path != "/") {
+		return nil, errors.New("LDAP URL must be an ldaps URL, or ldap when explicitly enabled, without credentials, query or fragment")
 	}
 	for name, value := range map[string]string{"base DN": config.BaseDN, "user base DN": config.UserBaseDN, "group base DN": config.GroupBaseDN, "bind DN": config.BindDN} {
 		if value == "" && (name == "user base DN" || name == "group base DN" || name == "bind DN") {
@@ -142,6 +149,9 @@ func validateConfig(config Config) (*tls.Config, error) {
 	}
 	if config.MaxResults <= 0 || config.MaxResults > maxLDAPResults {
 		return nil, errors.New("LDAP result limit must be between 1 and 500")
+	}
+	if endpoint.Scheme == "ldap" {
+		return nil, nil
 	}
 	var roots *x509.CertPool
 	if config.CAFile != "" {

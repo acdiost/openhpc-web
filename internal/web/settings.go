@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"log"
 	"net/http"
@@ -11,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	ldap "github.com/go-ldap/ldap/v3"
-	"github.com/labstack/echo/v4"
 	"github.com/acdiost/openhpc-web/internal/ldapdirectory"
 	"github.com/acdiost/openhpc-web/internal/platform"
+	ldap "github.com/go-ldap/ldap/v3"
+	"github.com/labstack/echo/v4"
 )
 
 type settingsSpec struct {
@@ -60,6 +61,34 @@ type settingsGroupView struct {
 
 func (a *application) settingsPage(c echo.Context) error {
 	view, err := a.settingsView(c, c.QueryParam("updated") == "1", "")
+	if err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable)
+	}
+	return a.render(c, http.StatusOK, "settings.html", view)
+}
+
+func (a *application) testLDAPConnectivity(c echo.Context) error {
+	if a.directoryProvider == nil {
+		view, err := a.settingsView(c, false, "LDAP 未启用或服务尚未重启加载配置。")
+		if err != nil {
+			return echo.NewHTTPError(http.StatusServiceUnavailable)
+		}
+		return a.render(c, http.StatusServiceUnavailable, "settings.html", view)
+	}
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
+	defer cancel()
+	if err := a.withDirectorySlot(func() error {
+		_, err := a.directoryProvider.Search(ctx, "")
+		return err
+	}); err != nil {
+		log.Printf("LDAP connectivity test failed")
+		view, viewErr := a.settingsView(c, false, "LDAP 连通性测试失败，请检查地址、证书、Bind 凭据和基础 DN。")
+		if viewErr != nil {
+			return echo.NewHTTPError(http.StatusServiceUnavailable)
+		}
+		return a.render(c, http.StatusBadGateway, "settings.html", view)
+	}
+	view, err := a.settingsView(c, false, "LDAP 连通性测试成功。")
 	if err != nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable)
 	}
@@ -170,7 +199,15 @@ func (a *application) saveSettings(c echo.Context) error {
 	if err := a.settingsStore.SetMany(c.Request().Context(), values); err != nil {
 		_ = a.recordAudit(c, platform.AuditEvent{Actor: currentPrincipal(c).Username, Action: "settings.update", Outcome: "failed", CreatedAt: time.Now()})
 		if errors.Is(err, platform.ErrSettingsKeyRequired) {
-			return echo.NewHTTPError(http.StatusServiceUnavailable)
+			message := "保存秘密字段前必须配置 OPENHPC_SETTINGS_KEY。"
+			if language(c) == "en" {
+				message = "Configure OPENHPC_SETTINGS_KEY before saving secret fields."
+			}
+			view, viewErr := a.settingsView(c, false, message)
+			if viewErr != nil {
+				return echo.NewHTTPError(http.StatusServiceUnavailable)
+			}
+			return a.render(c, http.StatusServiceUnavailable, "settings.html", view)
 		}
 		return echo.NewHTTPError(http.StatusServiceUnavailable)
 	}
@@ -207,7 +244,8 @@ func validateSettingFormValue(key, value string) error {
 	case "OPENHPC_LDAP_URL":
 		if value != "" {
 			parsed, err := url.Parse(value)
-			if err != nil || parsed.Scheme != "ldaps" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
+			insecure := strings.EqualFold(strings.TrimSpace(os.Getenv("OPENHPC_LDAP_ALLOW_INSECURE")), "true")
+			if err != nil || (parsed.Scheme != "ldaps" && !(insecure && parsed.Scheme == "ldap")) || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
 				return errors.New("invalid LDAP URL")
 			}
 		}
