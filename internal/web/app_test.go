@@ -851,7 +851,6 @@ func TestModulePlaceholderRoutes(t *testing.T) {
 		path  string
 		label string
 	}{
-		{path: "/slurm/config", label: "Slurm 配置"},
 		{path: "/slurm/users", label: "/slurm/users"},
 		{path: "/system/files", label: "文件管理"},
 		{path: "/terminal", label: "终端"},

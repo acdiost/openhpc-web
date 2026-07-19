@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -21,8 +22,11 @@ import (
 	"github.com/openhpc-web/openhpc-web/internal/ldapdirectory"
 	"github.com/openhpc-web/openhpc-web/internal/platform"
 	"github.com/openhpc-web/openhpc-web/internal/slurm"
+	"github.com/openhpc-web/openhpc-web/internal/slurmconfig"
 	"github.com/openhpc-web/openhpc-web/internal/web"
 )
+
+var newWebHandler = web.New
 
 func main() {
 	if warning := runtimeUserWarning(os.Geteuid()); warning != "" {
@@ -84,6 +88,7 @@ func main() {
 	var associationProvider cluster.AssociationProvider
 	var coreHourProvider cluster.CoreHourProvider
 	var directoryProvider directory.Provider
+	var slurmConfigProvider slurmconfig.Provider
 	if slurmEnabled {
 		client, clientErr := slurm.New(slurmConfig)
 		err = clientErr
@@ -91,6 +96,13 @@ func main() {
 			log.Fatalf("initialize Slurm integration: %v", err)
 		}
 		metricsProvider, nodeProvider, partitionProvider, jobProvider, jobResourceProvider, accountingProvider, associationProvider, coreHourProvider = client, client, client, client, client, client, client, client
+		configRoot := envOr("OPENHPC_SLURM_CONFIG_ROOT", "/usr/local/etc")
+		configProvider, configErr := slurmconfig.New(configRoot, 1<<20)
+		if configErr != nil {
+			log.Printf("WARNING: initialize Slurm config browser: %v", configErr)
+		} else {
+			slurmConfigProvider = configProvider
+		}
 	}
 	if ldapEnabled {
 		directoryProvider, err = ldapdirectory.New(ldapConfig)
@@ -98,7 +110,7 @@ func main() {
 			log.Fatalf("initialize LDAP integration: %v", err)
 		}
 	}
-	handler, err := web.New(web.Config{
+	handler, err := buildHandler(web.Config{
 		AdminUsername:       username,
 		AdminPassword:       password,
 		DatabasePath:        databasePath,
@@ -117,7 +129,8 @@ func main() {
 		DirectoryProvider:   directoryProvider,
 		SettingsStore:       settingsStore,
 		SettingsDefaults:    settingsDefaultsFromEnv(),
-	})
+		SlurmConfigProvider: slurmConfigProvider,
+	}, slurmConfigProvider)
 	if err != nil {
 		log.Fatalf("initialize server: %v", err)
 	}
@@ -154,6 +167,17 @@ func main() {
 	if err := server.Shutdown(ctx); err != nil {
 		log.Printf("shutdown: %v", err)
 	}
+}
+
+func buildHandler(config web.Config, slurmConfigProvider slurmconfig.Provider) (http.Handler, error) {
+	handler, err := newWebHandler(config)
+	if err != nil {
+		if closer, ok := slurmConfigProvider.(io.Closer); ok {
+			_ = closer.Close()
+		}
+		return nil, err
+	}
+	return handler, nil
 }
 
 func runtimeUserWarning(euid int) string {

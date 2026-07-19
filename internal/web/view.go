@@ -8,6 +8,7 @@ import (
 	"github.com/openhpc-web/openhpc-web/internal/cluster"
 	"github.com/openhpc-web/openhpc-web/internal/directory"
 	"github.com/openhpc-web/openhpc-web/internal/platform"
+	"github.com/openhpc-web/openhpc-web/internal/slurmconfig"
 )
 
 type loginView struct {
@@ -67,6 +68,33 @@ type dashboardView struct {
 type moduleView struct {
 	appChrome
 	Module module
+}
+
+type slurmConfigCopy struct {
+	Description, Refresh, Files, ReadOnly, SelectFile, Empty, Unavailable, Truncated string
+}
+
+type slurmConfigFileView struct {
+	Name      string
+	Size      int64
+	Content   string
+	Truncated bool
+}
+
+type slurmConfigView struct {
+	appChrome
+	Module    module
+	Labels    slurmConfigCopy
+	Entries   []slurmconfig.Entry
+	Selected  *slurmConfigFileView
+	Available bool
+}
+
+func slurmConfigCopyFor(language string) slurmConfigCopy {
+	if language == "en" {
+		return slurmConfigCopy{Description: "Read-only Slurm configuration files", Refresh: "Refresh", Files: "Configuration files", ReadOnly: "Read-only", SelectFile: "Select a file to inspect", Empty: "No configuration files reported", Unavailable: "Slurm configuration is temporarily unavailable", Truncated: "File content was truncated to the configured limit"}
+	}
+	return slurmConfigCopy{Description: "只读 Slurm 配置文件", Refresh: "刷新", Files: "配置文件", ReadOnly: "只读", SelectFile: "选择文件查看内容", Empty: "没有可用的配置文件", Unavailable: "Slurm 配置暂不可用", Truncated: "文件内容已截断至配置的大小限制"}
 }
 
 type detailCopy struct {

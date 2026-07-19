@@ -1,0 +1,6 @@
+{{define "slurm_config.html"}}
+<!doctype html><html lang="{{.Language}}" data-theme="{{.Theme}}">{{template "document-head" .}}<body>
+<div class="app-shell" data-component="app-shell">{{template "app-sidebar" .}}<div class="main-area">{{template "app-topbar" .}}<main class="content data-content">
+{{template "page-heading" .}}
+{{if not .Available}}<div class="data-warning" role="status">{{.Labels.Unavailable}}</div>{{else}}<section class="data-section"><h2>{{.Labels.Files}}</h2>{{if not .Entries}}<div class="data-empty">{{.Labels.Empty}}</div>{{else}}<div class="data-table-wrap"><table class="data-table"><thead><tr><th>Name</th><th>Size</th><th>{{.Labels.ReadOnly}}</th></tr></thead><tbody>{{range .Entries}}<tr><td><a class="table-link" href="/slurm/config?file={{.Name}}">{{.Name}}</a></td><td>{{.Size}} B</td><td>{{$.Labels.ReadOnly}}</td></tr>{{end}}</tbody></table></div>{{end}}</section>{{if .Selected}}<section class="data-section config-content"><h2>{{.Selected.Name}}</h2>{{if .Selected.Truncated}}<div class="data-warning" role="status">{{.Labels.Truncated}}</div>{{end}}<pre><code>{{.Selected.Content}}</code></pre></section>{{else}}<div class="data-empty">{{.Labels.SelectFile}}</div>{{end}}{{end}}
+</main></div></div></body></html>{{end}}
