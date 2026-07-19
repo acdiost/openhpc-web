@@ -2,26 +2,26 @@
 <!doctype html>
 <html lang="{{.Language}}" data-theme="{{.Theme}}">
 {{template "document-head" .}}
-<body><div class="app-shell" data-component="app-shell">
+<body class="antialiased min-w-80 bg-slate-50 font-sans text-[15px] leading-normal text-slate-900"><div class="app-shell flex min-h-screen" data-component="app-shell">
 {{template "app-sidebar" .}}
-<div class="main-area">{{template "app-topbar" .}}<main class="content settings-content">
+<div class="main-area ml-60 w-[calc(100%-15rem)]">{{template "app-topbar" .}}<main class="content settings-content mx-auto max-w-[1380px] px-5 py-6 pb-10">
 {{template "page-heading" .}}
-<section class="settings-hero" data-component="settings-hero">
+<section class="settings-hero mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between" data-component="settings-hero">
   <div class="settings-hero-copy">
     <p>OPENHPC / SYSTEM</p>
     <span>{{if eq .Language "en"}}Edit persisted Slurm and LDAP overrides{{else}}编辑持久化的 Slurm 与 LDAP 覆盖配置{{end}}</span>
   </div>
-  <div class="settings-metrics" aria-label="{{if eq .Language "en"}}Settings summary{{else}}设置摘要{{end}}">
+  <div class="settings-metrics grid grid-cols-2 gap-2 lg:grid-cols-4" aria-label="{{if eq .Language "en"}}Settings summary{{else}}设置摘要{{end}}">
     <div><strong>{{.GroupCount}}</strong><span>{{if eq .Language "en"}}Groups{{else}}分组{{end}}</span></div>
     <div><strong>{{.FieldCount}}</strong><span>{{if eq .Language "en"}}Fields{{else}}字段{{end}}</span></div>
     <div><strong>{{.ConfiguredCount}}</strong><span>{{if eq .Language "en"}}Configured{{else}}已配置{{end}}</span></div>
     <div><strong>{{.SecretCount}}</strong><span>{{if eq .Language "en"}}Secrets{{else}}秘密字段{{end}}</span></div>
   </div>
 </section>
-{{if .Success}}<div class="data-success" role="status">{{.Success}}</div>{{end}}
-{{if .Error}}<div class="data-warning" role="alert">{{.Error}}</div>{{end}}
-<div class="settings-layout">
-  <aside class="settings-aside">
+{{if .Success}}<div class="data-success mb-4 border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700" role="status">{{.Success}}</div>{{end}}
+{{if .Error}}<div class="data-warning mb-4 border border-rose-200 border-l-3 border-l-rose-600 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-800" role="alert">{{.Error}}</div>{{end}}
+<div class="settings-layout grid grid-cols-1 gap-4 xl:grid-cols-[minmax(280px,320px)_minmax(0,1fr)]">
+  <aside class="settings-aside border border-slate-200 bg-white p-5 xl:sticky xl:top-20">
     <div class="settings-aside-head">
       <p>{{if eq .Language "en"}}Workflow{{else}}操作流程{{end}}</p>
       <h2>{{if eq .Language "en"}}Save, then restart{{else}}保存后重启生效{{end}}</h2>
@@ -34,14 +34,14 @@
     </ul>
     <form action="/settings/ldap-test" method="post" class="settings-test-form">
       <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
-      <button type="submit" class="secondary-button">{{if eq .Language "en"}}Test LDAP connectivity{{else}}测试 LDAP 连通性{{end}}</button>
+      <button type="submit" class="secondary-button min-h-9 border border-rose-600 bg-white px-3 py-1.5 text-sm font-bold text-rose-600 hover:bg-rose-50">{{if eq .Language "en"}}Test LDAP connectivity{{else}}测试 LDAP 连通性{{end}}</button>
     </form>
   </aside>
-  <section class="settings-panel">
+  <section class="settings-panel min-w-0">
     <form action="/settings" method="post" class="settings-form">
       <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
       {{range .Groups}}
-      <section class="settings-section">
+      <section class="settings-section mb-4 border border-slate-200 bg-white p-5">
         <div class="settings-section-head">
           <div>
             <p>{{.Name}}</p>
@@ -51,7 +51,7 @@
         </div>
         <div class="settings-rows">
           {{range .Fields}}
-          <div class="settings-field">
+          <div class="settings-field grid grid-cols-1 gap-3 border-t border-slate-200 py-3 md:grid-cols-[minmax(160px,240px)_minmax(0,1fr)_minmax(160px,220px)]">
             <div class="settings-field-copy">
               <strong>{{.Label}}</strong>
               <small>{{.Key}}</small>
@@ -76,8 +76,8 @@
         </div>
       </section>
       {{end}}
-      <div class="settings-actions">
-        <button type="submit" class="primary-button">{{if eq .Language "en"}}Save settings{{else}}保存设置{{end}}</button>
+      <div class="settings-actions flex justify-end">
+        <button type="submit" class="primary-button min-h-9 border-0 bg-rose-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-rose-700">{{if eq .Language "en"}}Save settings{{else}}保存设置{{end}}</button>
       </div>
     </form>
   </section>

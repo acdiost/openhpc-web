@@ -38,7 +38,15 @@ internal/platform/  SQLite 平台数据与审计
 internal/web/       Echo 路由、认证、模板和静态资源
 ```
 
-当前 MVP 已使用 Echo、服务端模板和 SQLite。界面资源为本地嵌入的 CSS/JavaScript；HTMX 局部刷新与 Tailwind 构建链会随首个真实 Slurm/LDAP CRUD 模块接入，避免在仅有占位页面时引入无实际用途的前端依赖。
+当前 MVP 使用 Echo、服务端模板和 SQLite。界面资源为本地嵌入的 Tailwind CSS/JavaScript；CSS 构建产物仍通过 Go `embed` 打入二进制，因此运行时不依赖 Node.js。
+
+修改模板或样式源后，使用已安装的 Tailwind CLI 重新生成嵌入样式：
+
+```bash
+make css
+```
+
+Tailwind 入口为 `internal/web/static/app.tailwind.css`，其中扫描 `internal/web/templates/`。所有页面的视觉样式均通过 Tailwind theme、utility 和组件层生成。
 
 ## Slurm 只读集成
 

@@ -2,46 +2,46 @@
 <!doctype html>
 <html lang="{{.Language}}" data-theme="{{.Theme}}">
 {{template "document-head" .}}
-<body>
-  <div class="app-shell" data-component="app-shell">
+<body class="antialiased min-w-80 bg-slate-50 font-sans text-[15px] leading-normal text-slate-900">
+  <div class="app-shell flex min-h-screen" data-component="app-shell">
     {{template "app-sidebar" .}}
-    <div class="main-area">
+    <div class="main-area ml-60 w-[calc(100%-15rem)]">
       {{template "app-topbar" .}}
-      <main class="content data-content">
+      <main class="content data-content mx-auto max-w-400 px-5 py-6 pb-10">
         {{template "page-heading" .}}
         {{if not .Available}}
-          <div class="data-warning" role="status">{{.Copy.SlurmUnavailable}}</div>
+          <div class="data-warning mb-4 border border-rose-200 border-l-3 border-l-rose-600 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-800" role="status">{{.Copy.SlurmUnavailable}}</div>
         {{else if not .Jobs}}
-          <div class="data-empty">{{.Labels.EmptyJobs}}</div>
+          <div class="data-empty border border-slate-200 bg-white px-5 py-10 text-center text-sm text-slate-500">{{.Labels.EmptyJobs}}</div>
         {{else}}
-          <div class="data-table-wrap"><table class="data-table jobs-table">
+          <div class="data-table-wrap overflow-x-auto border border-slate-200 bg-white"><table class="data-table jobs-table min-w-[1240px] w-full border-collapse text-left">
             <thead><tr><th>{{.Labels.JobID}}</th><th>{{.Labels.JobName}}</th><th>{{.Labels.User}}</th><th>{{.Labels.Account}}</th><th>{{.Labels.Partition}}</th><th>{{.Labels.State}}</th><th>{{.Labels.CPUCount}}</th><th>{{.Labels.Elapsed}}</th><th>{{.Labels.TimeLimit}}</th><th>{{.Labels.NodesOrReason}}</th><th>{{.Labels.Actions}}</th></tr></thead>
-            <tbody>{{range .Jobs}}<tr><td><strong>{{.ID}}</strong></td><td class="detail-value">{{.Name}}</td><td>{{.User}}</td><td>{{.Account}}</td><td>{{if .Partition}}{{.Partition}}{{else}}—{{end}}</td><td><span class="state-badge">{{.State}}</span></td><td>{{.CPUCount}}</td><td>{{.Elapsed}}</td><td>{{.TimeLimit}}</td><td class="detail-value">{{.NodesOrReason}}{{if gt .NodeCount 1}} ({{.NodeCount}}){{end}}</td><td><div class="job-actions"><button class="job-detail-button" type="button" data-job-detail="job-detail-{{.ID}}" aria-haspopup="dialog" aria-controls="job-detail-modal" aria-label="{{$.Labels.Details}}: {{.ID}}">{{$.Labels.Details}}</button><button class="job-resource-button" type="button" data-job-resource="{{.ID}}" aria-haspopup="dialog" aria-controls="job-resource-modal" aria-label="{{$.Labels.Resources}}: {{.ID}}">{{$.Labels.Resources}}</button></div></td></tr>{{end}}</tbody>
+            <tbody>{{range .Jobs}}<tr><td><strong>{{.ID}}</strong></td><td class="detail-value max-w-70 break-words">{{.Name}}</td><td>{{.User}}</td><td>{{.Account}}</td><td>{{if .Partition}}{{.Partition}}{{else}}—{{end}}</td><td><span class="state-badge inline-block bg-sky-50 px-2 py-1 text-xs font-bold text-sky-700">{{.State}}</span></td><td>{{.CPUCount}}</td><td>{{.Elapsed}}</td><td>{{.TimeLimit}}</td><td class="detail-value max-w-70 break-words">{{.NodesOrReason}}{{if gt .NodeCount 1}} ({{.NodeCount}}){{end}}</td><td><div class="job-actions flex items-center gap-2 whitespace-nowrap"><button class="job-detail-button min-h-9 border border-rose-600 bg-white px-3 py-1.5 text-sm font-bold text-rose-600 hover:bg-rose-50" type="button" data-job-detail="job-detail-{{.ID}}" aria-haspopup="dialog" aria-controls="job-detail-modal" aria-label="{{$.Labels.Details}}: {{.ID}}">{{$.Labels.Details}}</button><button class="job-resource-button min-h-9 border border-sky-700 bg-sky-700 px-3 py-1.5 text-sm font-bold text-white hover:bg-sky-800" type="button" data-job-resource="{{.ID}}" aria-haspopup="dialog" aria-controls="job-resource-modal" aria-label="{{$.Labels.Resources}}: {{.ID}}">{{$.Labels.Resources}}</button></div></td></tr>{{end}}</tbody>
           </table></div>
         {{end}}
         {{range .JobDetails}}{{template "job-detail-content" .}}{{end}}
-        <dialog id="job-detail-modal" class="job-modal" aria-modal="true" aria-labelledby="job-detail-title" data-output-loading="{{.Labels.OutputLoading}}" data-output-error="{{.Labels.OutputError}}" data-output-truncated="{{.Labels.OutputTruncated}}">
-          <div class="job-modal-surface">
+        <dialog id="job-detail-modal" class="job-modal m-auto w-[min(900px,calc(100%-2.5rem))] max-h-[90vh] border-0 bg-transparent p-0 text-slate-900 backdrop:bg-slate-950/55" aria-modal="true" aria-labelledby="job-detail-title" data-output-loading="{{.Labels.OutputLoading}}" data-output-error="{{.Labels.OutputError}}" data-output-truncated="{{.Labels.OutputTruncated}}">
+          <div class="job-modal-surface flex max-h-[90vh] flex-col border-t-3 border-t-rose-600 bg-white shadow-2xl">
             <header><h2 id="job-detail-title">{{.Labels.JobDetails}}</h2><button type="button" class="modal-close" data-modal-close aria-label="{{.Labels.Close}}">×</button></header>
-            <div class="job-modal-body" data-job-modal-body></div>
+            <div class="job-modal-body overflow-auto px-5 py-2 pb-5" data-job-modal-body></div>
           </div>
         </dialog>
-        <dialog id="job-resource-modal" class="job-modal resource-modal" aria-modal="true" aria-labelledby="job-resource-title"
+        <dialog id="job-resource-modal" class="job-modal resource-modal m-auto w-[min(980px,calc(100%-2.5rem))] max-h-[90vh] border-0 bg-transparent p-0 text-slate-900 backdrop:bg-slate-950/55" aria-modal="true" aria-labelledby="job-resource-title"
           data-resource-loading="{{.Labels.ResourceLoading}}" data-resource-error="{{.Labels.ResourceError}}" data-resource-empty="{{.Labels.ResourceEmpty}}"
           data-resource-sampled-label="{{.Labels.SampledAt}}" data-resource-cpu-label="{{.Labels.CPUTime}}" data-resource-memory-label="{{.Labels.MaxRSS}}">
-          <div class="job-modal-surface">
+          <div class="job-modal-surface flex max-h-[90vh] flex-col border-t-3 border-t-rose-600 bg-white shadow-2xl">
             <header><div><h2 id="job-resource-title">{{.Labels.ResourceUsage}}</h2><span class="resource-job-id" data-resource-job-label></span></div><button type="button" class="modal-close" data-resource-close aria-label="{{.Labels.Close}}">×</button></header>
             <div class="job-modal-body resource-modal-body">
               <p class="resource-status" data-resource-status role="status" aria-live="polite"></p>
               <div data-resource-content hidden>
-                <div class="resource-summary">
+                <div class="resource-summary grid grid-cols-1 gap-2 sm:grid-cols-3">
                   <div><span>{{.Labels.CPUTime}}</span><strong data-resource-cpu>—</strong></div>
                   <div><span>{{.Labels.MaxRSS}}</span><strong data-resource-memory>—</strong></div>
                   <div><span>{{.Labels.SampledAt}}</span><strong data-resource-sampled>—</strong></div>
                 </div>
                 <section class="resource-chart-section" aria-labelledby="resource-chart-title">
                   <h3 id="resource-chart-title">{{.Labels.ResourceTrend}}</h3>
-                  <div class="resource-chart" data-resource-chart>
+                  <div class="resource-chart h-52 border border-slate-200 bg-slate-50" data-resource-chart>
                     <svg viewBox="0 0 720 220" role="img" aria-label="{{.Labels.ResourceTrend}}" preserveAspectRatio="none">
                       <desc data-resource-chart-description>{{.Labels.ResourceEmpty}}</desc>
                       <g class="resource-grid"><line x1="0" y1="20" x2="720" y2="20"></line><line x1="0" y1="110" x2="720" y2="110"></line><line x1="0" y1="200" x2="720" y2="200"></line></g>
@@ -51,7 +51,7 @@
                   </div>
                   <div class="resource-legend"><span><i class="cpu"></i>{{.Labels.CPUTime}}</span><span><i class="memory"></i>{{.Labels.MaxRSS}}</span></div>
                 </section>
-                <div class="resource-table-wrap"><table class="resource-table" data-sstat-table>
+                <div class="resource-table-wrap mt-5 overflow-x-auto border border-slate-200"><table class="resource-table min-w-[660px] w-full border-collapse" data-sstat-table>
                   <thead><tr><th>{{.Labels.Step}}</th><th>{{.Labels.AveCPU}}</th><th>{{.Labels.TotalCPU}}</th><th>{{.Labels.AveRSS}}</th><th>{{.Labels.MaxRSS}}</th><th>{{.Labels.MaxVMSize}}</th></tr></thead>
                   <tbody data-sstat-body></tbody>
                 </table></div>

@@ -1,9 +1,9 @@
 package web
 
 import (
+	"errors"
 	"io/fs"
-	"regexp"
-	"strconv"
+	"os"
 	"strings"
 	"testing"
 )
@@ -23,7 +23,7 @@ func TestApplicationChromeMarkupHasSingleDefinition(t *testing.T) {
 		source.Write(contents)
 	}
 
-	for _, markup := range []string{`<aside class="sidebar"`, `<header class="topbar"`} {
+	for _, markup := range []string{`<aside class="sidebar `, `<header class="topbar `} {
 		if count := strings.Count(source.String(), markup); count != 1 {
 			t.Errorf("%s definitions = %d, want 1", markup, count)
 		}
@@ -31,17 +31,59 @@ func TestApplicationChromeMarkupHasSingleDefinition(t *testing.T) {
 }
 
 func TestReadableTypographyMinimums(t *testing.T) {
-	contents, err := fs.ReadFile(assets, "static/app.css")
+	templatePaths, err := fs.Glob(assets, "templates/*.html")
 	if err != nil {
-		t.Fatalf("read app.css: %v", err)
+		t.Fatalf("glob templates: %v", err)
 	}
-	stylesheet := string(contents)
+	var source strings.Builder
+	for _, path := range templatePaths {
+		contents, readErr := fs.ReadFile(assets, path)
+		if readErr != nil {
+			t.Fatalf("read %s: %v", path, readErr)
+		}
+		source.Write(contents)
+	}
 
-	assertFontSizeAtLeast(t, stylesheet, `:root`, 18)
-	assertFontSizeAtLeast(t, stylesheet, `.nav-item`, 14)
-	assertFontSizeAtLeast(t, stylesheet, `.data-table td`, 14)
-	assertFontSizeAtLeast(t, stylesheet, `.login-form label`, 14)
-	assertFontSizeAtLeast(t, stylesheet, `.page-heading h1`, 30)
+	for _, expectedUtility := range []string{
+		`text-[15px]`, `text-sm`, `text-xs`, `text-2xl`,
+	} {
+		if !strings.Contains(source.String(), expectedUtility) {
+			t.Errorf("templates do not contain the expected readable type utility %q", expectedUtility)
+		}
+	}
+}
+
+func TestTailwindBuildContract(t *testing.T) {
+	input, err := fs.ReadFile(assets, "static/app.tailwind.css")
+	if err != nil {
+		t.Fatalf("read Tailwind input: %v", err)
+	}
+	for _, expected := range []string{`@import "tailwindcss"`, `@source "../templates"`} {
+		if !strings.Contains(string(input), expected) {
+			t.Errorf("Tailwind input does not contain %q", expected)
+		}
+	}
+	if strings.Contains(string(input), "app.legacy.css") {
+		t.Error("Tailwind input must not import the legacy stylesheet")
+	}
+	for _, forbidden := range []string{`@apply`, `@layer components`, `@media`, `{`} {
+		if strings.Contains(string(input), forbidden) {
+			t.Errorf("Tailwind input must not contain native component CSS %q", forbidden)
+		}
+	}
+	if _, statErr := fs.Stat(assets, "static/app.legacy.css"); !errors.Is(statErr, fs.ErrNotExist) {
+		t.Error("legacy stylesheet remains embedded in the application")
+	}
+
+	makefile, err := os.ReadFile("../../Makefile")
+	if err != nil {
+		t.Fatalf("read Makefile: %v", err)
+	}
+	for _, expected := range []string{"static/app.tailwind.css", "static/app.css"} {
+		if !strings.Contains(string(makefile), expected) {
+			t.Errorf("Tailwind build command does not contain %q", expected)
+		}
+	}
 }
 
 func TestMobileMenuScriptSynchronizesExpandedState(t *testing.T) {
@@ -69,21 +111,5 @@ func TestJobResourceScriptPollsAndCancelsWithModalLifecycle(t *testing.T) {
 		if !strings.Contains(script, expected) {
 			t.Errorf("app.js does not contain %q", expected)
 		}
-	}
-}
-
-func assertFontSizeAtLeast(t *testing.T, stylesheet, selector string, minimum int) {
-	t.Helper()
-	pattern := regexp.MustCompile(regexp.QuoteMeta(selector) + `[^{}]*\{[^{}]*font-size:([0-9]+)px`)
-	match := pattern.FindStringSubmatch(stylesheet)
-	if len(match) != 2 {
-		t.Fatalf("%s has no pixel font-size declaration", selector)
-	}
-	size, err := strconv.Atoi(match[1])
-	if err != nil {
-		t.Fatalf("parse %s font size %q: %v", selector, match[1], err)
-	}
-	if size < minimum {
-		t.Errorf("%s font-size = %dpx, want at least %dpx", selector, size, minimum)
 	}
 }

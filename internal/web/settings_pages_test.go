@@ -27,7 +27,6 @@ func TestSettingsPageIsInSidebarAndRedactsSecretValues(t *testing.T) {
 	response := getAuthenticated(t, handler, "/settings", "zh")
 	assertStatus(t, response, http.StatusOK)
 	for _, expected := range []string{
-		`href="/settings" class="nav-item sidebar-settings active"`,
 		"系统设置",
 		"class=\"settings-hero\"",
 		"class=\"settings-layout\"",
@@ -42,6 +41,7 @@ func TestSettingsPageIsInSidebarAndRedactsSecretValues(t *testing.T) {
 	} {
 		assertBodyContains(t, response, expected)
 	}
+	assertActiveNavigationLink(t, response.Body.String(), "/settings")
 	assertBodyNotContains(t, response, "super-secret")
 }
 

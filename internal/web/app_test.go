@@ -437,17 +437,12 @@ func TestProtectedPagesShareApplicationChrome(t *testing.T) {
 				`data-component="page-heading"`,
 				`action="/logout"`,
 				`<title>OpenHPC Web · ` + test.heading + `</title>`,
-				func() string {
-					if test.activeMarkup != "" {
-						return test.activeMarkup
-					}
-					return `href="` + test.active + `" class="nav-item active" aria-current="page"`
-				}(),
 				`aria-controls="sidebar" aria-expanded="false"`,
 				"<h1>" + test.heading + "</h1>",
 			} {
 				assertBodyContains(t, response, expected)
 			}
+			assertActiveNavigationLink(t, response.Body.String(), test.active)
 			if csrfFields := regexp.MustCompile(`name="_csrf" value="[^"]+"`).FindAllString(response.Body.String(), -1); len(csrfFields) != test.expectedCSRF {
 				t.Errorf("populated CSRF fields = %d, want %d", len(csrfFields), test.expectedCSRF)
 			}
@@ -1186,8 +1181,45 @@ func assertHeader(t *testing.T, response *httptest.ResponseRecorder, name, want 
 
 func assertBodyContains(t *testing.T, response *httptest.ResponseRecorder, expected string) {
 	t.Helper()
-	if !strings.Contains(response.Body.String(), expected) {
+	body := response.Body.String()
+	if expectedClass, ok := strings.CutPrefix(expected, `class="`); ok && strings.HasSuffix(expectedClass, `"`) {
+		classes := strings.Fields(strings.TrimSuffix(expectedClass, `"`))
+		classPattern := regexp.MustCompile(`class="([^"]*)"`)
+		for _, attribute := range classPattern.FindAllStringSubmatch(body, -1) {
+			actual := " " + attribute[1] + " "
+			if allClassesPresent(actual, classes) {
+				return
+			}
+		}
+		t.Errorf("body does not contain classes %q; body: %s", classes, body)
+		return
+	}
+	if strings.HasPrefix(expected, "<h1>") && strings.HasSuffix(expected, "</h1>") {
+		text := strings.TrimSuffix(strings.TrimPrefix(expected, "<h1>"), "</h1>")
+		if regexp.MustCompile(`<h1(?:\s+[^>]*)?>` + regexp.QuoteMeta(text) + `</h1>`).MatchString(body) {
+			return
+		}
+	}
+	if !strings.Contains(body, expected) {
 		t.Errorf("body does not contain %q; body: %s", expected, response.Body.String())
+	}
+}
+
+func allClassesPresent(attribute string, classes []string) bool {
+	for _, class := range classes {
+		if !strings.Contains(attribute, " "+class+" ") {
+			return false
+		}
+	}
+	return true
+}
+
+func assertActiveNavigationLink(t *testing.T, body, path string) {
+	t.Helper()
+	pattern := regexp.MustCompile(`href="` + regexp.QuoteMeta(path) + `" class="([^"]*)" aria-current="page"`)
+	match := pattern.FindStringSubmatch(body)
+	if len(match) != 2 || !allClassesPresent(" "+match[1]+" ", []string{"nav-item", "active"}) {
+		t.Errorf("active navigation link %q does not include nav-item and active classes", path)
 	}
 }
 

@@ -2,12 +2,12 @@
 <!doctype html>
 <html lang="{{.Language}}" data-theme="{{.Theme}}">
 {{template "document-head" .}}
-<body>
-  <div class="app-shell" data-component="app-shell">
+<body class="antialiased min-w-80 bg-slate-50 font-sans text-[15px] leading-normal text-slate-900">
+  <div class="app-shell flex min-h-screen" data-component="app-shell">
     {{template "app-sidebar" .}}
-    <div class="main-area">
+    <div class="main-area ml-60 w-[calc(100%-15rem)]">
       {{template "app-topbar" .}}
-      <main class="content module-content" data-module-path="{{.Module.Path}}">
+      <main class="content module-content mx-auto max-w-[1600px] px-5 py-6 pb-10" data-module-path="{{.Module.Path}}">
         {{template "page-heading" .}}
         <section class="module-state panel">
           <span class="nav-icon icon-{{.Module.Icon}}" aria-hidden="true"></span>

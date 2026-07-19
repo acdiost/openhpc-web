@@ -5,7 +5,7 @@
     <div><dt>{{.Labels.JobName}}:</dt><dd>{{.Job.Name}}</dd></div>
     <div><dt>{{.Labels.User}}:</dt><dd>{{.Job.User}}{{if gt .Job.UserID 0}}({{.Job.UserID}}){{end}}</dd></div>
     <div><dt>{{.Labels.Partition}}:</dt><dd>{{if .Job.Partition}}{{.Job.Partition}}{{else}}—{{end}}</dd></div>
-    <div><dt>{{.Labels.State}}:</dt><dd><span class="state-badge">{{.Job.State}}</span></dd></div>
+    <div><dt>{{.Labels.State}}:</dt><dd><span class="state-badge inline-block bg-sky-50 px-2 py-1 text-xs font-bold text-sky-700">{{.Job.State}}</span></dd></div>
     <div><dt>{{.Labels.Node}}:</dt><dd>{{.Job.Nodes}}</dd></div>
     <div><dt>{{.Labels.NodeCount}}:</dt><dd>{{.Job.NodeCount}}</dd></div>
     <div><dt>{{.Labels.CPUCount}}:</dt><dd>{{.Job.CPUCount}}</dd></div>

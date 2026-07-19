@@ -2,36 +2,36 @@
 <!doctype html>
 <html lang="{{.Language}}" data-theme="{{.Theme}}">
 {{template "document-head" .}}
-<body class="login-page">
-  <main class="login-shell">
-    <section class="login-brand" aria-label="OpenHPC Web">
+<body class="login-page min-h-screen bg-slate-100 font-sans text-[15px] text-slate-900 antialiased grid place-items-center px-4">
+  <main class="login-shell w-full max-w-md">
+    <section class="login-brand mb-7 flex items-center justify-center gap-3" aria-label="OpenHPC Web">
       <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
       <div>
         <strong>OpenHPC</strong>
         <span>WEB CONSOLE</span>
       </div>
     </section>
-    <section class="login-panel">
+    <section class="login-panel border-t-3 border-rose-600 bg-white p-6 shadow-xl shadow-slate-900/15">
       <div class="login-heading">
         <span class="status-dot"></span>
         <span>{{if eq .Language "en"}}CLUSTER MANAGEMENT{{else}}集群管理平台{{end}}</span>
       </div>
       <h1>{{if eq .Language "en"}}Welcome back{{else}}欢迎回来{{end}}</h1>
       <p>{{if eq .Language "en"}}Sign in with a platform administrator account or LDAP user.{{else}}使用平台管理员账户或 LDAP 普通用户登录{{end}}</p>
-      {{if .Error}}<div class="form-error" role="alert">{{.Error}}</div>{{end}}
-      <form action="/login" method="post" class="login-form">
+      {{if .Error}}<div class="form-error mb-3 border-l-3 border-rose-600 bg-rose-50 px-3 py-2 text-sm text-rose-800" role="alert">{{.Error}}</div>{{end}}
+      <form action="/login" method="post" class="login-form flex flex-col gap-2">
         <input type="hidden" name="next" value="{{.Next}}">
         <label for="username">{{if eq .Language "en"}}Username{{else}}用户名{{end}}</label>
-        <div class="input-wrap">
+        <div class="input-wrap flex h-11 items-center border border-slate-300 px-3 focus-within:border-rose-600 focus-within:ring-3 focus-within:ring-rose-600/10">
           <span aria-hidden="true">◎</span>
           <input id="username" name="username" autocomplete="username" required autofocus>
         </div>
         <label for="password">{{if eq .Language "en"}}Password{{else}}密码{{end}}</label>
-        <div class="input-wrap">
+        <div class="input-wrap flex h-11 items-center border border-slate-300 px-3 focus-within:border-rose-600 focus-within:ring-3 focus-within:ring-rose-600/10">
           <span aria-hidden="true">⌁</span>
           <input id="password" name="password" type="password" autocomplete="current-password" required>
         </div>
-        <button type="submit" class="primary-button">{{if eq .Language "en"}}Sign in{{else}}登录平台{{end}} <span aria-hidden="true">→</span></button>
+        <button type="submit" class="primary-button min-h-9 border-0 bg-rose-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-rose-700">{{if eq .Language "en"}}Sign in{{else}}登录平台{{end}} <span aria-hidden="true">→</span></button>
       </form>
       <div class="login-meta">
         <span><i class="status-dot"></i>{{if eq .Language "en"}}Secure access{{else}}安全访问{{end}}</span>

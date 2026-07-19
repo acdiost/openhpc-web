@@ -2,15 +2,15 @@
 <!doctype html>
 <html lang="{{.Language}}" data-theme="{{.Theme}}">
 {{template "document-head" .}}
-<body>
-  <div class="app-shell" data-component="app-shell">
+<body class="antialiased min-w-80 bg-slate-50 font-sans text-[15px] leading-normal text-slate-900">
+  <div class="app-shell flex min-h-screen" data-component="app-shell">
     {{template "app-sidebar" .}}
-    <div class="main-area">
+    <div class="main-area ml-60 w-[calc(100%-15rem)]">
       {{template "app-topbar" .}}
-      <main class="content data-content">
+      <main class="content data-content mx-auto max-w-400 px-5 py-6 pb-10">
         {{template "page-heading" .}}
-        {{if .Success}}<div class="data-success" role="status">{{.Success}}</div>{{end}}
-        {{if .Error}}<div class="data-warning" role="alert">{{.Error}}</div>{{end}}
+        {{if .Success}}<div class="data-success mb-4 border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700" role="status">{{.Success}}</div>{{end}}
+        {{if .Error}}<div class="data-warning mb-4 border border-rose-200 border-l-3 border-l-rose-600 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-800" role="alert">{{.Error}}</div>{{end}}
 
         <section class="data-section" id="editor">
           <div class="section-head">
@@ -20,7 +20,7 @@
           <form action="/slurm/partitions" method="post" class="settings-form partition-editor">
             <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
             <p class="settings-note">{{.Labels.Description}}</p>
-            <div class="settings-field">
+            <div class="settings-field grid grid-cols-1 gap-3 border-t border-slate-200 py-3 md:grid-cols-[minmax(160px,240px)_minmax(0,1fr)_minmax(160px,220px)]">
               <span><strong>{{.Labels.PartitionName}}</strong><small>/slurm/partitions</small></span>
               <input type="text" name="name" value="{{.SelectedName}}" autocomplete="off" spellcheck="false">
             </div>
@@ -29,12 +29,12 @@
                 <h3>{{.Labels.LiveNodes}}</h3>
               </div>
               {{if not .NodesAvailable}}
-                <div class="data-warning" role="status">{{.Labels.Unavailable}}</div>
+                <div class="data-warning mb-4 border border-rose-200 border-l-3 border-l-rose-600 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-800" role="status">{{.Labels.Unavailable}}</div>
               {{else if not .Nodes}}
-                <div class="data-empty">{{.Labels.EmptyNodes}}</div>
+                <div class="data-empty border border-slate-200 bg-white px-5 py-10 text-center text-sm text-slate-500">{{.Labels.EmptyNodes}}</div>
               {{else}}
-                <div class="data-table-wrap">
-                  <table class="data-table partition-table">
+                <div class="data-table-wrap overflow-x-auto border border-slate-200 bg-white">
+                  <table class="data-table partition-table min-w-[720px] w-full border-collapse text-left">
                     <thead>
                       <tr><th></th><th>{{.Labels.Node}}</th><th>{{.Labels.Partition}}</th><th>{{.Labels.State}}</th></tr>
                     </thead>
@@ -52,7 +52,7 @@
                 </div>
               {{end}}
             </section>
-            <button type="submit" class="primary-button">{{if .SelectedName}}{{.Labels.UpdatePartition}}{{else}}{{.Labels.CreatePartition}}{{end}}</button>
+            <button type="submit" class="primary-button min-h-9 border-0 bg-rose-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-rose-700">{{if .SelectedName}}{{.Labels.UpdatePartition}}{{else}}{{.Labels.CreatePartition}}{{end}}</button>
           </form>
         </section>
 
@@ -61,12 +61,12 @@
             <h2>{{.Labels.SystemPartitions}}</h2>
           </div>
           {{if not .PartitionsAvailable}}
-            <div class="data-warning" role="status">{{.Labels.Unavailable}}</div>
+            <div class="data-warning mb-4 border border-rose-200 border-l-3 border-l-rose-600 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-800" role="status">{{.Labels.Unavailable}}</div>
           {{else if not .SystemPartitions}}
-            <div class="data-empty">{{.Labels.EmptyPartitions}}</div>
+            <div class="data-empty border border-slate-200 bg-white px-5 py-10 text-center text-sm text-slate-500">{{.Labels.EmptyPartitions}}</div>
           {{else}}
-            <div class="data-table-wrap">
-              <table class="data-table partition-table">
+            <div class="data-table-wrap overflow-x-auto border border-slate-200 bg-white">
+              <table class="data-table partition-table min-w-[720px] w-full border-collapse text-left">
                 <thead>
                   <tr><th>{{.Labels.Partition}}</th><th>{{.Labels.SelectedNodes}}</th><th>{{.Labels.ReadOnly}}</th><th>{{.Labels.ImportedAt}}</th></tr>
                 </thead>
@@ -90,12 +90,12 @@
             <h2>{{.Labels.PlatformPartitions}}</h2>
           </div>
           {{if not .PartitionsAvailable}}
-            <div class="data-warning" role="status">{{.Labels.Unavailable}}</div>
+            <div class="data-warning mb-4 border border-rose-200 border-l-3 border-l-rose-600 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-800" role="status">{{.Labels.Unavailable}}</div>
           {{else if not .PlatformPartitions}}
-            <div class="data-empty">{{.Labels.EmptyPartitions}}</div>
+            <div class="data-empty border border-slate-200 bg-white px-5 py-10 text-center text-sm text-slate-500">{{.Labels.EmptyPartitions}}</div>
           {{else}}
-            <div class="data-table-wrap">
-              <table class="data-table partition-table">
+            <div class="data-table-wrap overflow-x-auto border border-slate-200 bg-white">
+              <table class="data-table partition-table min-w-[720px] w-full border-collapse text-left">
                 <thead>
                   <tr><th>{{.Labels.Partition}}</th><th>{{.Labels.SelectedNodes}}</th><th>{{.Labels.Status}}</th><th>{{.Labels.Added}}</th><th>{{.Labels.Removed}}</th><th>{{.Labels.ImportedAt}}</th><th>{{.Labels.Action}}</th></tr>
                 </thead>
@@ -113,7 +113,7 @@
                         <form action="/slurm/partitions/delete" method="post" class="inline-form">
                           <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
                           <input type="hidden" name="name" value="{{.Name}}">
-                          <button type="submit" class="danger-button">{{$.Labels.DeletePartition}}</button>
+                          <button type="submit" class="danger-button min-h-9 border border-rose-600 bg-rose-50 px-3 py-1.5 text-sm font-bold text-rose-800 hover:bg-rose-600 hover:text-white">{{$.Labels.DeletePartition}}</button>
                         </form>
                       </td>
                     </tr>
