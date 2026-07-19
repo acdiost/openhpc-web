@@ -39,6 +39,44 @@ func TestClientNodesParsesSinfoJSON(t *testing.T) {
 	}
 }
 
+func TestClientNodesMergesDuplicateNodesAcrossPartitions(t *testing.T) {
+	runner := &scriptedRunner{outputs: map[string][]byte{"sinfo": []byte(`{
+		"errors": [],
+		"sinfo": [
+			{"nodes":{"nodes":["node31"]},"partition":{"name":"GPU"},"node":{"state":["IDLE"]},"cpus":{"allocated":0,"total":128},"memory":{"maximum":510000},"gres":{"total":"gpu:8"}},
+			{"nodes":{"nodes":["node31"]},"partition":{"name":"CPU"},"node":{"state":["IDLE"]},"cpus":{"allocated":0,"total":128},"memory":{"maximum":510000},"gres":{"total":"gpu:8"}},
+			{"nodes":{"nodes":["node32"]},"partition":{"name":"CPU"},"node":{"state":["DOWN"]},"cpus":{"allocated":0,"total":64},"memory":{"maximum":256000},"gres":{"total":""}}
+		]
+	}`)}}
+
+	nodes, err := newTestClient(t, runner).Nodes(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []cluster.Node{
+		{Name: "node31", Partition: "CPU, GPU", State: "idle", TotalCPUs: 128, MemoryMB: 510000, GRES: "gpu:8", Online: true},
+		{Name: "node32", Partition: "CPU", State: "down", TotalCPUs: 64, MemoryMB: 256000},
+	}
+	if !reflect.DeepEqual(nodes, want) {
+		t.Errorf("Nodes() = %#v, want %#v", nodes, want)
+	}
+}
+
+func TestClientNodesRejectsConflictingDuplicateNodes(t *testing.T) {
+	runner := &scriptedRunner{outputs: map[string][]byte{"sinfo": []byte(`{
+		"errors": [],
+		"sinfo": [
+			{"nodes":{"nodes":["node31"]},"partition":{"name":"GPU"},"node":{"state":["IDLE"]},"cpus":{"allocated":0,"total":128},"memory":{"maximum":510000},"gres":{"total":"gpu:8"}},
+			{"nodes":{"nodes":["node31"]},"partition":{"name":"CPU"},"node":{"state":["DOWN"]},"cpus":{"allocated":0,"total":128},"memory":{"maximum":510000},"gres":{"total":"gpu:8"}}
+		]
+	}`)}}
+
+	_, err := newTestClient(t, runner).Nodes(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "conflicting records") {
+		t.Fatalf("Nodes() error = %v, want conflicting records", err)
+	}
+}
+
 func TestClientJobsParsesSqueueJSON(t *testing.T) {
 	runner := &scriptedRunner{outputs: map[string][]byte{"squeue": []byte(`{
 		"errors": [], "warnings": [],

@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/acdiost/openhpc-web/internal/cluster"
 )
 
 func TestClientApplyPartitionCreatesWhenMissing(t *testing.T) {
@@ -110,7 +112,7 @@ func TestClientDeletePartition(t *testing.T) {
 	}
 }
 
-func TestClientSetNodeOnline(t *testing.T) {
+func TestClientSetNodeState(t *testing.T) {
 	runner := &scriptedRunner{run: func(_ context.Context, path string, args ...string) ([]byte, error) {
 		if filepath.Base(path) != "scontrol" {
 			return nil, errors.New("unexpected command")
@@ -121,22 +123,46 @@ func TestClientSetNodeOnline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	if err := client.SetNodeOnline(context.Background(), "node01", true); err != nil {
-		t.Fatalf("SetNodeOnline(online) error = %v", err)
+	if err := client.SetNodeState(context.Background(), "node01", cluster.NodeStateResume, ""); err != nil {
+		t.Fatalf("SetNodeState(resume) error = %v", err)
 	}
-	if err := client.SetNodeOnline(context.Background(), "node02", false); err != nil {
-		t.Fatalf("SetNodeOnline(offline) error = %v", err)
+	if err := client.SetNodeState(context.Background(), "node02", cluster.NodeStateDown, "scheduled maintenance"); err != nil {
+		t.Fatalf("SetNodeState(down) error = %v", err)
+	}
+	if err := client.SetNodeState(context.Background(), "node03", cluster.NodeStateDrain, "hardware inspection"); err != nil {
+		t.Fatalf("SetNodeState(drain) error = %v", err)
 	}
 	want := []commandCall{
 		{path: filepath.Join("/opt/slurm/bin", "scontrol"), args: []string{"update", "nodename=node01", "state=resume"}},
-		{path: filepath.Join("/opt/slurm/bin", "scontrol"), args: []string{"update", "nodename=node02", "state=down"}},
+		{path: filepath.Join("/opt/slurm/bin", "scontrol"), args: []string{"update", "nodename=node02", "state=down", "reason=scheduled maintenance"}},
+		{path: filepath.Join("/opt/slurm/bin", "scontrol"), args: []string{"update", "nodename=node03", "state=drain", "reason=hardware inspection"}},
 	}
 	if got := runner.callsSnapshot(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("calls = %#v, want %#v", got, want)
 	}
 }
 
-func TestClientSetNodeOnlineInvalidatesNodeCache(t *testing.T) {
+func TestClientSetNodeStateValidatesActionAndReason(t *testing.T) {
+	client, err := New(Config{BinaryDir: "/opt/slurm/bin", Timeout: time.Second, MaxOutputBytes: 16 << 10, Runner: &scriptedRunner{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		state  cluster.NodeState
+		reason string
+	}{
+		{state: cluster.NodeStateDown},
+		{state: cluster.NodeStateDrain, reason: "\n"},
+		{state: cluster.NodeStateResume, reason: "unexpected reason"},
+		{state: "invalid", reason: "maintenance"},
+	} {
+		if err := client.SetNodeState(context.Background(), "node01", test.state, test.reason); err == nil {
+			t.Errorf("SetNodeState(%q, %q) error = nil", test.state, test.reason)
+		}
+	}
+}
+
+func TestClientSetNodeStateInvalidatesNodeCache(t *testing.T) {
 	responses := [][]byte{
 		[]byte(`{"errors":[],"sinfo":[{"nodes":{"nodes":["node01"]},"partition":{"name":"CPU"},"node":{"state":["IDLE"]},"cpus":{"allocated":0,"total":1},"memory":{"maximum":1}}]}`),
 		[]byte(`{"errors":[],"sinfo":[{"nodes":{"nodes":["node01"]},"partition":{"name":"CPU"},"node":{"state":["DOWN"]},"cpus":{"allocated":0,"total":1},"memory":{"maximum":1}}]}`),
@@ -157,8 +183,8 @@ func TestClientSetNodeOnlineInvalidatesNodeCache(t *testing.T) {
 	if _, err := client.Nodes(context.Background()); err != nil {
 		t.Fatalf("Nodes() error = %v", err)
 	}
-	if err := client.SetNodeOnline(context.Background(), "node01", false); err != nil {
-		t.Fatalf("SetNodeOnline() error = %v", err)
+	if err := client.SetNodeState(context.Background(), "node01", cluster.NodeStateDown, "maintenance"); err != nil {
+		t.Fatalf("SetNodeState() error = %v", err)
 	}
 	nodes, err := client.Nodes(context.Background())
 	if err != nil {

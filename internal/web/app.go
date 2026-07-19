@@ -589,9 +589,16 @@ func (a *application) setNodeAvailability(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest)
 	}
 	name := strings.TrimSpace(c.FormValue("name"))
-	online, err := strconv.ParseBool(c.FormValue("online"))
-	if err != nil || name == "" {
+	state := cluster.NodeState(strings.TrimSpace(c.FormValue("state")))
+	reason := strings.TrimSpace(c.FormValue("reason"))
+	if name == "" || !validNodeState(state) {
 		return echo.NewHTTPError(http.StatusBadRequest)
+	}
+	if requiresNodeReason(state) && reason == "" {
+		return c.Redirect(http.StatusSeeOther, "/slurm/nodes?error=reason_required#nodes")
+	}
+	if state == cluster.NodeStateResume {
+		reason = ""
 	}
 	nodes, err := a.nodeProvider.Nodes(c.Request().Context())
 	if err != nil {
@@ -607,37 +614,59 @@ func (a *application) setNodeAvailability(c echo.Context) error {
 	if !found {
 		return echo.NewHTTPError(http.StatusBadRequest)
 	}
-	if err := a.nodeAdmin.SetNodeOnline(c.Request().Context(), name, online); err != nil {
-		_ = a.recordAudit(c, platform.AuditEvent{Actor: currentPrincipal(c).Username, Action: "slurm.node.availability", Outcome: "failed", CreatedAt: time.Now()})
+	auditAction := nodeStateAuditAction(state)
+	if err := a.nodeAdmin.SetNodeState(c.Request().Context(), name, state, reason); err != nil {
+		log.Printf("Slurm node %s state %s update failed: %v", name, state, err)
+		_ = a.recordAudit(c, platform.AuditEvent{Actor: currentPrincipal(c).Username, Action: auditAction, Outcome: "failed", CreatedAt: time.Now()})
 		return c.Redirect(http.StatusSeeOther, "/slurm/nodes?error=update_failed#nodes")
 	}
-	if err := a.recordAudit(c, platform.AuditEvent{Actor: currentPrincipal(c).Username, Action: "slurm.node.availability", Outcome: "success", CreatedAt: time.Now()}); err != nil {
+	if err := a.recordAudit(c, platform.AuditEvent{Actor: currentPrincipal(c).Username, Action: auditAction, Outcome: "success", CreatedAt: time.Now()}); err != nil {
 		log.Printf("node availability audit failed")
 	}
-	saved := "offline"
-	if online {
-		saved = "online"
-	}
-	return c.Redirect(http.StatusSeeOther, "/slurm/nodes?saved="+saved+"#nodes")
+	return c.Redirect(http.StatusSeeOther, "/slurm/nodes?saved="+string(state)+"#nodes")
+}
+
+func validNodeState(state cluster.NodeState) bool {
+	return state == cluster.NodeStateDown || state == cluster.NodeStateDrain || state == cluster.NodeStateResume
+}
+
+func requiresNodeReason(state cluster.NodeState) bool {
+	return state == cluster.NodeStateDown || state == cluster.NodeStateDrain
+}
+
+func nodeStateAuditAction(state cluster.NodeState) string {
+	return "slurm.node.state." + string(state)
 }
 
 func nodeAvailabilitySuccessFor(language, saved string) string {
-	if saved == "online" {
+	if saved == string(cluster.NodeStateResume) {
 		if language == "en" {
 			return "Node brought online."
 		}
 		return "节点已上线。"
 	}
-	if saved == "offline" {
+	if saved == string(cluster.NodeStateDown) {
 		if language == "en" {
 			return "Node taken offline."
 		}
 		return "节点已下线。"
 	}
+	if saved == string(cluster.NodeStateDrain) {
+		if language == "en" {
+			return "Node is draining."
+		}
+		return "节点已进入 Drain 状态。"
+	}
 	return ""
 }
 
 func nodeAvailabilityErrorFor(language, code string) string {
+	if code == "reason_required" {
+		if language == "en" {
+			return "A reason is required when taking a node offline or draining it."
+		}
+		return "下线或 Drain 节点时必须填写原因。"
+	}
 	if code != "update_failed" {
 		return ""
 	}

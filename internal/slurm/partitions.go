@@ -11,11 +11,11 @@ import (
 )
 
 func (c *Client) Partitions(ctx context.Context) ([]cluster.Partition, error) {
-	nodes, err := c.Nodes(ctx)
+	snapshot, err := c.loadNodeSnapshot(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("read partition node snapshot: %w", err)
 	}
-	return aggregatePartitions(nodes)
+	return aggregatePartitions(snapshot.PartitionNodes)
 }
 
 func aggregatePartitions(nodes []cluster.Node) ([]cluster.Partition, error) {

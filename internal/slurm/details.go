@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -90,21 +91,30 @@ type squeueJSON struct {
 	} `json:"jobs"`
 }
 
+type nodeSnapshot struct {
+	Nodes          []cluster.Node
+	PartitionNodes []cluster.Node
+}
+
 func (c *Client) Nodes(parent context.Context) ([]cluster.Node, error) {
-	nodes, err := c.nodesCache.get(parent, func(ctx context.Context) ([]cluster.Node, error) {
+	snapshot, err := c.loadNodeSnapshot(parent)
+	return append([]cluster.Node(nil), snapshot.Nodes...), err
+}
+
+func (c *Client) loadNodeSnapshot(parent context.Context) (nodeSnapshot, error) {
+	return c.nodesCache.get(parent, func(ctx context.Context) (nodeSnapshot, error) {
 		ctx, cancel := context.WithTimeout(ctx, c.timeout)
 		defer cancel()
 		output, err := c.run(ctx, "sinfo", "--Node", "--json")
 		if err != nil {
-			return nil, fmt.Errorf("read Slurm nodes: %w", err)
+			return nodeSnapshot{}, fmt.Errorf("read Slurm nodes: %w", err)
 		}
-		nodes, err := parseNodesJSON(output)
+		snapshot, err := parseNodesJSON(output)
 		if err != nil {
-			return nil, fmt.Errorf("parse Slurm nodes: %w", err)
+			return nodeSnapshot{}, fmt.Errorf("parse Slurm nodes: %w", err)
 		}
-		return nodes, nil
+		return snapshot, nil
 	})
-	return append([]cluster.Node(nil), nodes...), err
 }
 
 func (c *Client) Jobs(parent context.Context) ([]cluster.Job, error) {
@@ -138,39 +148,80 @@ func (c *Client) Job(parent context.Context, id int64) (cluster.Job, bool, error
 	return cluster.Job{}, false, nil
 }
 
-func parseNodesJSON(output []byte) ([]cluster.Node, error) {
+func parseNodesJSON(output []byte) (nodeSnapshot, error) {
 	var response sinfoJSON
 	if err := json.Unmarshal(output, &response); err != nil {
-		return nil, fmt.Errorf("decode sinfo JSON: %w", err)
+		return nodeSnapshot{}, fmt.Errorf("decode sinfo JSON: %w", err)
 	}
 	if len(response.Errors) > 0 {
-		return nil, fmt.Errorf("sinfo JSON reported %d errors", len(response.Errors))
+		return nodeSnapshot{}, fmt.Errorf("sinfo JSON reported %d errors", len(response.Errors))
 	}
-	nodes := make([]cluster.Node, 0, len(response.Sinfo))
+	nodesByName := make(map[string]cluster.Node)
+	partitionsByNode := make(map[string]map[string]struct{})
+	partitionNodes := make([]cluster.Node, 0, len(response.Sinfo))
 	for _, record := range response.Sinfo {
 		if len(record.Nodes.Names) == 0 || record.Partition.Name == "" || len(record.Node.State) == 0 {
-			return nil, errors.New("node name, partition and state are required")
+			return nodeSnapshot{}, errors.New("node name, partition and state are required")
 		}
 		if record.CPUs.Total <= 0 || record.CPUs.Allocated < 0 || record.CPUs.Allocated > record.CPUs.Total {
-			return nil, errors.New("node CPU allocation must not exceed a positive total")
+			return nodeSnapshot{}, errors.New("node CPU allocation must not exceed a positive total")
 		}
 		if record.Memory.Maximum < 0 {
-			return nil, errors.New("node memory must be non-negative")
+			return nodeSnapshot{}, errors.New("node memory must be non-negative")
 		}
 		if err := validateDetailStrings(append(append([]string{record.Partition.Name, record.GRES.Total}, record.Nodes.Names...), record.Node.State...)); err != nil {
-			return nil, err
+			return nodeSnapshot{}, err
 		}
 		state := strings.ToLower(record.Node.State[0])
 		for _, name := range record.Nodes.Names {
-			nodes = append(nodes, cluster.Node{
+			node := cluster.Node{
 				Name: name, Partition: record.Partition.Name, State: state,
 				AllocatedCPUs: record.CPUs.Allocated, TotalCPUs: record.CPUs.Total,
 				MemoryMB: record.Memory.Maximum, GRES: record.GRES.Total,
 				Online: jsonNodeOnline(record.Node.State),
-			})
+			}
+			if existing, found := nodesByName[name]; found {
+				if nodeDetails(existing) != nodeDetails(node) {
+					return nodeSnapshot{}, fmt.Errorf("node %s has conflicting records", name)
+				}
+			} else {
+				nodesByName[name] = node
+			}
+			partitionNodes = append(partitionNodes, node)
+			partitions := partitionsByNode[name]
+			if partitions == nil {
+				partitions = make(map[string]struct{})
+				partitionsByNode[name] = partitions
+			}
+			partitions[record.Partition.Name] = struct{}{}
 		}
 	}
-	return nodes, nil
+	names := make([]string, 0, len(nodesByName))
+	for name := range nodesByName {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	nodes := make([]cluster.Node, 0, len(names))
+	for _, name := range names {
+		node := nodesByName[name]
+		node.Partition = strings.Join(sortedNodePartitions(partitionsByNode[name]), ", ")
+		nodes = append(nodes, node)
+	}
+	return nodeSnapshot{Nodes: nodes, PartitionNodes: partitionNodes}, nil
+}
+
+func nodeDetails(node cluster.Node) cluster.Node {
+	node.Partition = ""
+	return node
+}
+
+func sortedNodePartitions(partitions map[string]struct{}) []string {
+	names := make([]string, 0, len(partitions))
+	for name := range partitions {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func parseJobsJSON(output []byte, now time.Time) ([]cluster.Job, error) {

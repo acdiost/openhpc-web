@@ -76,8 +76,16 @@ type NodeProvider interface {
 }
 
 type NodeAdmin interface {
-	SetNodeOnline(context.Context, string, bool) error
+	SetNodeState(context.Context, string, NodeState, string) error
 }
+
+type NodeState string
+
+const (
+	NodeStateDown   NodeState = "down"
+	NodeStateDrain  NodeState = "drain"
+	NodeStateResume NodeState = "resume"
+)
 
 type PartitionProvider interface {
 	Partitions(context.Context) ([]Partition, error)

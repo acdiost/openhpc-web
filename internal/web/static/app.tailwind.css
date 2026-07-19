@@ -337,7 +337,6 @@
   .node-summary dd { margin-top: 0.25rem; color: var(--ink); font-size: 1.5rem; font-weight: 760; line-height: 1; }
 
   .primary-button,
-  .node-online-button,
   .job-resource-button,
   .directory-toolbar button {
     border-radius: 4px;
@@ -350,9 +349,42 @@
   }
 
   .primary-button:hover,
-  .node-online-button:hover,
   .job-resource-button:hover,
   .directory-toolbar button:hover { background: var(--accent-strong) !important; border-color: var(--accent-strong) !important; }
+
+  .node-offline-button {
+    min-width: 5.5rem;
+    min-height: 2rem;
+    padding: 0.35rem 0.65rem;
+    border: 1px solid #b42318;
+    border-radius: 4px;
+    background: #c92a2a;
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 750;
+  }
+  .node-offline-button:hover { border-color: #8f1d1d; background: #a61b1b; }
+  .node-offline-button:focus-visible { outline: 2px solid #8f1d1d; outline-offset: 2px; }
+
+  .node-drain-button, .node-resume-button {
+    min-width: 4.75rem;
+    min-height: 2rem;
+    padding: 0.35rem 0.65rem;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: #fff;
+    font-size: 0.75rem;
+    font-weight: 750;
+  }
+  .node-drain-button { border-color: #a16207; color: #854d0e; }
+  .node-drain-button:hover { border-color: #854d0e; background: #fef3c7; }
+  .node-resume-button { border-color: #167a53; color: #12613f; }
+  .node-resume-button:hover { border-color: #12613f; background: #edf7f1; }
+  .node-drain-button:focus-visible, .node-resume-button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+
+  .node-state-form { display: grid; grid-template-columns: minmax(10rem, 1fr) repeat(3, auto); gap: 0.35rem; min-width: 29rem; }
+  .node-state-form input { min-width: 0; min-height: 2rem; padding: 0.35rem 0.55rem; border: 1px solid var(--line); border-radius: 4px; color: var(--ink); font-size: 0.75rem; }
+  .node-state-form input:focus { border-color: var(--accent); outline: 2px solid var(--accent-ring); outline-offset: 1px; }
 
   .secondary-button,
   .job-detail-button,
@@ -385,8 +417,6 @@
     text-decoration: none;
   }
 
-  .row-actions .danger-button,
-  .row-actions .node-online-button { min-height: 2rem; padding: 0.35rem 0.65rem; font-size: 0.75rem; }
 
   .metric {
     position: relative;

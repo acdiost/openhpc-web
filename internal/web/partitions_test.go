@@ -55,21 +55,42 @@ func TestNodesPageShowsAvailableNodeAction(t *testing.T) {
 
 	response := getPartitionAuthenticated(t, handler, "/slurm/nodes", "zh")
 	assertStatus(t, response, http.StatusOK)
-	for _, value := range []string{`action="/slurm/nodes/state"`, `name="name" value="node31"`, `name="online" value="false"`, "下线", `name="name" value="node32"`, `name="online" value="true"`, "上线"} {
+	for _, value := range []string{`action="/slurm/nodes/state"`, `name="name" value="node31"`, `name="reason"`, `value="down"`, `value="drain"`, `value="resume"`, `class="node-offline-button"`, `class="node-drain-button"`, `class="node-resume-button"`, `aria-label="下线节点: node31"`, "下线节点", "Drain", "恢复上线"} {
 		assertBodyContains(t, response, value)
 	}
 }
 
-func TestNodesPageChangesNodeAvailability(t *testing.T) {
+func TestNodesPageChangesNodeState(t *testing.T) {
 	admin := &stubNodeAdmin{}
 	handler := newSlurmPageHandlerWithNodeAdmin(t, &partitionNodeProvider{nodes: []cluster.Node{{Name: "node31", Online: true}}}, nil, admin)
 	session, csrf := loginWithCSRF(t, handler)
 
-	response := postProtectedForm(handler, "/slurm/nodes/state", url.Values{"name": {"node31"}, "online": {"false"}}, session, csrf)
+	response := postProtectedForm(handler, "/slurm/nodes/state", url.Values{"name": {"node31"}, "state": {"down"}, "reason": {"scheduled maintenance"}}, session, csrf)
 	assertStatus(t, response, http.StatusSeeOther)
-	assertHeader(t, response, "Location", "/slurm/nodes?saved=offline#nodes")
-	if !reflect.DeepEqual(admin.calls, []nodeAdminCall{{name: "node31", online: false}}) {
+	assertHeader(t, response, "Location", "/slurm/nodes?saved=down#nodes")
+	if !reflect.DeepEqual(admin.calls, []nodeAdminCall{{name: "node31", state: cluster.NodeStateDown, reason: "scheduled maintenance"}}) {
 		t.Fatalf("node admin calls = %#v", admin.calls)
+	}
+
+	response = postProtectedForm(handler, "/slurm/nodes/state", url.Values{"name": {"node31"}, "state": {"drain"}, "reason": {"hardware inspection"}}, session, csrf)
+	assertStatus(t, response, http.StatusSeeOther)
+	assertHeader(t, response, "Location", "/slurm/nodes?saved=drain#nodes")
+
+	response = postProtectedForm(handler, "/slurm/nodes/state", url.Values{"name": {"node31"}, "state": {"resume"}, "reason": {"stale browser value"}}, session, csrf)
+	assertStatus(t, response, http.StatusSeeOther)
+	assertHeader(t, response, "Location", "/slurm/nodes?saved=resume#nodes")
+	if !reflect.DeepEqual(admin.calls, []nodeAdminCall{
+		{name: "node31", state: cluster.NodeStateDown, reason: "scheduled maintenance"},
+		{name: "node31", state: cluster.NodeStateDrain, reason: "hardware inspection"},
+		{name: "node31", state: cluster.NodeStateResume},
+	}) {
+		t.Fatalf("node admin calls = %#v", admin.calls)
+	}
+}
+
+func TestNodeStateAuditActionIncludesState(t *testing.T) {
+	if action := nodeStateAuditAction(cluster.NodeStateDrain); action != "slurm.node.state.drain" {
+		t.Fatalf("nodeStateAuditAction() = %q", action)
 	}
 }
 
@@ -79,15 +100,30 @@ func TestNodesPageRejectsUnknownNodeAndReportsUpdateFailure(t *testing.T) {
 	handler := newSlurmPageHandlerWithNodeAdmin(t, provider, nil, admin)
 	session, csrf := loginWithCSRF(t, handler)
 
-	response := postProtectedForm(handler, "/slurm/nodes/state", url.Values{"name": {"not-a-node"}, "online": {"false"}}, session, csrf)
+	response := postProtectedForm(handler, "/slurm/nodes/state", url.Values{"name": {"not-a-node"}, "state": {"down"}, "reason": {"maintenance"}}, session, csrf)
 	assertStatus(t, response, http.StatusBadRequest)
 	if len(admin.calls) != 0 {
 		t.Fatalf("node admin calls = %#v, want none", admin.calls)
 	}
 
-	response = postProtectedForm(handler, "/slurm/nodes/state", url.Values{"name": {"node31"}, "online": {"false"}}, session, csrf)
+	response = postProtectedForm(handler, "/slurm/nodes/state", url.Values{"name": {"node31"}, "state": {"down"}, "reason": {"maintenance"}}, session, csrf)
 	assertStatus(t, response, http.StatusSeeOther)
 	assertHeader(t, response, "Location", "/slurm/nodes?error=update_failed#nodes")
+}
+
+func TestNodesPageRequiresReasonForDownAndDrain(t *testing.T) {
+	admin := &stubNodeAdmin{}
+	handler := newSlurmPageHandlerWithNodeAdmin(t, &partitionNodeProvider{nodes: []cluster.Node{{Name: "node31", Online: true}}}, nil, admin)
+	session, csrf := loginWithCSRF(t, handler)
+
+	for _, state := range []string{"down", "drain"} {
+		response := postProtectedForm(handler, "/slurm/nodes/state", url.Values{"name": {"node31"}, "state": {state}}, session, csrf)
+		assertStatus(t, response, http.StatusSeeOther)
+		assertHeader(t, response, "Location", "/slurm/nodes?error=reason_required#nodes")
+	}
+	if len(admin.calls) != 0 {
+		t.Fatalf("node admin calls = %#v, want none", admin.calls)
+	}
 }
 
 func TestNodesPageHidesNodeProviderFailureDetails(t *testing.T) {
@@ -324,7 +360,8 @@ type stubPartitionAdmin struct {
 
 type nodeAdminCall struct {
 	name   string
-	online bool
+	state  cluster.NodeState
+	reason string
 }
 
 type stubNodeAdmin struct {
@@ -332,8 +369,8 @@ type stubNodeAdmin struct {
 	err   error
 }
 
-func (s *stubNodeAdmin) SetNodeOnline(_ context.Context, name string, online bool) error {
-	s.calls = append(s.calls, nodeAdminCall{name: name, online: online})
+func (s *stubNodeAdmin) SetNodeState(_ context.Context, name string, state cluster.NodeState, reason string) error {
+	s.calls = append(s.calls, nodeAdminCall{name: name, state: state, reason: reason})
 	return s.err
 }
 

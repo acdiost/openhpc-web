@@ -39,6 +39,36 @@ func TestClientPartitionsAggregatesCachedNodeSnapshot(t *testing.T) {
 	}
 }
 
+func TestClientPartitionsPreservesSharedNodeMembership(t *testing.T) {
+	runner := &scriptedRunner{outputs: map[string][]byte{"sinfo": []byte(`{
+		"errors": [],
+		"sinfo": [
+			{"nodes":{"nodes":["node31"]},"partition":{"name":"GPU"},"node":{"state":["IDLE"]},"cpus":{"allocated":0,"total":128},"memory":{"maximum":510000},"gres":{"total":"gpu:8"}},
+			{"nodes":{"nodes":["node31"]},"partition":{"name":"CPU"},"node":{"state":["IDLE"]},"cpus":{"allocated":0,"total":128},"memory":{"maximum":510000},"gres":{"total":"gpu:8"}},
+			{"nodes":{"nodes":["node32"]},"partition":{"name":"GPU"},"node":{"state":["IDLE"]},"cpus":{"allocated":0,"total":64},"memory":{"maximum":256000},"gres":{"total":""}}
+		]
+	}`)}}
+	client := newTestClient(t, runner)
+
+	partitions, err := client.Partitions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []cluster.Partition{
+		{Name: "CPU", NodeCount: 1, OnlineNodes: 1, TotalCPUs: 128, MemoryMB: 510000, CPUUtilization: 0},
+		{Name: "GPU", NodeCount: 2, OnlineNodes: 2, TotalCPUs: 192, MemoryMB: 766000, CPUUtilization: 0},
+	}
+	if !reflect.DeepEqual(partitions, want) {
+		t.Errorf("Partitions() = %#v, want %#v", partitions, want)
+	}
+	if _, err := client.Nodes(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls := len(runner.callsSnapshot()); calls != 1 {
+		t.Errorf("runner calls = %d, want one cached sinfo call", calls)
+	}
+}
+
 func TestAggregatePartitionsDeduplicatesIdenticalNodesAndRejectsConflicts(t *testing.T) {
 	node := cluster.Node{Name: "node31", Partition: "GPU", State: "mixed", AllocatedCPUs: 32, TotalCPUs: 128, MemoryMB: 510000, Online: true}
 	partitions, err := aggregatePartitions([]cluster.Node{node, node})

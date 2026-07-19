@@ -39,7 +39,7 @@ type Client struct {
 	lastMetrics    cluster.Metrics
 	lastErr        error
 	refreshing     chan struct{}
-	nodesCache     valueCache[[]cluster.Node]
+	nodesCache     valueCache[nodeSnapshot]
 	jobsCache      valueCache[[]cluster.Job]
 	accountCache   valueCache[accountingSnapshot]
 	qosCache       valueCache[[]cluster.QoS]
@@ -96,7 +96,7 @@ func New(config Config) (*Client, error) {
 	client := &Client{
 		binaryDir: config.BinaryDir, timeout: config.Timeout,
 		maxOutputBytes: config.MaxOutputBytes, runner: runner, cacheTTL: config.CacheTTL,
-		nodesCache:   valueCache[[]cluster.Node]{ttl: config.CacheTTL},
+		nodesCache:   valueCache[nodeSnapshot]{ttl: config.CacheTTL},
 		jobsCache:    valueCache[[]cluster.Job]{ttl: config.CacheTTL},
 		accountCache: valueCache[accountingSnapshot]{ttl: config.CacheTTL},
 		qosCache:     valueCache[[]cluster.QoS]{ttl: config.CacheTTL},
