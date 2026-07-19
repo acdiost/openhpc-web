@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/acdiost/openhpc-web/internal/directory"
 	ber "github.com/go-asn1-ber/asn1-ber"
 	ldap "github.com/go-ldap/ldap/v3"
-	"github.com/acdiost/openhpc-web/internal/directory"
 )
 
 func TestNewRejectsInvalidConfiguration(t *testing.T) {
@@ -156,6 +156,38 @@ func TestClientUserAndGroupDetailsUseExactEscapedIdentifiers(t *testing.T) {
 	}
 	if connection.requests[1].Filter != "(&(objectClass=posixGroup)(cn=research))" {
 		t.Errorf("group filter = %q", connection.requests[1].Filter)
+	}
+}
+
+func TestClientAuthenticateUsesUserDNAndPasswordBind(t *testing.T) {
+	connection := &fakeLDAPConnection{results: []*ldap.SearchResult{
+		{Entries: []*ldap.Entry{userEntry("alice", "1001")}},
+	}}
+	client := newTestClient(t, connection, 10)
+
+	ok, err := client.Authenticate(context.Background(), "alice", "secret")
+	if err != nil || !ok {
+		t.Fatalf("Authenticate() = (%v, %v)", ok, err)
+	}
+	if connection.bindUsername != "uid=alice,dc=example,dc=com" || connection.bindPassword != "secret" {
+		t.Fatalf("bind = (%q, %q)", connection.bindUsername, connection.bindPassword)
+	}
+	if len(connection.requests) != 1 || connection.requests[0].Filter != "(&(objectClass=posixAccount)(uid=alice))" {
+		t.Fatalf("search requests = %#v", connection.requests)
+	}
+}
+
+func TestClientAuthenticateRejectsInvalidCredentials(t *testing.T) {
+	connection := &fakeLDAPConnection{
+		results:    []*ldap.SearchResult{{Entries: []*ldap.Entry{userEntry("alice", "1001")}}},
+		bindErrors: []error{nil, ldap.NewError(ldap.LDAPResultInvalidCredentials, errors.New("invalid credentials"))},
+	}
+	ok, err := newTestClient(t, connection, 10).Authenticate(context.Background(), "alice", "wrong")
+	if err != nil {
+		t.Fatalf("Authenticate() error = %v", err)
+	}
+	if ok {
+		t.Fatal("Authenticate() = true, want false")
 	}
 }
 
@@ -383,6 +415,7 @@ type fakeLDAPConnection struct {
 	searchErr    error
 	searchErrors []error
 	bindErr      error
+	bindErrors   []error
 	bindUsername string
 	bindPassword string
 	closed       bool
@@ -390,6 +423,11 @@ type fakeLDAPConnection struct {
 
 func (c *fakeLDAPConnection) Bind(username, password string) error {
 	c.bindUsername, c.bindPassword = username, password
+	if len(c.bindErrors) > 0 {
+		err := c.bindErrors[0]
+		c.bindErrors = c.bindErrors[1:]
+		return err
+	}
 	return c.bindErr
 }
 

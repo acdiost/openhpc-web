@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/acdiost/openhpc-web/internal/cluster"
+	"github.com/acdiost/openhpc-web/internal/directory"
 	"github.com/acdiost/openhpc-web/internal/platform"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -63,6 +64,67 @@ func TestLoginAuthenticatesValidCredentials(t *testing.T) {
 	if csrf.SameSite != http.SameSiteStrictMode {
 		t.Errorf("CSRF cookie SameSite = %v, want Strict", csrf.SameSite)
 	}
+}
+
+func TestLDAPUserCanSignInAsPlatformUser(t *testing.T) {
+	handler, err := New(Config{
+		AdminUsername: testUsername,
+		AdminPassword: testPassword,
+		DirectoryProvider: &stubLDAPAuthenticator{
+			users: map[string]string{"alice": "ldap password"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	cleanupHandler(t, handler)
+
+	response := postForm(handler, "/login", url.Values{
+		"username": {"alice"},
+		"password": {"ldap password"},
+	}, nil)
+
+	assertStatus(t, response, http.StatusSeeOther)
+	assertHeader(t, response, "Location", "/dashboard")
+	session := findCookie(t, response.Result().Cookies(), sessionCookie)
+	if session.Value == "" {
+		t.Fatal("LDAP login must create a session")
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
+	request.AddCookie(session)
+	dashboard := httptest.NewRecorder()
+	handler.ServeHTTP(dashboard, request)
+
+	assertStatus(t, dashboard, http.StatusOK)
+	assertBodyContains(t, dashboard, "平台用户")
+	assertBodyContains(t, dashboard, "文件管理")
+	assertBodyContains(t, dashboard, "终端")
+	assertBodyNotContains(t, dashboard, `href="/platform/users"`)
+	assertBodyNotContains(t, dashboard, `href="/slurm/nodes"`)
+}
+
+func TestLDAPLoginRejectsInvalidCredentialsWithoutCreatingSession(t *testing.T) {
+	handler, err := New(Config{
+		AdminUsername: testUsername,
+		AdminPassword: testPassword,
+		DirectoryProvider: &stubLDAPAuthenticator{
+			users: map[string]string{"alice": "ldap password"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	cleanupHandler(t, handler)
+
+	response := postForm(handler, "/login", url.Values{
+		"username": {"alice"},
+		"password": {"wrong"},
+	}, nil)
+
+	assertStatus(t, response, http.StatusUnauthorized)
+	assertBodyContains(t, response, "用户名或密码错误")
+	assertNoActiveSessionCookie(t, response)
 }
 
 func TestLoginRejectsInvalidCredentialsWithoutCreatingSession(t *testing.T) {
@@ -1045,6 +1107,34 @@ type stubMetricsProvider struct {
 func (p *stubMetricsProvider) Snapshot(_ context.Context) (cluster.Metrics, error) {
 	p.calls++
 	return p.metrics, p.err
+}
+
+type stubLDAPAuthenticator struct {
+	users map[string]string
+	err   error
+}
+
+func (a *stubLDAPAuthenticator) Authenticate(_ context.Context, username, password string) (bool, error) {
+	if a.err != nil {
+		return false, a.err
+	}
+	expectedPassword, ok := a.users[username]
+	if !ok {
+		return false, nil
+	}
+	return expectedPassword == password, nil
+}
+
+func (a *stubLDAPAuthenticator) Search(context.Context, string) (directory.Page, error) {
+	return directory.Page{}, nil
+}
+
+func (a *stubLDAPAuthenticator) User(context.Context, string) (directory.User, bool, error) {
+	return directory.User{}, false, nil
+}
+
+func (a *stubLDAPAuthenticator) Group(context.Context, string) (directory.Group, bool, error) {
+	return directory.Group{}, false, nil
 }
 
 func cleanupHandler(t *testing.T, handler http.Handler) {

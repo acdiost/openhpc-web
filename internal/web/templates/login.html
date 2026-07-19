@@ -17,7 +17,7 @@
         <span>{{if eq .Language "en"}}CLUSTER MANAGEMENT{{else}}集群管理平台{{end}}</span>
       </div>
       <h1>{{if eq .Language "en"}}Welcome back{{else}}欢迎回来{{end}}</h1>
-      <p>{{if eq .Language "en"}}Sign in with your platform administrator account.{{else}}使用平台管理员账户登录{{end}}</p>
+      <p>{{if eq .Language "en"}}Sign in with a platform administrator account or LDAP user.{{else}}使用平台管理员账户或 LDAP 普通用户登录{{end}}</p>
       {{if .Error}}<div class="form-error" role="alert">{{.Error}}</div>{{end}}
       <form action="/login" method="post" class="login-form">
         <input type="hidden" name="next" value="{{.Next}}">

@@ -87,7 +87,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o dist/openhpc-web-linux-amd64 .
 
 ## LDAP 只读目录
 
-LDAP 集成默认关闭。启用后只读取 RFC2307 `posixAccount` 和 `posixGroup`，支持按 UID、姓名、邮箱、组名和描述搜索，并提供用户/组详情；不接管平台登录，不提供创建、修改、改密或删除操作。
+LDAP 集成默认关闭。启用后只读取 RFC2307 `posixAccount` 和 `posixGroup`，支持按 UID、姓名、邮箱、组名和描述搜索，并提供用户/组详情；同时支持 LDAP 用户以普通用户身份登录。平台管理员仍使用本地账号管理。
 
 ```bash
 export OPENHPC_LDAP_ENABLED=true
