@@ -54,6 +54,13 @@ test "$(id -u)" -eq 0
 LDAP 功能只支持 LDAPS，并强制验证证书链和 URL 主机名。不能沿用 `TLS_REQCERT allow`、`ldap_tls_reqcert = never` 或跳过验证。先将签发 LDAP 服务证书的 CA 安装为 root 持有、不可组/全局写的普通文件：
 
 ```bash
+openssl s_client \
+  -connect example.com:636 \
+  -servername example.com \
+  -showcerts </dev/null 2>/dev/null |
+  awk '/BEGIN CERTIFICATE/{flag=1} flag{print} /END CERTIFICATE/{exit}' \
+  > openhpc-ldap-ca.pem
+
 install -o root -g root -m 0644 openhpc-ldap-ca.pem \
   /etc/pki/ca-trust/source/anchors/openhpc-ldap-ca.pem
 update-ca-trust
@@ -164,6 +171,7 @@ OPENHPC_SLURM_CONFIG_ROOT=/usr/local/etc
 OPENHPC_JOB_OUTPUT_ROOTS=
 
 OPENHPC_LDAP_ENABLED=false
+OPENHPC_LDAP_ALLOW_INSECURE=false
 OPENHPC_LDAP_URL=ldaps://ldap.example.com:636
 OPENHPC_LDAP_BASE_DN=dc=example,dc=com
 OPENHPC_LDAP_USER_BASE_DN=ou=People,dc=example,dc=com

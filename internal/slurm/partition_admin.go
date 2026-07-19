@@ -14,25 +14,22 @@ func (c *Client) ApplyPartition(ctx context.Context, name string, nodes []string
 		return err
 	}
 	nodeList := strings.Join(nodes, ",")
-	partitionArg := "PartitionName=" + name
-	nodeArg := "Nodes=" + nodeList
-
-	showCtx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
-	if _, err := c.run(showCtx, "scontrol", "show", "partition", name); err == nil {
-		_, err = c.run(showCtx, "scontrol", "update", partitionArg, nodeArg)
-		if err != nil {
-			return fmt.Errorf("update Slurm partition %s: %w", name, err)
-		}
-		return nil
-	}
+	partitionArg := "partitionname=" + name
+	nodeArg := "nodes=" + nodeList
 
 	createCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
-	if _, err := c.run(createCtx, "scontrol", "create", partitionArg, nodeArg); err != nil {
-		return fmt.Errorf("create Slurm partition %s: %w", name, err)
+	if _, err := c.run(createCtx, "scontrol", "create", partitionArg, nodeArg); err == nil {
+		return nil
+	} else {
+		updateCtx, cancelUpdate := context.WithTimeout(ctx, c.timeout)
+		defer cancelUpdate()
+		if _, updateErr := c.run(updateCtx, "scontrol", "update", partitionArg, nodeArg); updateErr == nil {
+			return nil
+		} else {
+			return fmt.Errorf("apply Slurm partition %s: create: %w; update: %v", name, err, updateErr)
+		}
 	}
-	return nil
 }
 
 func validatePartitionDefinition(name string, nodes []string) error {
@@ -59,4 +56,3 @@ func validatePartitionDefinition(name string, nodes []string) error {
 }
 
 var _ cluster.PartitionAdmin = (*Client)(nil)
-

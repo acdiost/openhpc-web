@@ -14,10 +14,8 @@ func TestClientApplyPartitionCreatesWhenMissing(t *testing.T) {
 		switch filepath.Base(path) {
 		case "scontrol":
 			switch args[0] {
-			case "show":
-				return nil, errors.New("partition not found")
 			case "create":
-				if !reflect.DeepEqual(args, []string{"create", "PartitionName=GPU", "Nodes=node01,node02"}) {
+				if !reflect.DeepEqual(args, []string{"create", "partitionname=GPU", "nodes=node01,node02"}) {
 					t.Fatalf("create args = %#v", args)
 				}
 				return nil, nil
@@ -33,8 +31,7 @@ func TestClientApplyPartitionCreatesWhenMissing(t *testing.T) {
 		t.Fatalf("ApplyPartition() error = %v", err)
 	}
 	want := []commandCall{
-		{path: filepath.Join("/opt/slurm/bin", "scontrol"), args: []string{"show", "partition", "GPU"}},
-		{path: filepath.Join("/opt/slurm/bin", "scontrol"), args: []string{"create", "PartitionName=GPU", "Nodes=node01,node02"}},
+		{path: filepath.Join("/opt/slurm/bin", "scontrol"), args: []string{"create", "partitionname=GPU", "nodes=node01,node02"}},
 	}
 	if got := runner.callsSnapshot(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("calls = %#v, want %#v", got, want)
@@ -46,10 +43,10 @@ func TestClientApplyPartitionUpdatesWhenPresent(t *testing.T) {
 		switch filepath.Base(path) {
 		case "scontrol":
 			switch args[0] {
-			case "show":
-				return []byte("PartitionName=GPU"), nil
+			case "create":
+				return nil, errors.New("already exists")
 			case "update":
-				if !reflect.DeepEqual(args, []string{"update", "PartitionName=GPU", "Nodes=node01,node03"}) {
+				if !reflect.DeepEqual(args, []string{"update", "partitionname=GPU", "nodes=node01,node03"}) {
 					t.Fatalf("update args = %#v", args)
 				}
 				return nil, nil
@@ -65,8 +62,8 @@ func TestClientApplyPartitionUpdatesWhenPresent(t *testing.T) {
 		t.Fatalf("ApplyPartition() error = %v", err)
 	}
 	want := []commandCall{
-		{path: filepath.Join("/opt/slurm/bin", "scontrol"), args: []string{"show", "partition", "GPU"}},
-		{path: filepath.Join("/opt/slurm/bin", "scontrol"), args: []string{"update", "PartitionName=GPU", "Nodes=node01,node03"}},
+		{path: filepath.Join("/opt/slurm/bin", "scontrol"), args: []string{"create", "partitionname=GPU", "nodes=node01,node03"}},
+		{path: filepath.Join("/opt/slurm/bin", "scontrol"), args: []string{"update", "partitionname=GPU", "nodes=node01,node03"}},
 	}
 	if got := runner.callsSnapshot(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("calls = %#v, want %#v", got, want)
@@ -92,4 +89,3 @@ func TestClientApplyPartitionRejectsInvalidDefinition(t *testing.T) {
 		}
 	}
 }
-
