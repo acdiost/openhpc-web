@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	ldap "github.com/go-ldap/ldap/v3"
-	"github.com/labstack/echo/v4"
 	"github.com/acdiost/openhpc-web/internal/ldapdirectory"
 	"github.com/acdiost/openhpc-web/internal/platform"
+	ldap "github.com/go-ldap/ldap/v3"
+	"github.com/labstack/echo/v4"
 )
 
 type settingsSpec struct {
@@ -170,7 +170,15 @@ func (a *application) saveSettings(c echo.Context) error {
 	if err := a.settingsStore.SetMany(c.Request().Context(), values); err != nil {
 		_ = a.recordAudit(c, platform.AuditEvent{Actor: currentPrincipal(c).Username, Action: "settings.update", Outcome: "failed", CreatedAt: time.Now()})
 		if errors.Is(err, platform.ErrSettingsKeyRequired) {
-			return echo.NewHTTPError(http.StatusServiceUnavailable)
+			message := "保存秘密字段前必须配置 OPENHPC_SETTINGS_KEY。"
+			if language(c) == "en" {
+				message = "Configure OPENHPC_SETTINGS_KEY before saving secret fields."
+			}
+			view, viewErr := a.settingsView(c, false, message)
+			if viewErr != nil {
+				return echo.NewHTTPError(http.StatusServiceUnavailable)
+			}
+			return a.render(c, http.StatusServiceUnavailable, "settings.html", view)
 		}
 		return echo.NewHTTPError(http.StatusServiceUnavailable)
 	}
