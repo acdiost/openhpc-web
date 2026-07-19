@@ -165,6 +165,7 @@ vi /etc/openhpc-web/openhpc-web.env
 OPENHPC_ADMIN_USERNAME=admin
 OPENHPC_ADMIN_PASSWORD=REPLACE_WITH_A_LONG_RANDOM_PASSWORD
 OPENHPC_DATABASE_PATH=/var/lib/openhpc-web/openhpc.db
+OPENHPC_SETTINGS_KEY=REPLACE_WITH_BASE64_32_BYTE_KEY
 OPENHPC_ADDRESS=127.0.0.1:18080
 OPENHPC_SECURE_COOKIES=false
 OPENHPC_TRUSTED_PROXY_CIDRS=
@@ -188,6 +189,8 @@ OPENHPC_LDAP_CA_FILE=/etc/pki/ca-trust/source/anchors/openhpc-ldap-ca.pem
 OPENHPC_LDAP_TIMEOUT=3s
 OPENHPC_LDAP_MAX_RESULTS=200
 ```
+
+登录后可从左下角“系统设置”编辑允许的 Slurm/LDAP 配置。SQLite 中的设置覆盖同名环境变量，保存后需重启服务生效。`OPENHPC_SETTINGS_KEY` 必须是受保护环境或密钥管理器提供的 base64 编码 32 字节密钥，用于加密 LDAP Bind 密码；不要把密钥写入 SQLite 或提交到仓库。
 
 必须把 `REPLACE_WITH_A_LONG_RANDOM_PASSWORD` 替换为真实密码。用户名长度为 1 到 64，密码长度至少为 12。不要在聊天记录、命令历史或仓库中保存真实密码。
 

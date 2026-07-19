@@ -56,6 +56,8 @@ type Config struct {
 	AssociationProvider cluster.AssociationProvider
 	CoreHourProvider    cluster.CoreHourProvider
 	DirectoryProvider   directory.Provider
+	SettingsStore       *platform.SettingsStore
+	SettingsDefaults    map[string]string
 }
 
 type application struct {
@@ -76,6 +78,8 @@ type application struct {
 	coreHourProvider    cluster.CoreHourProvider
 	directoryProvider   directory.Provider
 	directorySlots      chan struct{}
+	settingsStore       *platform.SettingsStore
+	settingsDefaults    map[string]string
 	templates           *template.Template
 	audit               *platform.AuditStore
 	sessions            *sessionStore
@@ -87,6 +91,7 @@ type Handler struct {
 	handler        http.Handler
 	audit          *platform.AuditStore
 	jobOutputRoots []jobOutputRoot
+	settingsStore  *platform.SettingsStore
 }
 
 func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
@@ -94,7 +99,11 @@ func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 }
 
 func (h *Handler) Close() error {
-	return errors.Join(h.audit.Close(), closeJobOutputRoots(h.jobOutputRoots))
+	var settingsErr error
+	if h.settingsStore != nil {
+		settingsErr = h.settingsStore.Close()
+	}
+	return errors.Join(h.audit.Close(), closeJobOutputRoots(h.jobOutputRoots), settingsErr)
 }
 
 type sessionStore struct {
@@ -173,6 +182,8 @@ func New(config Config) (http.Handler, error) {
 		coreHourProvider:    config.CoreHourProvider,
 		directoryProvider:   config.DirectoryProvider,
 		directorySlots:      make(chan struct{}, maxConcurrentDirectoryReads),
+		settingsStore:       config.SettingsStore,
+		settingsDefaults:    cloneSettings(config.SettingsDefaults),
 		templates:           templates,
 		audit:               audit,
 		sessions:            &sessionStore{tokens: map[string]sessionData{}},
@@ -229,6 +240,8 @@ func New(config Config) (http.Handler, error) {
 	protected.POST("/ldap/search", app.ldapDirectorySearch)
 	protected.GET("/ldap/users/:uid", app.ldapUser)
 	protected.GET("/ldap/groups/:name", app.ldapGroup)
+	protected.GET("/settings", app.settingsPage)
+	protected.POST("/settings", app.saveSettings)
 	protected.GET("/audit", app.auditLog)
 	protected.POST("/preferences/language", app.setLanguage)
 	protected.POST("/preferences/theme", app.setTheme)
@@ -240,7 +253,7 @@ func New(config Config) (http.Handler, error) {
 		protected.GET(path, app.modulePlaceholder)
 	}
 
-	return &Handler{handler: e, audit: audit, jobOutputRoots: jobOutputRoots}, nil
+	return &Handler{handler: e, audit: audit, jobOutputRoots: jobOutputRoots, settingsStore: config.SettingsStore}, nil
 }
 
 const auditPageSize = 50

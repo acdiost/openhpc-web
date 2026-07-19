@@ -96,6 +96,8 @@ func ValidateConfig(config Config) error {
 	return err
 }
 
+func ValidateCAFile(path string) error { return validateRootOwnedCAFile(path) }
+
 func newClientWithDialer(config Config, dial dialLDAP) (*Client, error) {
 	if dial == nil {
 		return nil, errors.New("LDAP dialer is required")

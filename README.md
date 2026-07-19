@@ -17,6 +17,8 @@ go run ./cmd/server
 
 浏览器访问 <http://127.0.0.1:8080>。监听地址可通过 `OPENHPC_ADDRESS` 修改。
 
+登录后可从左下角“系统设置”编辑 Slurm 和 LDAP 配置。设置以 SQLite override 保存，优先于同名环境变量，并在服务重启后生效。LDAP Bind 密码使用 `OPENHPC_SETTINGS_KEY`（base64 编码的 32 字节密钥）加密保存；未配置该密钥时不会保存秘密字段。
+
 生产环境必须通过 loopback 上的本机 TLS 反向代理访问，并设置 `OPENHPC_SECURE_COOKIES=true`；服务会拒绝监听非 loopback 地址。
 反向代理还必须配置入口总速率限制，并通过 `OPENHPC_TRUSTED_PROXY_CIDRS` 指定其 CIDR（多个值用逗号分隔）；仅这些地址提供的 `X-Forwarded-For` 会被信任。
 SQLite 目录建议使用 `0700`，数据库、WAL 和 SHM 文件建议使用 `0600`。属主或权限更宽时程序仅在启动阶段输出 WARNING；最终读写能力由运行用户的操作系统权限决定。

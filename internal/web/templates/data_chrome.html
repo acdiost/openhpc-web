@@ -25,6 +25,7 @@
     {{end}}
   </nav>
   <div class="sidebar-foot">
+    <a href="/settings" class="nav-item sidebar-settings{{if eq .ActivePath "/settings"}} active{{end}}"{{if eq .ActivePath "/settings"}} aria-current="page"{{end}}><span class="nav-icon icon-settings" aria-hidden="true"></span><span>{{if eq .Language "en"}}System settings{{else}}系统设置{{end}}</span></a>
     <span class="status-dot{{if not .Available}} unavailable{{end}}"></span>
     <div><strong>{{.Copy.SlurmController}}</strong><span>{{if .Available}}{{.Copy.CurrentSnapshot}}{{else}}{{.Copy.SlurmUnavailable}}{{end}}</span></div>
   </div>

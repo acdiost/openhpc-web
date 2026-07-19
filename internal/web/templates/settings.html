@@ -1,0 +1,31 @@
+{{define "settings.html"}}
+<!doctype html>
+<html lang="{{.Language}}" data-theme="{{.Theme}}">
+{{template "document-head" .}}
+<body><div class="app-shell" data-component="app-shell">
+{{template "app-sidebar" .}}
+<div class="main-area">{{template "app-topbar" .}}<main class="content settings-content">
+{{template "page-heading" .}}
+{{if .Success}}<div class="data-success" role="status">{{.Success}}</div>{{end}}
+{{if .Error}}<div class="data-warning" role="alert">{{.Error}}</div>{{end}}
+<form action="/settings" method="post" class="settings-form">
+<input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+<p class="settings-note">{{if eq .Language "en"}}Values are stored as SQLite overrides. Changes take effect after the next service restart.{{else}}配置将作为 SQLite 覆盖值保存，重启服务后生效。{{end}}</p>
+{{range .Groups}}
+<section class="settings-section"><h2>{{.Name}}</h2>
+{{range .Fields}}
+<div class="settings-field">
+<span><strong>{{.Label}}</strong><small>{{.Key}} · {{.Source}}</small></span>
+{{if eq .InputType "checkbox"}}
+<input id="setting-{{.Key}}" type="checkbox" name="{{.Key}}" value="true"{{if eq .Value "true"}} checked{{end}}>
+<input type="hidden" name="{{.Key}}" value="false">
+{{else}}
+<input id="setting-{{.Key}}" type="{{.InputType}}" name="{{.Key}}" value="{{if not .Secret}}{{.Value}}{{end}}"{{if .Secret}}{{if .Configured}} placeholder="configured"{{end}}{{end}} autocomplete="off">
+{{end}}
+{{if .Secret}}<em>{{if .Configured}}{{if eq $.Language "en"}}Configured{{else}}已配置{{end}}{{else}}{{if eq $.Language "en"}}Not configured{{else}}未配置{{end}}{{end}}</em><label class="settings-clear"><input type="checkbox" name="clear_{{.Key}}" value="1">{{if eq $.Language "en"}}Clear override{{else}}清除覆盖{{end}}</label>{{end}}
+</div>
+{{end}}</section>
+{{end}}
+<button type="submit" class="primary-button">{{if eq .Language "en"}}Save settings{{else}}保存设置{{end}}</button>
+</form></main></div></div></body></html>
+{{end}}

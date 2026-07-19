@@ -1,12 +1,16 @@
 package main
 
 import (
+	"context"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/openhpc-web/openhpc-web/internal/platform"
 )
 
 func TestEnvOr(t *testing.T) {
@@ -18,6 +22,42 @@ func TestEnvOr(t *testing.T) {
 	t.Setenv("OPENHPC_TEST_VALUE", "")
 	if got := envOr("OPENHPC_TEST_VALUE", "fallback"); got != "fallback" {
 		t.Errorf("envOr() = %q, want fallback", got)
+	}
+}
+
+func TestSettingsOverrideTakesPrecedenceOverEnvironment(t *testing.T) {
+	t.Setenv("OPENHPC_SLURM_ENABLED", "true")
+	t.Setenv("OPENHPC_SLURM_BIN_DIR", "/env/bin")
+	t.Setenv("OPENHPC_SLURM_TIMEOUT", "3s")
+	t.Setenv("OPENHPC_SLURM_MAX_OUTPUT", "2097152")
+	t.Setenv("OPENHPC_SLURM_CACHE_TTL", "10s")
+	store, err := platform.OpenSettingsStore(":memory:", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.Set(context.Background(), "OPENHPC_SLURM_BIN_DIR", "/db/bin"); err != nil {
+		t.Fatal(err)
+	}
+	_, config, err := parseSlurmConfigFromStore(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.BinaryDir != "/db/bin" {
+		t.Errorf("BinaryDir = %q", config.BinaryDir)
+	}
+}
+
+func TestParseSettingsKey(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	t.Setenv("OPENHPC_SETTINGS_KEY", base64.StdEncoding.EncodeToString(key))
+	parsed, err := parseSettingsKey()
+	if err != nil || string(parsed) != string(key) {
+		t.Fatalf("parseSettingsKey() = %x, %v", parsed, err)
+	}
+	t.Setenv("OPENHPC_SETTINGS_KEY", "invalid")
+	if _, err := parseSettingsKey(); err == nil {
+		t.Fatal("parseSettingsKey(invalid) error = nil")
 	}
 }
 
@@ -296,12 +336,12 @@ func TestParseLDAPConfigFromEnvCustomValues(t *testing.T) {
 	t.Setenv("OPENHPC_LDAP_USER_BASE_DN", "ou=People,dc=example,dc=com")
 	t.Setenv("OPENHPC_LDAP_GROUP_BASE_DN", "ou=Group,dc=example,dc=com")
 	t.Setenv("OPENHPC_LDAP_BIND_DN", "cn=reader,dc=example,dc=com")
-	t.Setenv("OPENHPC_LDAP_BIND_PASSWORD", "secret-value")
+	t.Setenv("OPENHPC_LDAP_BIND_PASSWORD", " secret-value ")
 	_, config, err := parseLDAPConfigFromEnv()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.UserBaseDN != "ou=People,dc=example,dc=com" || config.GroupBaseDN != "ou=Group,dc=example,dc=com" || config.BindDN == "" || config.BindPassword != "secret-value" {
+	if config.UserBaseDN != "ou=People,dc=example,dc=com" || config.GroupBaseDN != "ou=Group,dc=example,dc=com" || config.BindDN == "" || config.BindPassword != " secret-value " {
 		t.Errorf("config = %#v", config)
 	}
 }

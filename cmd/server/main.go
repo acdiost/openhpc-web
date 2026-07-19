@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log"
@@ -18,6 +19,7 @@ import (
 	"github.com/openhpc-web/openhpc-web/internal/cluster"
 	"github.com/openhpc-web/openhpc-web/internal/directory"
 	"github.com/openhpc-web/openhpc-web/internal/ldapdirectory"
+	"github.com/openhpc-web/openhpc-web/internal/platform"
 	"github.com/openhpc-web/openhpc-web/internal/slurm"
 	"github.com/openhpc-web/openhpc-web/internal/web"
 )
@@ -35,7 +37,6 @@ func main() {
 	address := envOr("OPENHPC_ADDRESS", "127.0.0.1:8080")
 	secureCookies := os.Getenv("OPENHPC_SECURE_COOKIES") == "true"
 	trustedProxyCIDRs := splitList(os.Getenv("OPENHPC_TRUSTED_PROXY_CIDRS"))
-	jobOutputRoots := splitList(os.Getenv("OPENHPC_JOB_OUTPUT_ROOTS"))
 	if err := validateDeploymentConfig(address, secureCookies, trustedProxyCIDRs); err != nil {
 		log.Fatal(err)
 	}
@@ -47,12 +48,30 @@ func main() {
 	for _, warning := range stateWarnings {
 		log.Print(warning)
 	}
-	slurmEnabled, slurmConfig, err := parseSlurmConfigFromEnv()
+	settingsKey, err := parseSettingsKey()
+	if err != nil {
+		log.Fatal(err)
+	}
+	settingsStore, err := platform.OpenSettingsStore(databasePath, settingsKey)
+	if err != nil {
+		log.Fatalf("open settings store: %v", err)
+	}
+	defer func() {
+		if settingsStore != nil {
+			_ = settingsStore.Close()
+		}
+	}()
+	jobOutputRootsValue, err := settingValue(settingsStore, "OPENHPC_JOB_OUTPUT_ROOTS", os.Getenv("OPENHPC_JOB_OUTPUT_ROOTS"))
+	if err != nil {
+		log.Fatalf("read settings: %v", err)
+	}
+	jobOutputRoots := splitList(jobOutputRootsValue)
+	slurmEnabled, slurmConfig, err := parseSlurmConfigFromStore(settingsStore)
 	if err != nil {
 		log.Fatal(err)
 	}
 	slurmConfig.Warning = func(message string) { log.Print(message) }
-	ldapEnabled, ldapConfig, err := parseLDAPConfigFromEnv()
+	ldapEnabled, ldapConfig, err := parseLDAPConfigFromStore(settingsStore)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -96,11 +115,14 @@ func main() {
 		AssociationProvider: associationProvider,
 		CoreHourProvider:    coreHourProvider,
 		DirectoryProvider:   directoryProvider,
+		SettingsStore:       settingsStore,
+		SettingsDefaults:    settingsDefaultsFromEnv(),
 	})
 	if err != nil {
 		log.Fatalf("initialize server: %v", err)
 	}
 	if closer, ok := handler.(interface{ Close() error }); ok {
+		settingsStore = nil
 		defer func() {
 			if err := closer.Close(); err != nil {
 				log.Printf("close application: %v", err)
@@ -142,26 +164,47 @@ func runtimeUserWarning(euid int) string {
 }
 
 func parseSlurmConfigFromEnv() (bool, slurm.Config, error) {
-	if os.Getenv("OPENHPC_SLURM_ENABLED") != "true" {
+	return parseSlurmConfigFromStore(nil)
+}
+
+func parseSlurmConfigFromStore(store *platform.SettingsStore) (bool, slurm.Config, error) {
+	enabled, err := settingValue(store, "OPENHPC_SLURM_ENABLED", os.Getenv("OPENHPC_SLURM_ENABLED"))
+	if err != nil {
+		return false, slurm.Config{}, err
+	}
+	if enabled != "true" {
 		return false, slurm.Config{}, nil
 	}
-	timeoutValue := envOr("OPENHPC_SLURM_TIMEOUT", "3s")
+	binaryDir, err := settingValue(store, "OPENHPC_SLURM_BIN_DIR", envOr("OPENHPC_SLURM_BIN_DIR", "/usr/local/bin"))
+	if err != nil {
+		return false, slurm.Config{}, err
+	}
+	timeoutValue, err := settingValue(store, "OPENHPC_SLURM_TIMEOUT", envOr("OPENHPC_SLURM_TIMEOUT", "3s"))
+	if err != nil {
+		return false, slurm.Config{}, err
+	}
 	timeout, err := time.ParseDuration(timeoutValue)
 	if err != nil {
 		return false, slurm.Config{}, fmt.Errorf("parse OPENHPC_SLURM_TIMEOUT: %w", err)
 	}
-	maxOutputValue := envOr("OPENHPC_SLURM_MAX_OUTPUT", "2097152")
+	maxOutputValue, err := settingValue(store, "OPENHPC_SLURM_MAX_OUTPUT", envOr("OPENHPC_SLURM_MAX_OUTPUT", "2097152"))
+	if err != nil {
+		return false, slurm.Config{}, err
+	}
 	maxOutput, err := strconv.Atoi(maxOutputValue)
 	if err != nil {
 		return false, slurm.Config{}, fmt.Errorf("parse OPENHPC_SLURM_MAX_OUTPUT: %w", err)
 	}
-	cacheTTLValue := envOr("OPENHPC_SLURM_CACHE_TTL", "10s")
+	cacheTTLValue, err := settingValue(store, "OPENHPC_SLURM_CACHE_TTL", envOr("OPENHPC_SLURM_CACHE_TTL", "10s"))
+	if err != nil {
+		return false, slurm.Config{}, err
+	}
 	cacheTTL, err := time.ParseDuration(cacheTTLValue)
 	if err != nil {
 		return false, slurm.Config{}, fmt.Errorf("parse OPENHPC_SLURM_CACHE_TTL: %w", err)
 	}
 	return true, slurm.Config{
-		BinaryDir:      envOr("OPENHPC_SLURM_BIN_DIR", "/usr/local/bin"),
+		BinaryDir:      binaryDir,
 		Timeout:        timeout,
 		MaxOutputBytes: maxOutput,
 		CacheTTL:       cacheTTL,
@@ -169,32 +212,116 @@ func parseSlurmConfigFromEnv() (bool, slurm.Config, error) {
 }
 
 func parseLDAPConfigFromEnv() (bool, ldapdirectory.Config, error) {
-	if os.Getenv("OPENHPC_LDAP_ENABLED") != "true" {
+	return parseLDAPConfigFromStore(nil)
+}
+
+func parseLDAPConfigFromStore(store *platform.SettingsStore) (bool, ldapdirectory.Config, error) {
+	enabled, err := settingValue(store, "OPENHPC_LDAP_ENABLED", os.Getenv("OPENHPC_LDAP_ENABLED"))
+	if err != nil {
+		return false, ldapdirectory.Config{}, err
+	}
+	if enabled != "true" {
 		return false, ldapdirectory.Config{}, nil
 	}
-	endpoint := strings.TrimSpace(os.Getenv("OPENHPC_LDAP_URL"))
-	baseDN := strings.TrimSpace(os.Getenv("OPENHPC_LDAP_BASE_DN"))
+	endpoint, err := settingValue(store, "OPENHPC_LDAP_URL", os.Getenv("OPENHPC_LDAP_URL"))
+	if err != nil {
+		return false, ldapdirectory.Config{}, err
+	}
+	endpoint = strings.TrimSpace(endpoint)
+	baseDN, err := settingValue(store, "OPENHPC_LDAP_BASE_DN", os.Getenv("OPENHPC_LDAP_BASE_DN"))
+	if err != nil {
+		return false, ldapdirectory.Config{}, err
+	}
+	baseDN = strings.TrimSpace(baseDN)
 	if endpoint == "" || baseDN == "" {
 		return false, ldapdirectory.Config{}, errors.New("OPENHPC_LDAP_URL and OPENHPC_LDAP_BASE_DN are required")
 	}
-	timeout, err := time.ParseDuration(envOr("OPENHPC_LDAP_TIMEOUT", "3s"))
+	timeoutValue, err := settingValue(store, "OPENHPC_LDAP_TIMEOUT", envOr("OPENHPC_LDAP_TIMEOUT", "3s"))
+	if err != nil {
+		return false, ldapdirectory.Config{}, err
+	}
+	timeout, err := time.ParseDuration(timeoutValue)
 	if err != nil {
 		return false, ldapdirectory.Config{}, fmt.Errorf("parse OPENHPC_LDAP_TIMEOUT: %w", err)
 	}
-	maxResults, err := strconv.Atoi(envOr("OPENHPC_LDAP_MAX_RESULTS", "200"))
+	maxResultsValue, err := settingValue(store, "OPENHPC_LDAP_MAX_RESULTS", envOr("OPENHPC_LDAP_MAX_RESULTS", "200"))
+	if err != nil {
+		return false, ldapdirectory.Config{}, err
+	}
+	maxResults, err := strconv.Atoi(maxResultsValue)
 	if err != nil {
 		return false, ldapdirectory.Config{}, fmt.Errorf("parse OPENHPC_LDAP_MAX_RESULTS: %w", err)
 	}
 	config := ldapdirectory.Config{
 		URL: endpoint, BaseDN: baseDN,
-		UserBaseDN: strings.TrimSpace(os.Getenv("OPENHPC_LDAP_USER_BASE_DN")), GroupBaseDN: strings.TrimSpace(os.Getenv("OPENHPC_LDAP_GROUP_BASE_DN")),
-		BindDN: strings.TrimSpace(os.Getenv("OPENHPC_LDAP_BIND_DN")), BindPassword: os.Getenv("OPENHPC_LDAP_BIND_PASSWORD"),
-		CAFile: strings.TrimSpace(os.Getenv("OPENHPC_LDAP_CA_FILE")), Timeout: timeout, MaxResults: maxResults,
+		Timeout: timeout, MaxResults: maxResults,
+	}
+	for key, target := range map[string]*string{"OPENHPC_LDAP_USER_BASE_DN": &config.UserBaseDN, "OPENHPC_LDAP_GROUP_BASE_DN": &config.GroupBaseDN, "OPENHPC_LDAP_BIND_DN": &config.BindDN, "OPENHPC_LDAP_BIND_PASSWORD": &config.BindPassword, "OPENHPC_LDAP_CA_FILE": &config.CAFile} {
+		value, err := settingValue(store, key, os.Getenv(key))
+		if err != nil {
+			return false, ldapdirectory.Config{}, err
+		}
+		if key != "OPENHPC_LDAP_BIND_PASSWORD" {
+			value = strings.TrimSpace(value)
+		}
+		*target = value
 	}
 	if err := ldapdirectory.ValidateConfig(config); err != nil {
 		return false, ldapdirectory.Config{}, fmt.Errorf("validate LDAP configuration: %w", err)
 	}
 	return true, config, nil
+}
+
+func parseSettingsKey() ([]byte, error) {
+	value := strings.TrimSpace(os.Getenv("OPENHPC_SETTINGS_KEY"))
+	if value == "" {
+		return nil, nil
+	}
+	key, err := base64.StdEncoding.DecodeString(value)
+	if err != nil || len(key) != 32 {
+		return nil, errors.New("OPENHPC_SETTINGS_KEY must be base64-encoded 32 bytes")
+	}
+	return key, nil
+}
+
+func settingValue(store *platform.SettingsStore, key, fallback string) (string, error) {
+	if store == nil {
+		return fallback, nil
+	}
+	value, found, err := store.Get(context.Background(), key)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", key, err)
+	}
+	if found {
+		return value, nil
+	}
+	return fallback, nil
+}
+
+func settingsDefaultsFromEnv() map[string]string {
+	result := make(map[string]string)
+	for _, key := range platform.KnownSettingKeys() {
+		result[key] = os.Getenv(key)
+	}
+	if result["OPENHPC_SLURM_BIN_DIR"] == "" {
+		result["OPENHPC_SLURM_BIN_DIR"] = "/usr/local/bin"
+	}
+	if result["OPENHPC_SLURM_TIMEOUT"] == "" {
+		result["OPENHPC_SLURM_TIMEOUT"] = "3s"
+	}
+	if result["OPENHPC_SLURM_MAX_OUTPUT"] == "" {
+		result["OPENHPC_SLURM_MAX_OUTPUT"] = "2097152"
+	}
+	if result["OPENHPC_SLURM_CACHE_TTL"] == "" {
+		result["OPENHPC_SLURM_CACHE_TTL"] = "10s"
+	}
+	if result["OPENHPC_LDAP_TIMEOUT"] == "" {
+		result["OPENHPC_LDAP_TIMEOUT"] = "3s"
+	}
+	if result["OPENHPC_LDAP_MAX_RESULTS"] == "" {
+		result["OPENHPC_LDAP_MAX_RESULTS"] = "200"
+	}
+	return result
 }
 
 func envOr(name, fallback string) string {

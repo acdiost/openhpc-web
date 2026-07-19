@@ -347,12 +347,14 @@ func TestProtectedPagesShareApplicationChrome(t *testing.T) {
 		path         string
 		heading      string
 		active       string
+		activeMarkup string
 		expectedCSRF int
 	}{
 		{path: "/dashboard", heading: "集群概览", active: "/dashboard", expectedCSRF: 3},
 		{path: "/slurm/nodes", heading: "节点与分区", active: "/slurm/nodes", expectedCSRF: 3},
 		{path: "/slurm/jobs", heading: "作业管理", active: "/slurm/jobs", expectedCSRF: 3},
 		{path: "/ldap", heading: "LDAP 目录", active: "/ldap", expectedCSRF: 4},
+		{path: "/settings", heading: "系统设置", active: "/settings", activeMarkup: `href="/settings" class="nav-item sidebar-settings active" aria-current="page"`, expectedCSRF: 4},
 	}
 
 	for _, test := range tests {
@@ -370,7 +372,12 @@ func TestProtectedPagesShareApplicationChrome(t *testing.T) {
 				`data-component="page-heading"`,
 				`action="/logout"`,
 				`<title>OpenHPC Web · ` + test.heading + `</title>`,
-				`href="` + test.active + `" class="nav-item active" aria-current="page"`,
+				func() string {
+					if test.activeMarkup != "" {
+						return test.activeMarkup
+					}
+					return `href="` + test.active + `" class="nav-item active" aria-current="page"`
+				}(),
 				`aria-controls="sidebar" aria-expanded="false"`,
 				"<h1>" + test.heading + "</h1>",
 			} {
