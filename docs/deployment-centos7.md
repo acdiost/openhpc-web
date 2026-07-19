@@ -8,6 +8,7 @@
 - Web 服务不通过 SSH root 调用 Slurm，也不直接修改 Slurm 数据库。
 - `/etc/openhpc-web/openhpc-web.env` 建议为 `root:root 0600`，这是 systemd 环境文件保护建议，不是应用启动校验。
 - `/var/lib/openhpc-web` 推荐为运行账户持有且权限为 `0700`。属主或模式不一致时应用只在启动阶段输出 WARNING，实际读写权限由操作系统决定。
+- `/slurm/config` 使用 `OPENHPC_SLURM_CONFIG_ROOT`（默认 `/usr/local/etc`）提供只读配置浏览，不执行重载、不展开 Include。
 - 首次访问使用 SSH 端口转发；公网或局域网发布前必须增加 TLS 反向代理。
 
 ## 2. 验证服务账户
@@ -174,6 +175,7 @@ OPENHPC_SLURM_BIN_DIR=/usr/local/bin
 OPENHPC_SLURM_TIMEOUT=3s
 OPENHPC_SLURM_MAX_OUTPUT=2097152
 OPENHPC_SLURM_CACHE_TTL=10s
+OPENHPC_SLURM_CONFIG_ROOT=/usr/local/etc
 # 可选；留空时详情中的“查看内容”保持禁用
 OPENHPC_JOB_OUTPUT_ROOTS=
 

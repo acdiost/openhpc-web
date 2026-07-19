@@ -1,12 +1,18 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/openhpc-web/openhpc-web/internal/slurmconfig"
+	"github.com/openhpc-web/openhpc-web/internal/web"
 )
 
 func TestEnvOr(t *testing.T) {
@@ -258,6 +264,40 @@ func TestParseSlurmConfigFromEnvReportsInvalidValues(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBuildHandlerClosesSlurmConfigProviderOnError(t *testing.T) {
+	previous := newWebHandler
+	defer func() { newWebHandler = previous }()
+	newWebHandler = func(web.Config) (http.Handler, error) {
+		return nil, errors.New("boom")
+	}
+
+	provider := &closingSlurmConfigProvider{}
+	_, err := buildHandler(web.Config{}, provider)
+	if err == nil {
+		t.Fatal("buildHandler() error = nil, want error")
+	}
+	if provider.closed != 1 {
+		t.Fatalf("provider closed = %d, want 1", provider.closed)
+	}
+}
+
+type closingSlurmConfigProvider struct {
+	closed int
+}
+
+func (p *closingSlurmConfigProvider) List(context.Context) ([]slurmconfig.Entry, error) {
+	return nil, nil
+}
+
+func (p *closingSlurmConfigProvider) Read(context.Context, string) (slurmconfig.File, error) {
+	return slurmconfig.File{}, nil
+}
+
+func (p *closingSlurmConfigProvider) Close() error {
+	p.closed++
+	return nil
 }
 
 func setSlurmEnvironment(t *testing.T, enabled, binaryDir, timeout, maxOutput string) {

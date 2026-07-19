@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
 	"log"
 	"net"
@@ -24,6 +25,7 @@ import (
 	"github.com/openhpc-web/openhpc-web/internal/cluster"
 	"github.com/openhpc-web/openhpc-web/internal/directory"
 	"github.com/openhpc-web/openhpc-web/internal/platform"
+	"github.com/openhpc-web/openhpc-web/internal/slurmconfig"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -56,6 +58,7 @@ type Config struct {
 	AssociationProvider cluster.AssociationProvider
 	CoreHourProvider    cluster.CoreHourProvider
 	DirectoryProvider   directory.Provider
+	SlurmConfigProvider slurmconfig.Provider
 }
 
 type application struct {
@@ -75,6 +78,7 @@ type application struct {
 	associationProvider cluster.AssociationProvider
 	coreHourProvider    cluster.CoreHourProvider
 	directoryProvider   directory.Provider
+	slurmConfigProvider slurmconfig.Provider
 	directorySlots      chan struct{}
 	templates           *template.Template
 	audit               *platform.AuditStore
@@ -87,6 +91,7 @@ type Handler struct {
 	handler        http.Handler
 	audit          *platform.AuditStore
 	jobOutputRoots []jobOutputRoot
+	configCloser   io.Closer
 }
 
 func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
@@ -94,7 +99,14 @@ func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 }
 
 func (h *Handler) Close() error {
-	return errors.Join(h.audit.Close(), closeJobOutputRoots(h.jobOutputRoots))
+	return errors.Join(h.audit.Close(), closeJobOutputRoots(h.jobOutputRoots), closeConfigured(h.configCloser))
+}
+
+func closeConfigured(closer io.Closer) error {
+	if closer == nil {
+		return nil
+	}
+	return closer.Close()
 }
 
 type sessionStore struct {
@@ -147,6 +159,10 @@ func New(config Config) (http.Handler, error) {
 		_ = audit.Close()
 		return nil, err
 	}
+	var configCloser io.Closer
+	if closer, ok := config.SlurmConfigProvider.(io.Closer); ok {
+		configCloser = closer
+	}
 	if len(jobOutputRoots) > 0 {
 		warning := config.Warning
 		if warning == nil {
@@ -172,6 +188,7 @@ func New(config Config) (http.Handler, error) {
 		associationProvider: config.AssociationProvider,
 		coreHourProvider:    config.CoreHourProvider,
 		directoryProvider:   config.DirectoryProvider,
+		slurmConfigProvider: config.SlurmConfigProvider,
 		directorySlots:      make(chan struct{}, maxConcurrentDirectoryReads),
 		templates:           templates,
 		audit:               audit,
@@ -186,6 +203,7 @@ func New(config Config) (http.Handler, error) {
 	if err := configureIPExtractor(e, config.TrustedProxyCIDRs); err != nil {
 		_ = audit.Close()
 		_ = closeJobOutputRoots(jobOutputRoots)
+		_ = closeConfigured(configCloser)
 		return nil, err
 	}
 	e.Use(requestBodyLimit(16 << 10))
@@ -196,6 +214,7 @@ func New(config Config) (http.Handler, error) {
 	if err != nil {
 		_ = audit.Close()
 		_ = closeJobOutputRoots(jobOutputRoots)
+		_ = closeConfigured(configCloser)
 		return nil, fmt.Errorf("load static files: %w", err)
 	}
 	e.GET("/static/*", echo.WrapHandler(http.StripPrefix("/static/", http.FileServer(http.FS(staticFiles)))))
@@ -225,6 +244,7 @@ func New(config Config) (http.Handler, error) {
 		}
 		return c.Redirect(http.StatusFound, target)
 	})
+	protected.GET("/slurm/config", app.slurmConfig)
 	protected.GET("/ldap", app.ldapDirectory)
 	protected.POST("/ldap/search", app.ldapDirectorySearch)
 	protected.GET("/ldap/users/:uid", app.ldapUser)
@@ -234,13 +254,13 @@ func New(config Config) (http.Handler, error) {
 	protected.POST("/preferences/theme", app.setTheme)
 	protected.POST("/logout", app.logout)
 	for _, path := range []string{
-		"/slurm/config", "/slurm/users",
+		"/slurm/users",
 		"/system/files", "/terminal", "/platform/users",
 	} {
 		protected.GET(path, app.modulePlaceholder)
 	}
 
-	return &Handler{handler: e, audit: audit, jobOutputRoots: jobOutputRoots}, nil
+	return &Handler{handler: e, audit: audit, jobOutputRoots: jobOutputRoots, configCloser: configCloser}, nil
 }
 
 const auditPageSize = 50
