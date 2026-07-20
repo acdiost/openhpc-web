@@ -65,7 +65,7 @@
               </label>
               <input type="hidden" name="{{.Key}}" value="false">
               {{else}}
-              <input id="setting-{{.Key}}" type="{{.InputType}}" name="{{.Key}}" value="{{if not .Secret}}{{.Value}}{{end}}"{{if .Secret}}{{if .Configured}} placeholder="{{if eq $.Language "en"}}configured{{else}}已配置{{end}}"{{end}}{{end}} autocomplete="off">
+              <input id="setting-{{.Key}}" type="{{.InputType}}" name="{{.Key}}" value="{{if not .Secret}}{{.Value}}{{end}}" placeholder="{{if and .Secret .Configured}}{{if eq $.Language "en"}}configured{{else}}已配置{{end}}{{else}}{{.Placeholder}}{{end}}" autocomplete="off">
               {{end}}
             </div>
             <div class="settings-field-meta">

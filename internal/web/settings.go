@@ -21,37 +21,38 @@ import (
 
 type settingsSpec struct {
 	Key, GroupZH, GroupEN, LabelZH, LabelEN, InputType string
+	PlaceholderZH, PlaceholderEN                       string
 	Secret                                             bool
 }
 
 var settingsSpecs = []settingsSpec{
 	{Key: "OPENHPC_SLURM_ENABLED", GroupZH: "Slurm", GroupEN: "Slurm", LabelZH: "启用 Slurm", LabelEN: "Enable Slurm", InputType: "checkbox"},
-	{Key: "OPENHPC_SLURM_BIN_DIR", GroupZH: "Slurm", GroupEN: "Slurm", LabelZH: "Slurm 二进制目录", LabelEN: "Slurm binary directory", InputType: "text"},
-	{Key: "OPENHPC_SLURM_TIMEOUT", GroupZH: "Slurm", GroupEN: "Slurm", LabelZH: "Slurm 超时", LabelEN: "Slurm timeout", InputType: "text"},
-	{Key: "OPENHPC_SLURM_MAX_OUTPUT", GroupZH: "Slurm", GroupEN: "Slurm", LabelZH: "最大输出字节数", LabelEN: "Maximum output bytes", InputType: "number"},
-	{Key: "OPENHPC_SLURM_CACHE_TTL", GroupZH: "Slurm", GroupEN: "Slurm", LabelZH: "缓存 TTL", LabelEN: "Cache TTL", InputType: "text"},
+	{Key: "OPENHPC_SLURM_BIN_DIR", GroupZH: "Slurm", GroupEN: "Slurm", LabelZH: "Slurm 二进制目录", LabelEN: "Slurm binary directory", InputType: "text", PlaceholderZH: "/usr/local/bin", PlaceholderEN: "/usr/local/bin"},
+	{Key: "OPENHPC_SLURM_TIMEOUT", GroupZH: "Slurm", GroupEN: "Slurm", LabelZH: "Slurm 超时", LabelEN: "Slurm timeout", InputType: "text", PlaceholderZH: "3s", PlaceholderEN: "3s"},
+	{Key: "OPENHPC_SLURM_MAX_OUTPUT", GroupZH: "Slurm", GroupEN: "Slurm", LabelZH: "最大输出字节数", LabelEN: "Maximum output bytes", InputType: "number", PlaceholderZH: "2097152", PlaceholderEN: "2097152"},
+	{Key: "OPENHPC_SLURM_CACHE_TTL", GroupZH: "Slurm", GroupEN: "Slurm", LabelZH: "缓存 TTL", LabelEN: "Cache TTL", InputType: "text", PlaceholderZH: "10s", PlaceholderEN: "10s"},
 	{Key: "OPENHPC_LDAP_ENABLED", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "启用 LDAP", LabelEN: "Enable LDAP", InputType: "checkbox"},
-	{Key: "OPENHPC_LDAP_URL", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "LDAP 地址", LabelEN: "LDAP URL", InputType: "url"},
-	{Key: "OPENHPC_LDAP_BASE_DN", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "基础 DN", LabelEN: "Base DN", InputType: "text"},
-	{Key: "OPENHPC_LDAP_USER_BASE_DN", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "用户基础 DN", LabelEN: "User base DN", InputType: "text"},
-	{Key: "OPENHPC_LDAP_GROUP_BASE_DN", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "组基础 DN", LabelEN: "Group base DN", InputType: "text"},
-	{Key: "OPENHPC_LDAP_BIND_DN", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "只读 Bind DN", LabelEN: "Read-only bind DN", InputType: "text"},
-	{Key: "OPENHPC_LDAP_BIND_PASSWORD", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "Bind 密码", LabelEN: "Bind password", InputType: "password", Secret: true},
-	{Key: "OPENHPC_LDAP_PROVISION_BIND_DN", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "创建用户 Bind DN", LabelEN: "Provisioning bind DN", InputType: "text"},
-	{Key: "OPENHPC_LDAP_PROVISION_BIND_PASSWORD", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "创建用户 Bind 密码", LabelEN: "Provisioning bind password", InputType: "password", Secret: true},
-	{Key: "OPENHPC_LDAP_CA_FILE", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "CA 文件", LabelEN: "CA file", InputType: "text"},
-	{Key: "OPENHPC_LDAP_TIMEOUT", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "LDAP 超时", LabelEN: "LDAP timeout", InputType: "text"},
-	{Key: "OPENHPC_LDAP_MAX_RESULTS", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "最大结果数", LabelEN: "Maximum results", InputType: "number"},
+	{Key: "OPENHPC_LDAP_URL", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "LDAP 地址", LabelEN: "LDAP URL", InputType: "url", PlaceholderZH: "ldaps://ldap.example.com:636", PlaceholderEN: "ldaps://ldap.example.com:636"},
+	{Key: "OPENHPC_LDAP_BASE_DN", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "基础 DN", LabelEN: "Base DN", InputType: "text", PlaceholderZH: "dc=example,dc=com", PlaceholderEN: "dc=example,dc=com"},
+	{Key: "OPENHPC_LDAP_USER_BASE_DN", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "用户基础 DN", LabelEN: "User base DN", InputType: "text", PlaceholderZH: "ou=People,dc=example,dc=com", PlaceholderEN: "ou=People,dc=example,dc=com"},
+	{Key: "OPENHPC_LDAP_GROUP_BASE_DN", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "组基础 DN", LabelEN: "Group base DN", InputType: "text", PlaceholderZH: "ou=Groups,dc=example,dc=com", PlaceholderEN: "ou=Groups,dc=example,dc=com"},
+	{Key: "OPENHPC_LDAP_BIND_DN", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "只读 Bind DN", LabelEN: "Read-only bind DN", InputType: "text", PlaceholderZH: "cn=openhpc-web,ou=Service Accounts,dc=example,dc=com", PlaceholderEN: "cn=openhpc-web,ou=Service Accounts,dc=example,dc=com"},
+	{Key: "OPENHPC_LDAP_BIND_PASSWORD", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "Bind 密码", LabelEN: "Bind password", InputType: "password", PlaceholderZH: "输入 Bind 密码", PlaceholderEN: "Enter Bind password", Secret: true},
+	{Key: "OPENHPC_LDAP_PROVISION_BIND_DN", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "创建用户 Bind DN", LabelEN: "Provisioning bind DN", InputType: "text", PlaceholderZH: "cn=openhpc-provision,ou=Service Accounts,dc=example,dc=com", PlaceholderEN: "cn=openhpc-provision,ou=Service Accounts,dc=example,dc=com"},
+	{Key: "OPENHPC_LDAP_PROVISION_BIND_PASSWORD", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "创建用户 Bind 密码", LabelEN: "Provisioning bind password", InputType: "password", PlaceholderZH: "输入 Bind 密码", PlaceholderEN: "Enter Bind password", Secret: true},
+	{Key: "OPENHPC_LDAP_CA_FILE", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "CA 文件", LabelEN: "CA file", InputType: "text", PlaceholderZH: "/etc/pki/ca-trust/source/anchors/ldap-ca.pem", PlaceholderEN: "/etc/pki/ca-trust/source/anchors/ldap-ca.pem"},
+	{Key: "OPENHPC_LDAP_TIMEOUT", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "LDAP 超时", LabelEN: "LDAP timeout", InputType: "text", PlaceholderZH: "3s", PlaceholderEN: "3s"},
+	{Key: "OPENHPC_LDAP_MAX_RESULTS", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "最大结果数", LabelEN: "Maximum results", InputType: "number", PlaceholderZH: "200", PlaceholderEN: "200"},
 	{Key: "OPENHPC_TERMINAL_ENABLED", GroupZH: "终端", GroupEN: "Terminal", LabelZH: "启用 SSH 终端", LabelEN: "Enable SSH terminal", InputType: "checkbox"},
-	{Key: "OPENHPC_TERMINAL_SSH_ADDRESS", GroupZH: "终端", GroupEN: "Terminal", LabelZH: "SSH 登录节点", LabelEN: "SSH login node", InputType: "text"},
-	{Key: "OPENHPC_TERMINAL_SSH_KNOWN_HOSTS", GroupZH: "终端", GroupEN: "Terminal", LabelZH: "SSH known_hosts 文件", LabelEN: "SSH known_hosts file", InputType: "text"},
-	{Key: "OPENHPC_TERMINAL_TIMEOUT", GroupZH: "终端", GroupEN: "Terminal", LabelZH: "SSH 连接超时", LabelEN: "SSH connection timeout", InputType: "text"},
+	{Key: "OPENHPC_TERMINAL_SSH_ADDRESS", GroupZH: "终端", GroupEN: "Terminal", LabelZH: "SSH 登录节点", LabelEN: "SSH login node", InputType: "text", PlaceholderZH: "login.example.com:22", PlaceholderEN: "login.example.com:22"},
+	{Key: "OPENHPC_TERMINAL_SSH_KNOWN_HOSTS", GroupZH: "终端", GroupEN: "Terminal", LabelZH: "SSH known_hosts 文件", LabelEN: "SSH known_hosts file", InputType: "text", PlaceholderZH: "/etc/openhpc-web/ssh_known_hosts", PlaceholderEN: "/etc/openhpc-web/ssh_known_hosts"},
+	{Key: "OPENHPC_TERMINAL_TIMEOUT", GroupZH: "终端", GroupEN: "Terminal", LabelZH: "SSH 连接超时", LabelEN: "SSH connection timeout", InputType: "text", PlaceholderZH: "10s", PlaceholderEN: "10s"},
 }
 
 type settingFieldView struct {
-	Key, Label, Group, Value, Source string
-	InputType                        string
-	Secret, Configured               bool
+	Key, Label, Group, Value, Source, Placeholder string
+	InputType                                     string
+	Secret, Configured                            bool
 }
 
 type settingsView struct {
@@ -140,11 +141,11 @@ func (a *application) settingsView(c echo.Context, updated bool, success, errorM
 		if configured {
 			configuredCount++
 		}
-		label, group := spec.LabelZH, spec.GroupZH
+		label, group, placeholder := spec.LabelZH, spec.GroupZH, spec.PlaceholderZH
 		if lang == "en" {
-			label, group = spec.LabelEN, spec.GroupEN
+			label, group, placeholder = spec.LabelEN, spec.GroupEN, spec.PlaceholderEN
 		}
-		fields = append(fields, settingFieldView{Key: spec.Key, Label: label, Group: group, Value: value, Source: source, InputType: spec.InputType, Secret: spec.Secret, Configured: configured})
+		fields = append(fields, settingFieldView{Key: spec.Key, Label: label, Group: group, Value: value, Source: source, Placeholder: placeholder, InputType: spec.InputType, Secret: spec.Secret, Configured: configured})
 	}
 	if updated && success == "" {
 		if lang == "en" {

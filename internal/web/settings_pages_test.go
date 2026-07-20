@@ -49,6 +49,28 @@ func TestSettingsPageIsInSidebarAndRedactsSecretValues(t *testing.T) {
 	assertBodyNotContains(t, response, "super-secret")
 }
 
+func TestSettingsPageRendersExamplePlaceholdersForEveryInput(t *testing.T) {
+	handler, err := New(Config{AdminUsername: testUsername, AdminPassword: testPassword})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupHandler(t, handler)
+	response := getAuthenticated(t, handler, "/settings", "zh")
+	assertStatus(t, response, http.StatusOK)
+	for _, spec := range settingsSpecs {
+		if spec.InputType == "checkbox" {
+			continue
+		}
+		if spec.PlaceholderZH == "" || spec.PlaceholderEN == "" {
+			t.Fatalf("%s is missing a placeholder", spec.Key)
+		}
+		assertBodyContains(t, response, `id="setting-`+spec.Key+`" type="`+spec.InputType+`" name="`+spec.Key+`" value="" placeholder="`+spec.PlaceholderZH+`"`)
+	}
+	english := getAuthenticated(t, handler, "/settings", "en")
+	assertStatus(t, english, http.StatusOK)
+	assertBodyContains(t, english, `placeholder="Enter Bind password"`)
+}
+
 func TestSettingsSaveRequiresCSRFAndPersistsWithoutLeakingSecret(t *testing.T) {
 	store, err := platform.OpenSettingsStore(filepath.Join(t.TempDir(), "settings.db"), []byte("0123456789abcdef0123456789abcdef"))
 	if err != nil {
