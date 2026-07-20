@@ -213,12 +213,15 @@ func (a *application) saveSettings(c echo.Context) error {
 			value = "false"
 		}
 		if err := validateSettingFormValue(spec.Key, value); err != nil {
+			if isTerminalSetting(spec.Key) {
+				return a.renderTerminalSettingsError(c)
+			}
 			return echo.NewHTTPError(http.StatusBadRequest)
 		}
 		values[spec.Key] = value
 	}
 	if err := validateEnabledTerminalSettings(values); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest)
+		return a.renderTerminalSettingsError(c)
 	}
 	if err := a.settingsStore.SetMany(c.Request().Context(), values); err != nil {
 		_ = a.recordAudit(c, platform.AuditEvent{Actor: currentPrincipal(c).Username, Action: "settings.update", Outcome: "failed", CreatedAt: time.Now()})
@@ -239,6 +242,22 @@ func (a *application) saveSettings(c echo.Context) error {
 		log.Printf("settings audit failed")
 	}
 	return c.Redirect(http.StatusSeeOther, "/settings?updated=1")
+}
+
+func (a *application) renderTerminalSettingsError(c echo.Context) error {
+	message := "SSH 终端配置无效。登录节点必须使用 host:port；known_hosts 必须是服务端已有的受保护绝对路径文件；连接超时必须为 1 到 60 秒。"
+	if language(c) == "en" {
+		message = "SSH terminal configuration is invalid. Use host:port for the login node, a protected absolute known_hosts file already on the server, and a timeout from 1 to 60 seconds."
+	}
+	view, err := a.settingsView(c, false, "", message)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable)
+	}
+	return a.render(c, http.StatusBadRequest, "settings.html", view)
+}
+
+func isTerminalSetting(key string) bool {
+	return key == "OPENHPC_TERMINAL_ENABLED" || key == "OPENHPC_TERMINAL_SSH_ADDRESS" || key == "OPENHPC_TERMINAL_SSH_KNOWN_HOSTS" || key == "OPENHPC_TERMINAL_TIMEOUT"
 }
 
 func validateEnabledTerminalSettings(values map[string]string) error {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -154,6 +155,50 @@ func TestSettingsRejectsIncompleteEnabledTerminalConfiguration(t *testing.T) {
 		"OPENHPC_TERMINAL_ENABLED": {"true"},
 	}, session, csrf)
 	assertStatus(t, response, http.StatusBadRequest)
+	assertBodyContains(t, response, "SSH 终端配置无效")
+	assertBodyContains(t, response, "host:port")
+	if _, found, err := store.Get(context.Background(), "OPENHPC_TERMINAL_ENABLED"); err != nil || found {
+		t.Fatalf("incomplete terminal configuration persisted: found=%v err=%v", found, err)
+	}
+}
+
+func TestSettingsSavesCompleteTerminalConfiguration(t *testing.T) {
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	knownHosts := filepath.Join(directory, "known_hosts")
+	if err := os.WriteFile(knownHosts, []byte("login.example ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := platform.OpenSettingsStore(":memory:", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := New(Config{AdminUsername: testUsername, AdminPassword: testPassword, SettingsStore: store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupHandler(t, handler)
+	session, csrf := loginWithCSRF(t, handler)
+	response := postProtectedForm(handler, "/settings", url.Values{
+		"OPENHPC_TERMINAL_ENABLED":         {"true", "false"},
+		"OPENHPC_TERMINAL_SSH_ADDRESS":     {"login.example:22"},
+		"OPENHPC_TERMINAL_SSH_KNOWN_HOSTS": {knownHosts},
+		"OPENHPC_TERMINAL_TIMEOUT":         {"10s"},
+	}, session, csrf)
+	assertStatus(t, response, http.StatusSeeOther)
+	for key, want := range map[string]string{
+		"OPENHPC_TERMINAL_ENABLED":         "true",
+		"OPENHPC_TERMINAL_SSH_ADDRESS":     "login.example:22",
+		"OPENHPC_TERMINAL_SSH_KNOWN_HOSTS": knownHosts,
+		"OPENHPC_TERMINAL_TIMEOUT":         "10s",
+	} {
+		got, found, err := store.Get(context.Background(), key)
+		if err != nil || !found || got != want {
+			t.Errorf("stored %s = %q, found=%v, err=%v; want %q", key, got, found, err, want)
+		}
+	}
 }
 
 func TestSettingsSecretSaveExplainsMissingEncryptionKey(t *testing.T) {
