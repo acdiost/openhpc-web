@@ -402,6 +402,8 @@ func TestDashboardShowsCoreMetricsAndNavigation(t *testing.T) {
 	for _, untranslated := range []string{"Platform admin", "OPERATIONS", `aria-label="Primary"`, `aria-label="Menu"`, `aria-label="CPU and GPU utilization chart"`} {
 		assertBodyNotContains(t, response, untranslated)
 	}
+	assertBodyContains(t, response, `href="/terminal" class="nav-item`)
+	assertBodyContains(t, response, `target="_blank" rel="noopener"`)
 }
 
 func TestProtectedPagesShareApplicationChrome(t *testing.T) {

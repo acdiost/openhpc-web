@@ -130,6 +130,19 @@ func TestTerminalUsesEmbeddedXtermAssets(t *testing.T) {
 	}
 }
 
+func TestTerminalNavigationOpensInNewTab(t *testing.T) {
+	template, err := fs.ReadFile(assets, "templates/data_chrome.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents := string(template)
+	for _, expected := range []string{`eq .Path "/terminal"`, `target="_blank"`, `rel="noopener"`} {
+		if !strings.Contains(contents, expected) {
+			t.Errorf("terminal navigation does not contain %q", expected)
+		}
+	}
+}
+
 func TestJobResourceScriptPollsAndCancelsWithModalLifecycle(t *testing.T) {
 	contents, err := fs.ReadFile(assets, "static/app.js")
 	if err != nil {
