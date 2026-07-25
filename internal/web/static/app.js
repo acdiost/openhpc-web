@@ -501,24 +501,67 @@
   var terminalForm = document.querySelector('[data-terminal-connect]');
   if (terminalPage && terminalForm) {
     var terminalStatus = terminalPage.querySelector('[data-terminal-status]');
-    var terminalOutput = terminalPage.querySelector('[data-terminal-output]');
-    var terminalInput = terminalPage.querySelector('[data-terminal-input]');
+    var terminalConsole = terminalPage.querySelector('[data-terminal-console]');
     var terminalOpen = terminalPage.querySelector('[data-terminal-open]');
     var terminalSocket = null;
-    var appendTerminalOutput = function (text) {
-      terminalOutput.textContent = (terminalOutput.textContent + text).slice(-131072);
-      terminalOutput.scrollTop = terminalOutput.scrollHeight;
+    var terminalFitAddon = window.FitAddon ? new window.FitAddon.FitAddon() : null;
+    var terminalResizeFrame = null;
+    var terminalEmulator = window.Terminal ? new window.Terminal({
+      cols: 100,
+      rows: 24,
+      cursorBlink: true,
+      scrollback: 4000,
+      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+      fontSize: 14,
+      theme: { background: '#18212b', foreground: '#e7eff3', cursor: '#e7eff3', selectionBackground: '#60708080' }
+    }) : null;
+    if (terminalEmulator) {
+      if (terminalFitAddon) terminalEmulator.loadAddon(terminalFitAddon);
+      terminalEmulator.open(terminalConsole);
+      if (terminalFitAddon) terminalFitAddon.fit();
+      terminalEmulator.options.disableStdin = true;
+      terminalEmulator.onData(function (data) {
+        if (terminalSocket && terminalSocket.readyState === WebSocket.OPEN) terminalSocket.send(JSON.stringify({ type: 'input', data: data }));
+      });
+    }
+    var resizeTerminal = function () {
+      terminalResizeFrame = null;
+      if (!terminalEmulator || !terminalFitAddon || !terminalConsole.clientWidth || !terminalConsole.clientHeight) return;
+      terminalFitAddon.fit();
+      var terminalRoot = terminalConsole.querySelector('.xterm');
+      var renderedRow = terminalConsole.querySelector('.xterm-rows > div');
+      if (terminalRoot && renderedRow) {
+        var rowHeight = renderedRow.getBoundingClientRect().height;
+        var visibleRows = rowHeight > 0 ? Math.floor(terminalRoot.clientHeight / rowHeight) : terminalEmulator.rows;
+        if (visibleRows > 0 && visibleRows < terminalEmulator.rows) terminalEmulator.resize(terminalEmulator.cols, visibleRows);
+      }
+      if (terminalSocket && terminalSocket.readyState === WebSocket.OPEN) {
+        terminalSocket.send(JSON.stringify({ type: 'resize', rows: terminalEmulator.rows, columns: terminalEmulator.cols }));
+      }
     };
+    var queueTerminalResize = function () {
+      if (terminalResizeFrame !== null) return;
+      terminalResizeFrame = window.requestAnimationFrame(resizeTerminal);
+    };
+    if (window.ResizeObserver) {
+      new window.ResizeObserver(queueTerminalResize).observe(terminalConsole);
+    } else {
+      window.addEventListener('resize', queueTerminalResize);
+    }
     var setTerminalStatus = function (text) { terminalStatus.textContent = text; };
     var closeTerminal = function () {
       if (terminalSocket) terminalSocket.close();
       terminalSocket = null;
-      terminalInput.disabled = true;
+      if (terminalEmulator) terminalEmulator.options.disableStdin = true;
     };
     terminalForm.addEventListener('submit', function (event) {
       event.preventDefault();
       closeTerminal();
-      terminalOutput.textContent = '';
+      if (!terminalEmulator) {
+        setTerminalStatus('Connection failed: xterm.js could not be loaded');
+        return;
+      }
+      terminalEmulator.reset();
       terminalOpen.disabled = true;
       setTerminalStatus('Connecting...');
       fetch('/terminal/sessions', {
@@ -528,33 +571,30 @@
         body: new FormData(terminalForm)
       })
         .then(function (response) {
-          if (!response.ok) throw new Error('terminal connection failed');
-          return response.json();
+          return response.json().catch(function () { return {}; }).then(function (payload) {
+            if (!response.ok) throw new Error(payload.error || ('Server returned HTTP ' + response.status));
+            return payload;
+          });
         })
         .then(function (payload) {
           terminalForm.reset();
           var scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
           terminalSocket = new WebSocket(scheme + '//' + window.location.host + '/terminal/sessions/' + encodeURIComponent(payload.session_id) + '/socket');
           terminalSocket.addEventListener('open', function () {
-            terminalInput.disabled = false;
-            terminalInput.focus();
+            terminalEmulator.options.disableStdin = false;
+            resizeTerminal();
+            terminalEmulator.focus();
             setTerminalStatus('Connected');
           });
-          terminalSocket.addEventListener('message', function (message) { appendTerminalOutput(String(message.data)); });
+          terminalSocket.addEventListener('message', function (message) { terminalEmulator.write(String(message.data)); });
           terminalSocket.addEventListener('close', function () {
-            terminalInput.disabled = true;
+            terminalEmulator.options.disableStdin = true;
             setTerminalStatus('Disconnected');
           });
-          terminalSocket.addEventListener('error', function () { setTerminalStatus('Connection failed'); });
+          terminalSocket.addEventListener('error', function () { setTerminalStatus('Connection failed: the terminal channel could not be opened'); });
         })
-        .catch(function () { setTerminalStatus('Connection failed'); })
+        .catch(function (error) { setTerminalStatus('Connection failed: ' + error.message); })
         .then(function () { terminalOpen.disabled = false; });
-    });
-    terminalInput.addEventListener('keydown', function (event) {
-      if (event.key !== 'Enter' || event.shiftKey || !terminalSocket || terminalSocket.readyState !== WebSocket.OPEN) return;
-      event.preventDefault();
-      terminalSocket.send(terminalInput.value + '\n');
-      terminalInput.value = '';
     });
     window.addEventListener('beforeunload', closeTerminal);
   }

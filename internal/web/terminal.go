@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -26,6 +27,12 @@ const (
 )
 
 var errTerminalSessionLimit = errors.New("terminal session limit reached")
+
+type terminalClientMessage struct {
+	Type          string `json:"type"`
+	Data          string `json:"data,omitempty"`
+	Rows, Columns int    `json:"rows,omitempty"`
+}
 
 type terminalView struct {
 	appChrome
@@ -67,25 +74,25 @@ func (a *application) createTerminalSession(c echo.Context) error {
 	if a.terminalClient == nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable)
 	}
-	privateKey, passphrase, err := terminalCredentials(c.Request())
+	sshUsername, privateKey, passphrase, err := terminalCredentials(c.Request())
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest)
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "SSH credentials are invalid; select a private key file and try again"})
 	}
 	defer wipeTerminalSecret(privateKey)
 	defer wipeTerminalSecret(passphrase)
 	identity := currentPrincipal(c)
 	session, openErr := a.terminalClient.Open(c.Request().Context(), terminal.Request{
-		Username: identity.Username, PrivateKey: privateKey, Passphrase: passphrase, Rows: 24, Columns: 100,
+		Username: sshUsername, PrivateKey: privateKey, Passphrase: passphrase, Rows: 24, Columns: 100,
 	})
 	if openErr != nil {
 		a.recordTerminalAudit(identity.Username, "denied")
-		return echo.NewHTTPError(http.StatusBadGateway)
+		return c.JSON(http.StatusBadGateway, map[string]string{"error": openErr.Error()})
 	}
 	id, storeErr := a.terminalSessions.Add(identity.Username, session)
 	if storeErr != nil {
 		_ = session.Close()
 		a.recordTerminalAudit(identity.Username, "rate_limited")
-		return echo.NewHTTPError(http.StatusTooManyRequests)
+		return c.JSON(http.StatusTooManyRequests, map[string]string{"error": "Terminal session limit reached; close an existing session and try again"})
 	}
 	if err := a.recordTerminalAudit(identity.Username, "success"); err != nil {
 		a.terminalSessions.Release(id)
@@ -115,45 +122,55 @@ func (a *application) terminalSocket(c echo.Context) error {
 	return nil
 }
 
-func terminalCredentials(request *http.Request) ([]byte, []byte, error) {
+func terminalCredentials(request *http.Request) (string, []byte, []byte, error) {
 	reader, err := request.MultipartReader()
 	if err != nil {
-		return nil, nil, err
+		return "", nil, nil, err
 	}
+	var username string
 	var privateKey, passphrase []byte
+	usernameSeen := false
 	for {
 		part, err := reader.NextPart()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return nil, nil, err
+			return "", nil, nil, err
 		}
 		name := part.FormName()
 		switch name {
+		case "username":
+			if usernameSeen {
+				return "", nil, nil, errors.New("duplicate SSH username")
+			}
+			usernameSeen = true
+			var value []byte
+			value, err = readTerminalPart(part, 64)
+			username = string(value)
 		case "private_key":
 			if part.FileName() == "" || privateKey != nil {
-				return nil, nil, errors.New("invalid SSH private key field")
+				return "", nil, nil, errors.New("invalid SSH private key field")
 			}
 			privateKey, err = readTerminalPart(part, maxTerminalPrivateKeyBytes)
 		case "passphrase":
 			if passphrase != nil {
-				return nil, nil, errors.New("duplicate SSH passphrase")
+				return "", nil, nil, errors.New("duplicate SSH passphrase")
 			}
 			passphrase, err = readTerminalPart(part, maxTerminalPassphraseBytes)
 		case "_csrf":
 			_, err = io.Copy(io.Discard, io.LimitReader(part, 512))
 		default:
-			return nil, nil, errors.New("unexpected terminal form field")
+			return "", nil, nil, errors.New("unexpected terminal form field")
 		}
 		if err != nil {
-			return nil, nil, err
+			return "", nil, nil, err
 		}
 	}
-	if len(privateKey) == 0 {
-		return nil, nil, errors.New("SSH private key is required")
+	if username == "" || len(privateKey) == 0 {
+		return "", nil, nil, errors.New("SSH username and private key are required")
 	}
-	return privateKey, passphrase, nil
+	return username, privateKey, passphrase, nil
 }
 
 func readTerminalPart(part io.Reader, limit int64) ([]byte, error) {
@@ -186,11 +203,15 @@ func (a *application) streamTerminal(id, username string, managed *managedTermin
 		}
 	}()
 	for {
-		var input string
-		if err := websocket.Message.Receive(connection, &input); err != nil || len(input) == 0 || len(input) > maxTerminalInputBytes {
+		var payload string
+		if err := websocket.Message.Receive(connection, &payload); err != nil || len(payload) == 0 || len(payload) > maxTerminalInputBytes {
 			break
 		}
-		if _, err := io.WriteString(session.Input(), input); err != nil {
+		var message terminalClientMessage
+		if err := json.Unmarshal([]byte(payload), &message); err != nil {
+			break
+		}
+		if !handleTerminalClientMessage(session, message) {
 			break
 		}
 	}
@@ -201,6 +222,22 @@ func (a *application) streamTerminal(id, username string, managed *managedTermin
 	case <-time.After(time.Second):
 	}
 	a.recordTerminalAudit(username, "closed")
+}
+
+func handleTerminalClientMessage(session terminal.Session, message terminalClientMessage) bool {
+	switch message.Type {
+	case "input":
+		if len(message.Data) == 0 || len(message.Data) > maxTerminalInputBytes {
+			return true
+		}
+		_, err := io.WriteString(session.Input(), message.Data)
+		return err == nil
+	case "resize":
+		_ = session.Resize(message.Rows, message.Columns)
+		return true
+	default:
+		return false
+	}
 }
 
 func sameOriginWebSocketHandshake(_ *websocket.Config, request *http.Request) error {

@@ -1152,7 +1152,12 @@ func (a *application) recordAudit(c echo.Context, event platform.AuditEvent) err
 func securityHeaders(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		header := c.Response().Header()
-		header.Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self' data:; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+		styleSource := "style-src 'self'"
+		if c.Request().URL.Path == "/terminal" {
+			// xterm.js positions and colors terminal cells with runtime-generated inline styles.
+			styleSource = "style-src 'self' 'unsafe-inline'"
+		}
+		header.Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; "+styleSource+"; img-src 'self' data:; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
 		header.Set("Referrer-Policy", "no-referrer")
 		header.Set("X-Content-Type-Options", "nosniff")
 		header.Set("X-Frame-Options", "DENY")

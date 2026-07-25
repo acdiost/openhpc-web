@@ -993,6 +993,14 @@ func TestResponsesIncludeSecurityHeaders(t *testing.T) {
 	assertHeader(t, response, "Referrer-Policy", "no-referrer")
 	assertHeader(t, response, "X-Content-Type-Options", "nosniff")
 	assertHeader(t, response, "X-Frame-Options", "DENY")
+
+	session, _ := loginWithCSRF(t, handler)
+	request = httptest.NewRequest(http.MethodGet, "/terminal", nil)
+	request.AddCookie(session)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	assertStatus(t, response, http.StatusOK)
+	assertHeader(t, response, "Content-Security-Policy", "default-src 'self'; connect-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
 }
 
 func TestSafeNextOnlyAllowsLocalAbsolutePaths(t *testing.T) {

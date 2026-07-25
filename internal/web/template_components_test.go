@@ -104,6 +104,32 @@ func TestMobileMenuScriptSynchronizesExpandedState(t *testing.T) {
 	}
 }
 
+func TestTerminalUsesEmbeddedXtermAssets(t *testing.T) {
+	for _, path := range []string{"static/xterm.js", "static/xterm.css", "static/xterm.LICENSE", "static/xterm-addon-fit.js", "static/xterm-addon-fit.LICENSE"} {
+		if _, err := fs.Stat(assets, path); err != nil {
+			t.Errorf("embedded xterm asset %q is unavailable: %v", path, err)
+		}
+	}
+	template, err := fs.ReadFile(assets, "templates/data_chrome.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{`/static/xterm.css`, `/static/xterm.js`, `/static/xterm-addon-fit.js`} {
+		if !strings.Contains(string(template), expected) {
+			t.Errorf("terminal template does not contain %q", expected)
+		}
+	}
+	script, err := fs.ReadFile(assets, "static/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"new window.Terminal", "new window.FitAddon.FitAddon", "terminalFitAddon.fit", "terminalEmulator.write", "terminalEmulator.onData", "type: 'resize'"} {
+		if !strings.Contains(string(script), expected) {
+			t.Errorf("terminal script does not contain %q", expected)
+		}
+	}
+}
+
 func TestJobResourceScriptPollsAndCancelsWithModalLifecycle(t *testing.T) {
 	contents, err := fs.ReadFile(assets, "static/app.js")
 	if err != nil {

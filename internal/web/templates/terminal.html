@@ -9,13 +9,13 @@
 {{if .Available}}<section class="terminal-shell border border-slate-200 bg-white" data-terminal-shell>
   <form class="terminal-connect flex flex-col gap-3 border-b border-slate-200 p-5 lg:flex-row lg:items-end" data-terminal-connect enctype="multipart/form-data">
     <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+    <label class="terminal-field flex min-w-0 flex-1 flex-col gap-1"><span>{{if eq .Language "en"}}SSH username{{else}}SSH 用户名{{end}}</span><input type="text" name="username" value="{{.Username}}" maxlength="64" autocomplete="username" required data-terminal-username></label>
     <label class="terminal-field flex min-w-0 flex-1 flex-col gap-1"><span>{{if eq .Language "en"}}SSH private key{{else}}SSH 私钥{{end}}</span><input type="file" name="private_key" required data-terminal-key></label>
     <label class="terminal-field flex min-w-0 flex-1 flex-col gap-1"><span>{{if eq .Language "en"}}Key passphrase{{else}}私钥口令{{end}}</span><input type="password" name="passphrase" autocomplete="off" data-terminal-passphrase></label>
     <button type="submit" class="primary-button min-h-9 border-0 bg-rose-600 px-4 py-1.5 text-sm font-bold text-white hover:bg-rose-700" data-terminal-open>{{if eq .Language "en"}}Connect{{else}}连接{{end}}</button>
   </form>
   <div class="terminal-status border-b border-slate-200 px-5 py-2 text-sm text-slate-600" data-terminal-status aria-live="polite"></div>
-  <pre class="terminal-output m-0 min-h-[26rem] overflow-auto p-5 text-sm" data-terminal-output tabindex="0"></pre>
-  <div class="terminal-input-wrap border-t border-slate-200 p-4"><label class="sr-only" for="terminal-input">{{if eq .Language "en"}}Terminal input{{else}}终端输入{{end}}</label><textarea id="terminal-input" class="terminal-input block min-h-11 w-full resize-none border border-slate-300 bg-white px-3 py-2 text-sm outline-none" rows="1" disabled data-terminal-input></textarea></div>
+  <div class="terminal-console" data-terminal-console aria-label="{{if eq .Language "en"}}SSH terminal{{else}}SSH 终端{{end}}"></div>
 </section>{{else}}<div class="data-warning border border-rose-200 border-l-3 border-l-rose-600 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-800" role="status">{{if eq .Language "en"}}Terminal is not configured.{{else}}终端尚未配置。{{end}}</div>{{end}}
 </main></div></div></body></html>
 {{end}}

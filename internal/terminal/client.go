@@ -75,12 +75,12 @@ func (c *sshClient) Open(ctx context.Context, request Request) (Session, error) 
 	}
 	signer, err := privateKeySigner(request.PrivateKey, request.Passphrase)
 	if err != nil {
-		return nil, errors.New("SSH private key could not be used")
+		return nil, errors.New("SSH private key could not be used; verify the key format and passphrase")
 	}
 	dialer := net.Dialer{Timeout: c.timeout}
 	connection, err := dialer.DialContext(ctx, "tcp", c.address)
 	if err != nil {
-		return nil, errors.New("SSH login node is unavailable")
+		return nil, errors.New("SSH login node is unreachable; verify its address, firewall, and SSH service")
 	}
 	clientConnection, channels, requests, err := ssh.NewClientConn(connection, c.address, &ssh.ClientConfig{
 		User:            request.Username,
@@ -90,7 +90,7 @@ func (c *sshClient) Open(ctx context.Context, request Request) (Session, error) 
 	})
 	if err != nil {
 		_ = connection.Close()
-		return nil, errors.New("SSH authentication or host verification failed")
+		return nil, errors.New("SSH authentication failed; verify the username and that this public key is authorized")
 	}
 	client := ssh.NewClient(clientConnection, channels, requests)
 	session, err := client.NewSession()
@@ -110,7 +110,7 @@ func (c *sshClient) Open(ctx context.Context, request Request) (Session, error) 
 		_ = client.Close()
 		return nil, errors.New("SSH terminal output could not be created")
 	}
-	if err := session.RequestPty("dumb", request.Rows, request.Columns, ssh.TerminalModes{}); err != nil {
+	if err := session.RequestPty("xterm-256color", request.Rows, request.Columns, ssh.TerminalModes{}); err != nil {
 		_ = session.Close()
 		_ = client.Close()
 		return nil, errors.New("SSH terminal PTY request failed")

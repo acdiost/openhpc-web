@@ -23,12 +23,12 @@ func TestTerminalPageCreatesKeyAuthenticatedSession(t *testing.T) {
 	cleanupHandler(t, handler)
 	page := getAuthenticated(t, handler, "/terminal", "zh")
 	assertStatus(t, page, http.StatusOK)
-	for _, expected := range []string{`data-terminal-page`, `name="private_key"`, `name="passphrase"`, `data-terminal-connect`} {
+	for _, expected := range []string{`data-terminal-page`, `name="username" value="admin"`, `name="private_key"`, `name="passphrase"`, `data-terminal-connect`} {
 		assertBodyContains(t, page, expected)
 	}
 
 	session, csrf := loginWithCSRF(t, handler)
-	response := postTerminalSession(t, handler, session, csrf, []byte("private key"), "passphrase")
+	response := postTerminalSession(t, handler, session, csrf, "cluster-user", []byte("private key"), "passphrase")
 	assertStatus(t, response, http.StatusCreated)
 	var payload struct {
 		SessionID string `json:"session_id"`
@@ -40,7 +40,7 @@ func TestTerminalPageCreatesKeyAuthenticatedSession(t *testing.T) {
 		t.Fatalf("terminal requests = %d, want 1", len(client.requests))
 	}
 	request := client.requests[0]
-	if request.Username != testUsername || string(request.PrivateKey) != "private key" || string(request.Passphrase) != "passphrase" {
+	if request.Username != "cluster-user" || string(request.PrivateKey) != "private key" || string(request.Passphrase) != "passphrase" {
 		t.Fatalf("terminal request = %#v", request)
 	}
 }
@@ -53,11 +53,26 @@ func TestTerminalSessionRejectsMissingKeyBeforeSSH(t *testing.T) {
 	}
 	cleanupHandler(t, handler)
 	session, csrf := loginWithCSRF(t, handler)
-	response := postTerminalSession(t, handler, session, csrf, nil, "")
+	response := postTerminalSession(t, handler, session, csrf, testUsername, nil, "")
 	assertStatus(t, response, http.StatusBadRequest)
+	assertBodyContains(t, response, "SSH credentials are invalid")
 	if len(client.requests) != 0 {
 		t.Fatalf("terminal requests = %d, want none", len(client.requests))
 	}
+}
+
+func TestTerminalSessionReturnsSSHFailureDetail(t *testing.T) {
+	client := &stubTerminalClient{err: errors.New("SSH authentication failed; verify the username and that this public key is authorized")}
+	handler, err := New(Config{AdminUsername: testUsername, AdminPassword: testPassword, TerminalClient: client})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupHandler(t, handler)
+	session, csrf := loginWithCSRF(t, handler)
+	response := postTerminalSession(t, handler, session, csrf, testUsername, []byte("private key"), "")
+	assertStatus(t, response, http.StatusBadGateway)
+	assertBodyContains(t, response, "SSH authentication failed")
+	assertBodyContains(t, response, "public key is authorized")
 }
 
 func TestTerminalSessionStoreBindsAndConsumesSessionIDs(t *testing.T) {
@@ -110,12 +125,36 @@ func TestTerminalWebSocketHandshakeRequiresSameOrigin(t *testing.T) {
 	}
 }
 
-func postTerminalSession(t *testing.T, handler http.Handler, session, csrf *http.Cookie, privateKey []byte, passphrase string) *httptest.ResponseRecorder {
+func TestTerminalClientMessagesWriteInputAndResizePTY(t *testing.T) {
+	session := &stubTerminalSession{}
+	if !handleTerminalClientMessage(session, terminalClientMessage{Type: "input", Data: "ls\r"}) {
+		t.Fatal("input message closed terminal")
+	}
+	if got := session.input.String(); got != "ls\r" {
+		t.Fatalf("terminal input = %q, want %q", got, "ls\r")
+	}
+	if !handleTerminalClientMessage(session, terminalClientMessage{Type: "resize", Rows: 36, Columns: 128}) {
+		t.Fatal("resize message closed terminal")
+	}
+	if session.rows != 36 || session.columns != 128 {
+		t.Fatalf("terminal size = %dx%d, want 128x36", session.columns, session.rows)
+	}
+	if handleTerminalClientMessage(session, terminalClientMessage{Type: "unknown"}) {
+		t.Fatal("unknown message kept terminal open")
+	}
+}
+
+func postTerminalSession(t *testing.T, handler http.Handler, session, csrf *http.Cookie, username string, privateKey []byte, passphrase string) *httptest.ResponseRecorder {
 	t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	if err := writer.WriteField("_csrf", csrf.Value); err != nil {
 		t.Fatal(err)
+	}
+	if username != "" {
+		if err := writer.WriteField("username", username); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if passphrase != "" {
 		if err := writer.WriteField("passphrase", passphrase); err != nil {
@@ -157,13 +196,20 @@ func (c *stubTerminalClient) Open(_ context.Context, request terminal.Request) (
 	return c.session, c.err
 }
 
-type stubTerminalSession struct{ closeCalls int }
+type stubTerminalSession struct {
+	input         bytes.Buffer
+	rows, columns int
+	closeCalls    int
+}
 
-func (s *stubTerminalSession) Input() io.WriteCloser { return nopTerminalInput{Writer: io.Discard} }
+func (s *stubTerminalSession) Input() io.WriteCloser { return nopTerminalInput{Writer: &s.input} }
 
 func (s *stubTerminalSession) Output() io.Reader { return bytes.NewReader(nil) }
 
-func (s *stubTerminalSession) Resize(int, int) error { return nil }
+func (s *stubTerminalSession) Resize(rows, columns int) error {
+	s.rows, s.columns = rows, columns
+	return nil
+}
 
 func (s *stubTerminalSession) Close() error {
 	s.closeCalls++
