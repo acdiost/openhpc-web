@@ -10,7 +10,7 @@
 - 部署时应将 `/var/lib/openhpc-web` 设为 `root:root 0700`。属主或模式不一致时应用只会输出 WARNING；实际读写权限仍受操作系统和 systemd sandbox 限制。
 - `/slurm/config` 使用 `OPENHPC_SLURM_CONFIG_ROOT`（默认 `/usr/local/etc`）提供只读配置浏览，不执行重载、不展开 Include。
 - 平台用户保存在 `OPENHPC_DATABASE_PATH` 的 SQLite 数据库中。管理员可在“平台用户”页面创建和停用本地账号；LDAP 用户可直接使用目录账号登录为普通用户。普通用户仅可访问总览、自己的作业、文件管理和终端，权限由服务端路由和作业用户名双重校验。
-- SSH 终端仅连接管理员配置的单个登录节点，严格校验 `known_hosts`。用户在每次会话中提交自己的私钥，密钥不会保存或写入审计日志。
+- SSH 终端仅连接管理员配置的单个登录节点。用户在每次会话中提交自己的私钥，密钥不会保存或写入审计日志；登录节点主机密钥不做校验。
 - 首次访问使用 SSH 端口转发；公网或局域网发布前必须增加 TLS 反向代理。
 
 ## 2. 验证服务账户
@@ -189,7 +189,6 @@ OPENHPC_LDAP_TIMEOUT=3s
 OPENHPC_LDAP_MAX_RESULTS=200
 OPENHPC_TERMINAL_ENABLED=false
 OPENHPC_TERMINAL_SSH_ADDRESS=login.example.com:22
-OPENHPC_TERMINAL_SSH_KNOWN_HOSTS=/etc/openhpc-web/ssh_known_hosts
 OPENHPC_TERMINAL_TIMEOUT=10s
 ```
 
@@ -197,23 +196,15 @@ OPENHPC_TERMINAL_TIMEOUT=10s
 
 ### SSH 终端登录节点
 
-从受信任的集群管理员获取登录节点的 SSH 主机公钥，写入独立 known_hosts 文件。不要在部署脚本中使用未验证的 `ssh-keyscan` 结果作为信任根。
-
-```bash
-install -o root -g root -m 0644 verified-login-node-known_hosts \
-  /etc/openhpc-web/ssh_known_hosts
-```
-
 在系统设置中设置并保存以下值，然后重启服务：
 
 ```text
 OPENHPC_TERMINAL_ENABLED=true
 OPENHPC_TERMINAL_SSH_ADDRESS=login.example.com:22
-OPENHPC_TERMINAL_SSH_KNOWN_HOSTS=/etc/openhpc-web/ssh_known_hosts
 OPENHPC_TERMINAL_TIMEOUT=10s
 ```
 
-终端只使用用户在当前浏览器会话中提供的 SSH 私钥完成公钥认证。私钥和口令不保存、不写入日志；会话固定绑定创建者，连接关闭、注销、服务停止或 30 分钟后会断开。
+终端只使用用户在当前浏览器会话中提供的 SSH 私钥完成公钥认证，不校验登录节点主机密钥。私钥和口令不保存、不写入日志；会话固定绑定创建者，连接关闭、注销、服务停止或 30 分钟后会断开。
 
 必须把 `REPLACE_WITH_A_LONG_RANDOM_PASSWORD` 替换为真实密码。用户名长度为 1 到 64，密码长度至少为 12。不要在聊天记录、命令历史或仓库中保存真实密码。
 

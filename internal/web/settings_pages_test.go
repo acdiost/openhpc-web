@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -47,6 +46,8 @@ func TestSettingsPageIsInSidebarAndRedactsSecretValues(t *testing.T) {
 	}
 	assertActiveNavigationLink(t, response.Body.String(), "/settings")
 	assertBodyNotContains(t, response, "super-secret")
+	assertBodyNotContains(t, response, "OPENHPC_TERMINAL_SSH_KNOWN_HOSTS")
+	assertBodyNotContains(t, response, "known_hosts")
 }
 
 func TestSettingsPageRendersExamplePlaceholdersForEveryInput(t *testing.T) {
@@ -185,14 +186,6 @@ func TestSettingsRejectsIncompleteEnabledTerminalConfiguration(t *testing.T) {
 }
 
 func TestSettingsSavesCompleteTerminalConfiguration(t *testing.T) {
-	directory, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	knownHosts := filepath.Join(directory, "known_hosts")
-	if err := os.WriteFile(knownHosts, []byte("login.example ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	store, err := platform.OpenSettingsStore(":memory:", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -204,17 +197,15 @@ func TestSettingsSavesCompleteTerminalConfiguration(t *testing.T) {
 	cleanupHandler(t, handler)
 	session, csrf := loginWithCSRF(t, handler)
 	response := postProtectedForm(handler, "/settings", url.Values{
-		"OPENHPC_TERMINAL_ENABLED":         {"true", "false"},
-		"OPENHPC_TERMINAL_SSH_ADDRESS":     {"login.example:22"},
-		"OPENHPC_TERMINAL_SSH_KNOWN_HOSTS": {knownHosts},
-		"OPENHPC_TERMINAL_TIMEOUT":         {"10s"},
+		"OPENHPC_TERMINAL_ENABLED":     {"true", "false"},
+		"OPENHPC_TERMINAL_SSH_ADDRESS": {"login.example:22"},
+		"OPENHPC_TERMINAL_TIMEOUT":     {"10s"},
 	}, session, csrf)
 	assertStatus(t, response, http.StatusSeeOther)
 	for key, want := range map[string]string{
-		"OPENHPC_TERMINAL_ENABLED":         "true",
-		"OPENHPC_TERMINAL_SSH_ADDRESS":     "login.example:22",
-		"OPENHPC_TERMINAL_SSH_KNOWN_HOSTS": knownHosts,
-		"OPENHPC_TERMINAL_TIMEOUT":         "10s",
+		"OPENHPC_TERMINAL_ENABLED":     "true",
+		"OPENHPC_TERMINAL_SSH_ADDRESS": "login.example:22",
+		"OPENHPC_TERMINAL_TIMEOUT":     "10s",
 	} {
 		got, found, err := store.Get(context.Background(), key)
 		if err != nil || !found || got != want {

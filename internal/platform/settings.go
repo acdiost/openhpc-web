@@ -29,7 +29,7 @@ var settingSchema = map[string]bool{
 	"OPENHPC_LDAP_CA_FILE": false, "OPENHPC_LDAP_TIMEOUT": false,
 	"OPENHPC_LDAP_MAX_RESULTS": false,
 	"OPENHPC_TERMINAL_ENABLED": false, "OPENHPC_TERMINAL_SSH_ADDRESS": false,
-	"OPENHPC_TERMINAL_SSH_KNOWN_HOSTS": false, "OPENHPC_TERMINAL_TIMEOUT": false,
+	"OPENHPC_TERMINAL_TIMEOUT": false,
 }
 
 func KnownSettingKeys() []string {

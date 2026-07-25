@@ -9,84 +9,27 @@ import (
 	"errors"
 	"io"
 	"net"
-	"os"
-	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
 
 	"golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 func TestNewValidatesSSHConfiguration(t *testing.T) {
-	knownHosts := filepath.Join(realTempDir(t), "known_hosts")
-	if err := os.WriteFile(knownHosts, []byte("login.example ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := New(Config{Address: "login.example:22", KnownHostsPath: knownHosts}); err != nil {
+	if _, err := New(Config{Address: "login.example:22"}); err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
 
 	for _, config := range []Config{
-		{Address: "login.example", KnownHostsPath: knownHosts},
-		{Address: "login.example:22", KnownHostsPath: "relative/known_hosts"},
-		{Address: "login.example:22", KnownHostsPath: filepath.Join(t.TempDir(), "missing")},
-		{Address: "login.example:22", KnownHostsPath: knownHosts, Timeout: 500 * time.Millisecond},
-		{Address: "login.example:22", KnownHostsPath: knownHosts, Timeout: 2 * time.Minute},
+		{Address: "login.example"},
+		{Address: "login.example:22", Timeout: 500 * time.Millisecond},
+		{Address: "login.example:22", Timeout: 2 * time.Minute},
 	} {
 		if _, err := New(config); err == nil {
 			t.Errorf("New(%#v) error = nil, want rejection", config)
 		}
 	}
-}
-
-func TestNewRejectsWritableOrLinkedKnownHosts(t *testing.T) {
-	directory := realTempDir(t)
-	knownHosts := filepath.Join(directory, "known_hosts")
-	if err := os.WriteFile(knownHosts, []byte("login.example ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n"), 0o666); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(knownHosts, 0o666); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := New(Config{Address: "login.example:22", KnownHostsPath: knownHosts}); err == nil {
-		t.Fatal("New() error = nil for group/world writable known_hosts")
-	}
-
-	if err := os.Chmod(knownHosts, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	link := filepath.Join(directory, "linked_known_hosts")
-	if err := os.Symlink(knownHosts, link); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := New(Config{Address: "login.example:22", KnownHostsPath: link}); err == nil {
-		t.Fatal("New() error = nil for symbolic-link known_hosts")
-	}
-
-	if err := os.Chmod(directory, 0o777); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := New(Config{Address: "login.example:22", KnownHostsPath: knownHosts}); err == nil {
-		t.Fatal("New() error = nil for writable known_hosts parent directory")
-	}
-	if err := os.Chmod(directory, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := validateKnownHostsPathForUID(knownHosts, os.Geteuid()+1); err == nil {
-		t.Fatal("validateKnownHostsPathForUID() error = nil for unexpected owner")
-	}
-}
-
-func realTempDir(t *testing.T) string {
-	t.Helper()
-	directory, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return directory
 }
 
 func TestOpenStartsKeyAuthenticatedShell(t *testing.T) {
@@ -117,19 +60,11 @@ func TestOpenStartsKeyAuthenticatedShell(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = listener.Close() })
 	address := listener.Addr().String()
-	host, port, err := net.SplitHostPort(address)
-	if err != nil {
-		t.Fatal(err)
-	}
-	knownHosts := filepath.Join(realTempDir(t), "known_hosts")
-	if err := os.WriteFile(knownHosts, []byte(knownhosts.Line([]string{"[" + host + "]:" + port}, hostSigner.PublicKey())+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	received := make(chan string, 1)
 	serverDone := make(chan error, 1)
 	go runTerminalTestServer(listener, hostSigner, userKey, received, serverDone)
 
-	client, err := New(Config{Address: address, KnownHostsPath: knownHosts, Timeout: time.Second})
+	client, err := New(Config{Address: address, Timeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,9 +130,6 @@ func TestTerminalRequestValidationAndPrivateKeyParsing(t *testing.T) {
 	if err := ValidateAddress("login.example:22"); err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateKnownHostsPath(filepath.Join(realTempDir(t), "missing")); err == nil {
-		t.Fatal("ValidateKnownHostsPath() error = nil for missing file")
-	}
 }
 
 func TestOpenRejectsUnavailableLoginNode(t *testing.T) {
@@ -208,48 +140,6 @@ func TestOpenRejectsUnavailableLoginNode(t *testing.T) {
 	}
 }
 
-func TestOpenRejectsUntrustedHostKey(t *testing.T) {
-	actualHostSigner := testSSHSigner(t)
-	trustedHostSigner := testSSHSigner(t)
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = listener.Close() })
-	host, port, err := net.SplitHostPort(listener.Addr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	knownHosts := filepath.Join(realTempDir(t), "known_hosts")
-	if err := os.WriteFile(knownHosts, []byte(knownhosts.Line([]string{"[" + host + "]:" + port}, trustedHostSigner.PublicKey())+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	serverDone := make(chan error, 1)
-	go func() {
-		connection, err := listener.Accept()
-		if err != nil {
-			serverDone <- err
-			return
-		}
-		serverConfig := &ssh.ServerConfig{NoClientAuth: true}
-		serverConfig.AddHostKey(actualHostSigner)
-		_, _, _, err = ssh.NewServerConn(connection, serverConfig)
-		serverDone <- err
-	}()
-	client, err := New(Config{Address: listener.Addr().String(), KnownHostsPath: knownHosts, Timeout: time.Second})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := client.Open(t.Context(), Request{Username: "alice", PrivateKey: testPrivateKey(t), Rows: 24, Columns: 80}); err == nil {
-		t.Fatal("Open() error = nil for untrusted host key")
-	}
-	select {
-	case <-serverDone:
-	case <-time.After(time.Second):
-		t.Fatal("SSH host verification server did not finish")
-	}
-}
-
 func TestOpenClosesClientWhenSessionChannelIsRejected(t *testing.T) {
 	hostSigner := testSSHSigner(t)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -257,14 +147,6 @@ func TestOpenClosesClientWhenSessionChannelIsRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = listener.Close() })
-	host, port, err := net.SplitHostPort(listener.Addr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	knownHosts := filepath.Join(realTempDir(t), "known_hosts")
-	if err := os.WriteFile(knownHosts, []byte(knownhosts.Line([]string{"[" + host + "]:" + port}, hostSigner.PublicKey())+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	serverDone := make(chan error, 1)
 	go func() {
 		connection, err := listener.Accept()
@@ -283,7 +165,7 @@ func TestOpenClosesClientWhenSessionChannelIsRejected(t *testing.T) {
 		channel := <-channels
 		serverDone <- channel.Reject(ssh.Prohibited, "terminal unavailable")
 	}()
-	client, err := New(Config{Address: listener.Addr().String(), KnownHostsPath: knownHosts, Timeout: time.Second})
+	client, err := New(Config{Address: listener.Addr().String(), Timeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}

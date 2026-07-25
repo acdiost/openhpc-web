@@ -86,7 +86,7 @@ export OPENHPC_SLURM_CONFIG_ROOT=/usr/local/etc
 
 ## SSH 终端
 
-管理员在系统设置中配置 `OPENHPC_TERMINAL_SSH_ADDRESS`、`OPENHPC_TERMINAL_SSH_KNOWN_HOSTS` 和超时，再启用 `OPENHPC_TERMINAL_ENABLED`。`known_hosts` 必须是绝对路径、普通文件、不可为符号链接且不得被组或其他用户写入；SSH 主机密钥不匹配会被拒绝。
+管理员在系统设置中配置 `OPENHPC_TERMINAL_SSH_ADDRESS` 和超时，再启用 `OPENHPC_TERMINAL_ENABLED`。SSH 终端不校验登录节点的主机密钥。
 
 每次创建终端会话时，用户从浏览器选择自己的 SSH 私钥，并按需输入私钥口令。私钥仅用于当次 SSH 公钥认证，应用不会将其写入 SQLite、会话、磁盘、日志或审计事件。会话绑定创建者、仅可附着一次，并在断开、登出、服务关闭或 30 分钟后关闭。终端内容不会被记录；审计日志仅保存会话结果。
 

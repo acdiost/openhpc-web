@@ -278,10 +278,6 @@ func parseTerminalConfigFromStore(store *platform.SettingsStore) (bool, terminal
 	if err != nil {
 		return false, terminal.Config{}, err
 	}
-	knownHostsPath, err := settingValue(store, "OPENHPC_TERMINAL_SSH_KNOWN_HOSTS", os.Getenv("OPENHPC_TERMINAL_SSH_KNOWN_HOSTS"))
-	if err != nil {
-		return false, terminal.Config{}, err
-	}
 	timeoutValue, err := settingValue(store, "OPENHPC_TERMINAL_TIMEOUT", envOr("OPENHPC_TERMINAL_TIMEOUT", "10s"))
 	if err != nil {
 		return false, terminal.Config{}, err
@@ -290,7 +286,7 @@ func parseTerminalConfigFromStore(store *platform.SettingsStore) (bool, terminal
 	if err != nil {
 		return false, terminal.Config{}, fmt.Errorf("parse OPENHPC_TERMINAL_TIMEOUT: %w", err)
 	}
-	return true, terminal.Config{Address: strings.TrimSpace(address), KnownHostsPath: strings.TrimSpace(knownHostsPath), Timeout: timeout}, nil
+	return true, terminal.Config{Address: strings.TrimSpace(address), Timeout: timeout}, nil
 }
 
 func parseLDAPConfigFromStore(store *platform.SettingsStore) (bool, ldapdirectory.Config, error) {

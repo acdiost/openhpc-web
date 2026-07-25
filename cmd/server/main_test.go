@@ -66,13 +66,8 @@ func TestSettingsOverrideTakesPrecedenceOverEnvironment(t *testing.T) {
 }
 
 func TestParseTerminalConfigFromStore(t *testing.T) {
-	knownHosts := filepath.Join(t.TempDir(), "known_hosts")
-	if err := os.WriteFile(knownHosts, []byte("login.example ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	t.Setenv("OPENHPC_TERMINAL_ENABLED", "true")
 	t.Setenv("OPENHPC_TERMINAL_SSH_ADDRESS", "env-login.example:22")
-	t.Setenv("OPENHPC_TERMINAL_SSH_KNOWN_HOSTS", knownHosts)
 	t.Setenv("OPENHPC_TERMINAL_TIMEOUT", "3s")
 	store, err := platform.OpenSettingsStore(":memory:", nil)
 	if err != nil {
@@ -87,7 +82,7 @@ func TestParseTerminalConfigFromStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !enabled || config.Address != "configured-login.example:2222" || config.KnownHostsPath != knownHosts || config.Timeout != 3*time.Second {
+	if !enabled || config.Address != "configured-login.example:2222" || config.Timeout != 3*time.Second {
 		t.Fatalf("terminal config = enabled:%v %#v", enabled, config)
 	}
 }

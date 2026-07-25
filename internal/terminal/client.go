@@ -3,18 +3,13 @@ package terminal
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 const (
@@ -24,9 +19,8 @@ const (
 )
 
 type Config struct {
-	Address        string
-	KnownHostsPath string
-	Timeout        time.Duration
+	Address string
+	Timeout time.Duration
 }
 
 type Request struct {
@@ -65,13 +59,6 @@ func New(config Config) (Client, error) {
 	if err := validateAddress(config.Address); err != nil {
 		return nil, err
 	}
-	if err := validateKnownHostsPath(config.KnownHostsPath); err != nil {
-		return nil, err
-	}
-	callback, err := knownhosts.New(config.KnownHostsPath)
-	if err != nil {
-		return nil, fmt.Errorf("load SSH known_hosts: %w", err)
-	}
 	timeout := config.Timeout
 	if timeout == 0 {
 		timeout = defaultTimeout
@@ -79,7 +66,7 @@ func New(config Config) (Client, error) {
 	if timeout < time.Second || timeout > time.Minute {
 		return nil, errors.New("SSH terminal timeout must be between one second and one minute")
 	}
-	return &sshClient{address: config.Address, timeout: timeout, hostKeyCallback: callback}, nil
+	return &sshClient{address: config.Address, timeout: timeout, hostKeyCallback: ssh.InsecureIgnoreHostKey()}, nil
 }
 
 func (c *sshClient) Open(ctx context.Context, request Request) (Session, error) {
@@ -167,46 +154,6 @@ func validateAddress(address string) error {
 }
 
 func ValidateAddress(address string) error { return validateAddress(address) }
-
-func validateKnownHostsPath(path string) error {
-	return validateKnownHostsPathForUID(path, os.Geteuid())
-}
-
-func validateKnownHostsPathForUID(path string, ownerUID int) error {
-	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path {
-		return errors.New("SSH known_hosts path must be a clean absolute file")
-	}
-	info, err := os.Lstat(path)
-	if err != nil {
-		return errors.New("SSH known_hosts file is unavailable")
-	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o022 != 0 {
-		return errors.New("SSH known_hosts file is not protected")
-	}
-	if !ownedBy(info, ownerUID) {
-		return errors.New("SSH known_hosts file has an unexpected owner")
-	}
-	for directory := filepath.Dir(path); ; directory = filepath.Dir(directory) {
-		directoryInfo, err := os.Lstat(directory)
-		if err != nil || !directoryInfo.IsDir() || directoryInfo.Mode()&os.ModeSymlink != 0 || directoryInfo.Mode().Perm()&0o022 != 0 {
-			return errors.New("SSH known_hosts directory is not protected")
-		}
-		if !ownedBy(directoryInfo, ownerUID) && !ownedBy(directoryInfo, 0) {
-			return errors.New("SSH known_hosts directory has an unexpected owner")
-		}
-		if directory == filepath.Dir(directory) {
-			break
-		}
-	}
-	return nil
-}
-
-func ownedBy(info os.FileInfo, uid int) bool {
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	return ok && int(stat.Uid) == uid
-}
-
-func ValidateKnownHostsPath(path string) error { return validateKnownHostsPath(path) }
 
 func validateRequest(request Request) error {
 	if !validUsername(request.Username) || len(request.PrivateKey) == 0 || len(request.PrivateKey) > maxPrivateKeyLen || len(request.Passphrase) > maxPassphraseLen {

@@ -45,7 +45,6 @@ var settingsSpecs = []settingsSpec{
 	{Key: "OPENHPC_LDAP_MAX_RESULTS", GroupZH: "LDAP", GroupEN: "LDAP", LabelZH: "最大结果数", LabelEN: "Maximum results", InputType: "number", PlaceholderZH: "200", PlaceholderEN: "200"},
 	{Key: "OPENHPC_TERMINAL_ENABLED", GroupZH: "终端", GroupEN: "Terminal", LabelZH: "启用 SSH 终端", LabelEN: "Enable SSH terminal", InputType: "checkbox"},
 	{Key: "OPENHPC_TERMINAL_SSH_ADDRESS", GroupZH: "终端", GroupEN: "Terminal", LabelZH: "SSH 登录节点", LabelEN: "SSH login node", InputType: "text", PlaceholderZH: "login.example.com:22", PlaceholderEN: "login.example.com:22"},
-	{Key: "OPENHPC_TERMINAL_SSH_KNOWN_HOSTS", GroupZH: "终端", GroupEN: "Terminal", LabelZH: "SSH known_hosts 文件", LabelEN: "SSH known_hosts file", InputType: "text", PlaceholderZH: "/etc/openhpc-web/ssh_known_hosts", PlaceholderEN: "/etc/openhpc-web/ssh_known_hosts"},
 	{Key: "OPENHPC_TERMINAL_TIMEOUT", GroupZH: "终端", GroupEN: "Terminal", LabelZH: "SSH 连接超时", LabelEN: "SSH connection timeout", InputType: "text", PlaceholderZH: "10s", PlaceholderEN: "10s"},
 }
 
@@ -246,9 +245,9 @@ func (a *application) saveSettings(c echo.Context) error {
 }
 
 func (a *application) renderTerminalSettingsError(c echo.Context) error {
-	message := "SSH 终端配置无效。登录节点必须使用 host:port；known_hosts 必须是服务端已有的受保护绝对路径文件；连接超时必须为 1 到 60 秒。"
+	message := "SSH 终端配置无效。登录节点必须使用 host:port；连接超时必须为 1 到 60 秒。"
 	if language(c) == "en" {
-		message = "SSH terminal configuration is invalid. Use host:port for the login node, a protected absolute known_hosts file already on the server, and a timeout from 1 to 60 seconds."
+		message = "SSH terminal configuration is invalid. Use host:port for the login node and a timeout from 1 to 60 seconds."
 	}
 	view, err := a.settingsView(c, false, "", message)
 	if err != nil {
@@ -258,7 +257,7 @@ func (a *application) renderTerminalSettingsError(c echo.Context) error {
 }
 
 func isTerminalSetting(key string) bool {
-	return key == "OPENHPC_TERMINAL_ENABLED" || key == "OPENHPC_TERMINAL_SSH_ADDRESS" || key == "OPENHPC_TERMINAL_SSH_KNOWN_HOSTS" || key == "OPENHPC_TERMINAL_TIMEOUT"
+	return key == "OPENHPC_TERMINAL_ENABLED" || key == "OPENHPC_TERMINAL_SSH_ADDRESS" || key == "OPENHPC_TERMINAL_TIMEOUT"
 }
 
 func validateEnabledTerminalSettings(values map[string]string) error {
@@ -270,7 +269,7 @@ func validateEnabledTerminalSettings(values map[string]string) error {
 		return err
 	}
 	_, err = terminal.New(terminal.Config{
-		Address: values["OPENHPC_TERMINAL_SSH_ADDRESS"], KnownHostsPath: values["OPENHPC_TERMINAL_SSH_KNOWN_HOSTS"], Timeout: timeout,
+		Address: values["OPENHPC_TERMINAL_SSH_ADDRESS"], Timeout: timeout,
 	})
 	return err
 }
@@ -325,10 +324,6 @@ func validateSettingFormValue(key, value string) error {
 	case "OPENHPC_TERMINAL_SSH_ADDRESS":
 		if value != "" {
 			return terminal.ValidateAddress(value)
-		}
-	case "OPENHPC_TERMINAL_SSH_KNOWN_HOSTS":
-		if value != "" {
-			return terminal.ValidateKnownHostsPath(value)
 		}
 	}
 	return nil
