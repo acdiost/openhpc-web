@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/mail"
 	"os"
 	"regexp"
 	"sort"
@@ -23,6 +24,9 @@ type PlatformUser struct {
 	Username     string
 	PasswordHash string
 	Role         UserRole
+	Phone        string
+	Organization string
+	Email        string
 	Enabled      bool
 	CreatedAt    time.Time
 }
@@ -55,13 +59,58 @@ func OpenUserStore(path string) (*UserStore, error) {
 			username TEXT PRIMARY KEY,
 			password_hash TEXT NOT NULL,
 			role TEXT NOT NULL CHECK (role IN ('admin', 'user')),
+			phone TEXT NOT NULL DEFAULT '',
+			organization TEXT NOT NULL DEFAULT '',
+			email TEXT NOT NULL DEFAULT '',
 			enabled INTEGER NOT NULL DEFAULT 1,
 			created_at TEXT NOT NULL
 		);`); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("migrate platform users: %w", err)
 	}
+	if err := migratePlatformUserProfile(db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("migrate platform user profile: %w", err)
+	}
 	return &UserStore{db: db}, nil
+}
+
+func migratePlatformUserProfile(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(platform_users)`)
+	if err != nil {
+		return err
+	}
+	columns := make(map[string]bool)
+	for rows.Next() {
+		var id, notNull, primaryKey int
+		var name, dataType string
+		var defaultValue any
+		if err := rows.Scan(&id, &name, &dataType, &notNull, &defaultValue, &primaryKey); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, column := range []struct{ name, definition string }{
+		{"phone", `phone TEXT NOT NULL DEFAULT ''`},
+		{"organization", `organization TEXT NOT NULL DEFAULT ''`},
+		{"email", `email TEXT NOT NULL DEFAULT ''`},
+	} {
+		if columns[column.name] {
+			continue
+		}
+		if _, err := db.Exec(`ALTER TABLE platform_users ADD COLUMN ` + column.definition); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *UserStore) Close() error {
@@ -85,11 +134,33 @@ func ValidateRole(role UserRole) error {
 	return nil
 }
 
+func ValidateUserProfile(phone, organization, email string) error {
+	if len(phone) > 64 {
+		return errors.New("phone must not exceed 64 bytes")
+	}
+	if len(organization) > 200 {
+		return errors.New("organization must not exceed 200 bytes")
+	}
+	if len(email) > 254 {
+		return errors.New("email must not exceed 254 bytes")
+	}
+	if email != "" {
+		address, err := mail.ParseAddress(email)
+		if err != nil || address.Address != email {
+			return errors.New("email must be a valid address")
+		}
+	}
+	return nil
+}
+
 func (s *UserStore) Upsert(ctx context.Context, user PlatformUser) error {
 	if err := ValidateUsername(user.Username); err != nil {
 		return err
 	}
 	if err := ValidateRole(user.Role); err != nil {
+		return err
+	}
+	if err := ValidateUserProfile(user.Phone, user.Organization, user.Email); err != nil {
 		return err
 	}
 	if strings.TrimSpace(user.PasswordHash) == "" {
@@ -98,9 +169,9 @@ func (s *UserStore) Upsert(ctx context.Context, user PlatformUser) error {
 	if user.CreatedAt.IsZero() {
 		user.CreatedAt = time.Now().UTC()
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO platform_users(username,password_hash,role,enabled,created_at) VALUES(?,?,?,?,?)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO platform_users(username,password_hash,role,phone,organization,email,enabled,created_at) VALUES(?,?,?,?,?,?,?,?)
 		ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash, role=excluded.role, enabled=excluded.enabled`,
-		user.Username, user.PasswordHash, user.Role, user.Enabled, user.CreatedAt.UTC().Format(time.RFC3339Nano))
+		user.Username, user.PasswordHash, user.Role, user.Phone, user.Organization, user.Email, user.Enabled, user.CreatedAt.UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return fmt.Errorf("save platform user: %w", err)
 	}
@@ -114,14 +185,17 @@ func (s *UserStore) Create(ctx context.Context, user PlatformUser) error {
 	if err := ValidateRole(user.Role); err != nil {
 		return err
 	}
+	if err := ValidateUserProfile(user.Phone, user.Organization, user.Email); err != nil {
+		return err
+	}
 	if strings.TrimSpace(user.PasswordHash) == "" {
 		return errors.New("password hash is required")
 	}
 	if user.CreatedAt.IsZero() {
 		user.CreatedAt = time.Now().UTC()
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO platform_users(username,password_hash,role,enabled,created_at) VALUES(?,?,?,?,?)`,
-		user.Username, user.PasswordHash, user.Role, user.Enabled, user.CreatedAt.UTC().Format(time.RFC3339Nano))
+	_, err := s.db.ExecContext(ctx, `INSERT INTO platform_users(username,password_hash,role,phone,organization,email,enabled,created_at) VALUES(?,?,?,?,?,?,?,?)`,
+		user.Username, user.PasswordHash, user.Role, user.Phone, user.Organization, user.Email, user.Enabled, user.CreatedAt.UTC().Format(time.RFC3339Nano))
 	if err == nil {
 		return nil
 	}
@@ -137,8 +211,8 @@ func (s *UserStore) Get(ctx context.Context, username string) (PlatformUser, boo
 	}
 	var user PlatformUser
 	var role, created string
-	err := s.db.QueryRowContext(ctx, "SELECT username,password_hash,role,enabled,created_at FROM platform_users WHERE username = ?", username).
-		Scan(&user.Username, &user.PasswordHash, &role, &user.Enabled, &created)
+	err := s.db.QueryRowContext(ctx, "SELECT username,password_hash,role,phone,organization,email,enabled,created_at FROM platform_users WHERE username = ?", username).
+		Scan(&user.Username, &user.PasswordHash, &role, &user.Phone, &user.Organization, &user.Email, &user.Enabled, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return PlatformUser{}, false, nil
 	}
@@ -154,7 +228,7 @@ func (s *UserStore) Get(ctx context.Context, username string) (PlatformUser, boo
 }
 
 func (s *UserStore) List(ctx context.Context) ([]PlatformUser, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT username,password_hash,role,enabled,created_at FROM platform_users ORDER BY username")
+	rows, err := s.db.QueryContext(ctx, "SELECT username,password_hash,role,phone,organization,email,enabled,created_at FROM platform_users ORDER BY username")
 	if err != nil {
 		return nil, fmt.Errorf("list platform users: %w", err)
 	}
@@ -163,7 +237,7 @@ func (s *UserStore) List(ctx context.Context) ([]PlatformUser, error) {
 	for rows.Next() {
 		var user PlatformUser
 		var role, created string
-		if err := rows.Scan(&user.Username, &user.PasswordHash, &role, &user.Enabled, &created); err != nil {
+		if err := rows.Scan(&user.Username, &user.PasswordHash, &role, &user.Phone, &user.Organization, &user.Email, &user.Enabled, &created); err != nil {
 			return nil, err
 		}
 		user.Role = UserRole(role)

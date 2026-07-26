@@ -93,9 +93,9 @@ type slurmConfigView struct {
 }
 
 type platformUserRow struct {
-	Username, Role, CreatedAt string
-	Enabled                   bool
-	CanCreateLDAP             bool
+	Username, Role, Phone, Organization, Email, CreatedAt string
+	Enabled                                               bool
+	CanCreateLDAP                                         bool
 }
 type platformUsersView struct {
 	appChrome

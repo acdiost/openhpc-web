@@ -2,8 +2,12 @@ package platform
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"path/filepath"
 	"testing"
+
+	_ "modernc.org/sqlite"
 )
 
 func TestUserStoreRoundTripAndEnable(t *testing.T) {
@@ -12,7 +16,7 @@ func TestUserStoreRoundTripAndEnable(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	user := PlatformUser{Username: "alice", PasswordHash: "hash", Role: RoleUser, Enabled: true}
+	user := PlatformUser{Username: "alice", PasswordHash: "hash", Role: RoleUser, Phone: "+86 13800000000", Organization: "Research Lab", Email: "alice@example.com", Enabled: true}
 	if err := store.Upsert(context.Background(), user); err != nil {
 		t.Fatal(err)
 	}
@@ -20,7 +24,7 @@ func TestUserStoreRoundTripAndEnable(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("Get() = %#v, %v, %v", got, found, err)
 	}
-	if got.Role != RoleUser || !got.Enabled || got.PasswordHash != "hash" {
+	if got.Role != RoleUser || !got.Enabled || got.PasswordHash != "hash" || got.Phone != user.Phone || got.Organization != user.Organization || got.Email != user.Email {
 		t.Fatalf("unexpected user: %#v", got)
 	}
 	if err := store.SetEnabled(context.Background(), "alice", false); err != nil {
@@ -40,6 +44,42 @@ func TestValidatePlatformUserInput(t *testing.T) {
 	}
 	if err := ValidateRole("owner"); err == nil {
 		t.Error("ValidateRole accepted unsupported role")
+	}
+	if err := ValidateUserProfile("", "", ""); err != nil {
+		t.Errorf("ValidateUserProfile rejected optional empty fields: %v", err)
+	}
+	if err := ValidateUserProfile("", "", "not-an-email"); err == nil {
+		t.Error("ValidateUserProfile accepted invalid email")
+	}
+}
+
+func TestOpenUserStoreMigratesOptionalProfileColumns(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "users.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE platform_users (
+		username TEXT PRIMARY KEY, password_hash TEXT NOT NULL, role TEXT NOT NULL,
+		enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO platform_users(username,password_hash,role,enabled,created_at) VALUES('legacy','hash','user',1,'2026-01-01T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := OpenUserStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	got, found, err := store.Get(context.Background(), "legacy")
+	if err != nil || !found || got.Phone != "" || got.Organization != "" || got.Email != "" {
+		t.Fatalf("migrated user = %#v, found=%v, err=%v", got, found, err)
 	}
 }
 

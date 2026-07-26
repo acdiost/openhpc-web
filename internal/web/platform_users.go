@@ -43,7 +43,7 @@ func (a *application) platformUsersPage(c echo.Context) error {
 		if c.QueryParam("confirm") == "disable" && c.QueryParam("username") == user.Username && user.Enabled && user.Username != currentPrincipal(c).Username {
 			confirmDisableUsername = user.Username
 		}
-		rows[i] = platformUserRow{Username: user.Username, Role: role, Enabled: user.Enabled, CanCreateLDAP: ldapProvisioning && user.Enabled, CreatedAt: user.CreatedAt.Local().Format("2006-01-02 15:04")}
+		rows[i] = platformUserRow{Username: user.Username, Role: role, Phone: user.Phone, Organization: user.Organization, Email: user.Email, Enabled: user.Enabled, CanCreateLDAP: ldapProvisioning && user.Enabled, CreatedAt: user.CreatedAt.Local().Format("2006-01-02 15:04")}
 	}
 	ldapCreateUsername := ""
 	if candidate := c.QueryParam("ldap_user"); platform.ValidateUsername(candidate) == nil {
@@ -151,14 +151,17 @@ func (a *application) createPlatformUser(c echo.Context) error {
 	username := strings.TrimSpace(c.FormValue("username"))
 	password := c.FormValue("password")
 	role := platform.UserRole(c.FormValue("role"))
-	if err := platform.ValidateUsername(username); err != nil || !validPlatformUserPassword(password) || (role != platform.RoleUser && role != platform.RoleAdmin) {
+	phone := strings.TrimSpace(c.FormValue("phone"))
+	organization := strings.TrimSpace(c.FormValue("organization"))
+	email := strings.TrimSpace(c.FormValue("email"))
+	if err := platform.ValidateUsername(username); err != nil || !validPlatformUserPassword(password) || (role != platform.RoleUser && role != platform.RoleAdmin) || platform.ValidateUserProfile(phone, organization, email) != nil {
 		return a.redirectPlatformUsers(c, "invalid")
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
-	if err := a.platformUsers.Create(c.Request().Context(), platform.PlatformUser{Username: username, PasswordHash: string(hash), Role: role, Enabled: true, CreatedAt: time.Now().UTC()}); err != nil {
+	if err := a.platformUsers.Create(c.Request().Context(), platform.PlatformUser{Username: username, PasswordHash: string(hash), Role: role, Phone: phone, Organization: organization, Email: email, Enabled: true, CreatedAt: time.Now().UTC()}); err != nil {
 		if errors.Is(err, platform.ErrUserExists) {
 			return a.redirectPlatformUsers(c, "duplicate")
 		}

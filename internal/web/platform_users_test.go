@@ -28,9 +28,12 @@ func TestPlatformUserLifecycleCreatesWithoutOverwriteAndRevokesDisabledSessions(
 
 	adminSession, csrf := loginWithCSRF(t, handler)
 	create := postProtectedForm(handler, "/platform/users", url.Values{
-		"username": {"alice"},
-		"password": {"ordinary user password"},
-		"role":     {"user"},
+		"username":     {"alice"},
+		"password":     {"ordinary user password"},
+		"role":         {"user"},
+		"phone":        {" +86 13800000000 "},
+		"organization": {" Research Lab "},
+		"email":        {" alice@example.com "},
 	}, adminSession, csrf)
 	assertStatus(t, create, http.StatusSeeOther)
 	assertHeader(t, create, "Location", "/platform/users?result=created")
@@ -38,6 +41,9 @@ func TestPlatformUserLifecycleCreatesWithoutOverwriteAndRevokesDisabledSessions(
 	created, found, err := store.Get(context.Background(), "alice")
 	if err != nil || !found || bcrypt.CompareHashAndPassword([]byte(created.PasswordHash), []byte("ordinary user password")) != nil {
 		t.Fatalf("created user = %#v, found=%v, err=%v", created, found, err)
+	}
+	if created.Phone != "+86 13800000000" || created.Organization != "Research Lab" || created.Email != "alice@example.com" {
+		t.Fatalf("created user profile = %#v", created)
 	}
 
 	duplicate := postProtectedForm(handler, "/platform/users", url.Values{
@@ -106,6 +112,29 @@ func TestCreatePlatformUserRejectsPasswordBeyondBcryptLimit(t *testing.T) {
 	assertHeader(t, response, "Location", "/platform/users?result=invalid")
 }
 
+func TestCreatePlatformUserAllowsEmptyProfileAndRejectsInvalidEmail(t *testing.T) {
+	store, err := platform.OpenUserStore(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := New(Config{AdminUsername: testUsername, AdminPassword: testPassword, PlatformUsers: store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupHandler(t, handler)
+	session, csrf := loginWithCSRF(t, handler)
+
+	empty := postProtectedForm(handler, "/platform/users", url.Values{
+		"username": {"empty-profile"}, "password": {"ordinary user password"}, "role": {"user"},
+	}, session, csrf)
+	assertHeader(t, empty, "Location", "/platform/users?result=created")
+
+	invalid := postProtectedForm(handler, "/platform/users", url.Values{
+		"username": {"bad-email"}, "password": {"ordinary user password"}, "role": {"user"}, "email": {"not-an-email"},
+	}, session, csrf)
+	assertHeader(t, invalid, "Location", "/platform/users?result=invalid")
+}
+
 func TestPlatformUsersPageShowsAccountSummaryAndManagementGuidance(t *testing.T) {
 	store, err := platform.OpenUserStore(":memory:")
 	if err != nil {
@@ -135,6 +164,7 @@ func TestPlatformUsersPageShowsAccountSummaryAndManagementGuidance(t *testing.T)
 		`aria-labelledby="platform-user-create-title"`, `data-platform-user-create-close`, `href="/platform/users?create=1"`,
 		`data-platform-user-status="enabled"`, `data-platform-user-status="disabled"`,
 		"Use 1-64 letters, digits, dots, underscores, or hyphens.", "Use 12-72 bytes.",
+		"Phone (optional)", "Organization (optional)", "Email (optional)",
 		`aria-label="Disable alice"`, `data-confirm="Disable alice? Active sessions will end immediately."`,
 		"Disabling an account immediately ends its active sessions.", `class="data-table platform-user-table`,
 	} {

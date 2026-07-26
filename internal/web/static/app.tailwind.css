@@ -376,6 +376,7 @@
   .platform-user-enable { border-color: #167a53; color: #167a53; }
   .platform-user-enable:hover { background: #edf9f3; }
   .platform-user-name { overflow-wrap: anywhere; }
+  .platform-user-name small { display: block; margin-top: 0.15rem; color: var(--muted); font-size: 0.75rem; font-weight: 500; }
   .platform-user-confirmation h2 { margin-bottom: 0.35rem; font-size: 0.9375rem; }
   .platform-user-confirmation p { margin-bottom: 0.75rem; font-size: 0.8125rem; }
   .platform-user-create-form { margin: 0; }
