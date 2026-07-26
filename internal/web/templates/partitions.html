@@ -22,6 +22,7 @@
           {{else if not .PlatformPartitions}}
             <div class="data-empty border border-slate-200 bg-white px-5 py-10 text-center text-sm text-slate-500">{{.Labels.EmptyPartitions}}</div>
           {{else}}
+            <p class="operation-hint">{{if eq .Language "en"}}Tip: Edit changes selected nodes; Delete is destructive and always opens a confirmation dialog.{{else}}提示：Edit 用于调整选中节点；Delete 是危险操作，会先打开二次确认对话框。{{end}}</p>
             <div class="data-table-wrap overflow-x-auto border border-slate-200 bg-white">
               <table class="data-table partition-table min-w-[920px] w-full border-collapse text-left">
                 <thead>
@@ -32,13 +33,13 @@
                     <tr>
                       <td><strong>{{.Name}}</strong></td>
                       <td>{{if .Nodes}}{{.Nodes}}{{else}}—{{end}}</td>
-                      <td><span class="state-badge partition-status">{{.Status}}</span></td>
+                      <td><span class="state-badge partition-status" data-state="{{.Status}}">{{.Status}}</span></td>
                       <td>{{if .AddedNodes}}{{.AddedNodes}}{{else}}—{{end}}</td>
                       <td>{{if .RemovedNodes}}{{.RemovedNodes}}{{else}}—{{end}}</td>
                       <td>{{if .UpdatedAt}}{{.UpdatedAt}}{{else}}—{{end}}</td>
                       <td class="row-actions partition-actions">
-                        <form action="/slurm/partitions" method="get" class="inline-form"><input type="hidden" name="name" value="{{.Name}}"><button type="submit" class="secondary-button min-h-9 border border-rose-600 bg-white px-3 py-1.5 text-sm font-bold text-rose-600 hover:bg-rose-50" data-partition-edit data-partition-name="{{.Name}}" data-partition-nodes="{{.Nodes}}" aria-haspopup="dialog" aria-controls="partition-editor-modal">{{$.Labels.EditPartition}}</button></form>
-                        <form action="/slurm/partitions/delete" method="post" class="inline-form"><input type="hidden" name="_csrf" value="{{$.CSRFToken}}"><input type="hidden" name="name" value="{{.Name}}"><button type="submit" class="danger-button min-h-9 border border-rose-600 bg-rose-50 px-3 py-1.5 text-sm font-bold text-rose-800 hover:bg-rose-600 hover:text-white" data-partition-delete data-partition-name="{{.Name}}" aria-haspopup="dialog" aria-controls="partition-delete-modal">{{$.Labels.DeletePartition}}</button></form>
+                        <form action="/slurm/partitions" method="get" class="inline-form"><input type="hidden" name="name" value="{{.Name}}"><button type="submit" class="secondary-button min-h-9 border border-rose-600 bg-white px-3 py-1.5 text-sm font-bold text-rose-600 hover:bg-rose-50" data-partition-edit data-partition-name="{{.Name}}" data-partition-nodes="{{.Nodes}}" aria-haspopup="dialog" aria-controls="partition-editor-modal" title="{{$.Labels.EditPartition}}: {{.Name}}">{{$.Labels.EditPartition}}</button></form>
+                        <form action="/slurm/partitions/delete" method="post" class="inline-form"><input type="hidden" name="_csrf" value="{{$.CSRFToken}}"><input type="hidden" name="name" value="{{.Name}}"><button type="submit" class="danger-button min-h-9 border border-rose-600 bg-rose-50 px-3 py-1.5 text-sm font-bold text-rose-800 hover:bg-rose-600 hover:text-white" data-partition-delete data-partition-name="{{.Name}}" aria-haspopup="dialog" aria-controls="partition-delete-modal" title="{{$.Labels.DeletePartition}}: {{.Name}}">{{$.Labels.DeletePartition}}</button></form>
                       </td>
                     </tr>
                   {{end}}
@@ -98,7 +99,7 @@
                     <div class="data-table-wrap overflow-x-auto border border-slate-200 bg-white">
                       <table class="data-table partition-table min-w-[720px] w-full border-collapse text-left">
                         <thead><tr><th></th><th>{{.Labels.Node}}</th><th>{{.Labels.Partition}}</th><th>{{.Labels.State}}</th></tr></thead>
-                        <tbody>{{range .Nodes}}<tr><td><input type="checkbox" name="nodes" value="{{.Name}}"{{if .Selected}} checked{{end}} data-partition-node></td><td><strong>{{.Name}}</strong></td><td>{{if .Partition}}{{.Partition}}{{else}}—{{end}}</td><td>{{.State}}</td></tr>{{end}}</tbody>
+                        <tbody>{{range .Nodes}}<tr><td><input type="checkbox" name="nodes" value="{{.Name}}"{{if .Selected}} checked{{end}} data-partition-node></td><td><strong>{{.Name}}</strong></td><td>{{if .Partition}}{{.Partition}}{{else}}—{{end}}</td><td><span class="state-badge" data-state="{{.State}}">{{.State}}</span></td></tr>{{end}}</tbody>
                       </table>
                     </div>
                   {{end}}

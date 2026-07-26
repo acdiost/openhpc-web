@@ -58,20 +58,66 @@
     });
   }
 
-  var confirmationForms = document.querySelectorAll('form[data-confirm]');
-  confirmationForms.forEach(function (form) {
+  document.querySelectorAll('button, a, summary, input, select').forEach(function (control) {
+    if (control.title || control.getAttribute('aria-hidden') === 'true') return;
+    var label = control.getAttribute('aria-label') || '';
+    if (!label && (control.matches('button, a, summary'))) label = control.textContent.trim();
+    if (label) control.title = label.replace(/\s+/g, ' ');
+  });
+
+  var confirmModal = document.getElementById('confirm-modal');
+  var confirmMessage = document.querySelector('[data-confirm-message]');
+  var confirmAccept = document.querySelector('[data-confirm-accept]');
+  var pendingConfirmForm = null;
+  var pendingConfirmTrigger = null;
+
+  var appendConfirmedInput = function (form) {
+    if (form.querySelector('input[name="confirmed"]')) return;
+    var confirmedInput = document.createElement('input');
+    confirmedInput.type = 'hidden';
+    confirmedInput.name = 'confirmed';
+    confirmedInput.value = 'true';
+    form.appendChild(confirmedInput);
+  };
+
+  document.querySelectorAll('form[data-confirm]').forEach(function (form) {
     form.addEventListener('submit', function (event) {
-      if (!window.confirm(form.getAttribute('data-confirm'))) {
-        event.preventDefault();
+      if (form.dataset.confirmed === 'true') return;
+      event.preventDefault();
+      if (!confirmModal || !confirmMessage || !confirmAccept) {
+        if (!window.confirm(form.getAttribute('data-confirm'))) return;
+        appendConfirmedInput(form);
+        form.dataset.confirmed = 'true';
+        form.submit();
         return;
       }
-      var confirmedInput = document.createElement('input');
-      confirmedInput.type = 'hidden';
-      confirmedInput.name = 'confirmed';
-      confirmedInput.value = 'true';
-      form.appendChild(confirmedInput);
+      pendingConfirmForm = form;
+      pendingConfirmTrigger = event.submitter || document.activeElement;
+      confirmMessage.textContent = form.getAttribute('data-confirm');
+      document.body.classList.add('modal-open');
+      confirmModal.showModal();
+      confirmAccept.focus();
     });
   });
+
+  if (confirmModal && confirmAccept) {
+    confirmAccept.addEventListener('click', function () {
+      if (!pendingConfirmForm) return;
+      appendConfirmedInput(pendingConfirmForm);
+      pendingConfirmForm.dataset.confirmed = 'true';
+      confirmModal.close();
+      pendingConfirmForm.requestSubmit ? pendingConfirmForm.requestSubmit() : pendingConfirmForm.submit();
+    });
+    confirmModal.addEventListener('click', function (event) {
+      if (event.target === confirmModal || event.target.closest('[data-confirm-close]')) confirmModal.close();
+    });
+    confirmModal.addEventListener('close', function () {
+      document.body.classList.remove('modal-open');
+      if (pendingConfirmTrigger && document.body.contains(pendingConfirmTrigger)) pendingConfirmTrigger.focus();
+      pendingConfirmForm = null;
+      pendingConfirmTrigger = null;
+    });
+  }
 
   var search = document.querySelector('.search input');
   var jobModal = document.getElementById('job-detail-modal');
@@ -88,6 +134,26 @@
   var normalizeOutputLineEndings = function (content) {
     return content.replace(/\r\n?/g, '\n');
   };
+  var renderLazyLog = function (outputContent, outputStatus, content) {
+    var lines = normalizeOutputLineEndings(content).split('\n');
+    var rendered = 0;
+    var batchSize = 220;
+    var renderNextBatch = function () {
+      var next = Math.min(rendered + batchSize, lines.length);
+      outputContent.textContent = lines.slice(0, next).join('\n');
+      rendered = next;
+      if (outputStatus) {
+        outputStatus.textContent = rendered < lines.length ? rendered + ' / ' + lines.length + ' lines loaded' : lines.length + ' lines loaded';
+      }
+    };
+    outputContent.onscroll = null;
+    renderNextBatch();
+    outputContent.onscroll = function () {
+      if (rendered >= lines.length) return;
+      var distanceToBottom = outputContent.scrollHeight - outputContent.scrollTop - outputContent.clientHeight;
+      if (distanceToBottom < 80) renderNextBatch();
+    };
+  };
 
   if (jobModal && jobModalBody && jobModalClose) {
     document.addEventListener('click', function (event) {
@@ -96,6 +162,7 @@
         var outputPanel = jobModalBody.querySelector('[data-job-output-preview]');
         var outputTitle = jobModalBody.querySelector('[data-job-output-title]');
         var outputContent = jobModalBody.querySelector('[data-job-output-content]');
+        var outputStatus = jobModalBody.querySelector('[data-job-output-status]');
         if (!outputPanel || !outputTitle || !outputContent) return;
 
         cancelOutputRequest();
@@ -105,6 +172,7 @@
         outputPanel.hidden = false;
         outputTitle.textContent = outputButton.getAttribute('data-output-label');
         outputContent.textContent = jobModal.getAttribute('data-output-loading');
+        if (outputStatus) outputStatus.textContent = '';
         var outputURL = '/slurm/jobs/' + encodeURIComponent(outputButton.getAttribute('data-job-id')) +
           '/output/' + encodeURIComponent(outputButton.getAttribute('data-output-stream'));
 
@@ -125,12 +193,13 @@
             if (result.truncated) {
               outputTitle.textContent += ' · ' + jobModal.getAttribute('data-output-truncated');
             }
-            outputContent.textContent = normalizeOutputLineEndings(result.content);
+            renderLazyLog(outputContent, outputStatus, result.content);
             outputContent.focus();
           })
           .catch(function () {
             if (requestID !== outputRequestID || !jobModal.open) return;
             outputContent.textContent = jobModal.getAttribute('data-output-error');
+            if (outputStatus) outputStatus.textContent = '';
           })
           .then(function () {
             if (document.body.contains(outputButton)) outputButton.disabled = false;

@@ -63,6 +63,13 @@
     </details>
   </div>
 </header>
+<dialog id="confirm-modal" class="confirm-modal m-auto w-[min(520px,calc(100%-2.5rem))] border-0 bg-transparent p-0 text-slate-900 backdrop:bg-slate-950/55" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-message">
+  <div class="confirm-modal-surface bg-white shadow-2xl">
+    <header><h2 id="confirm-modal-title">{{if eq .Language "en"}}Confirm dangerous operation{{else}}确认危险操作{{end}}</h2><button type="button" class="modal-close" data-confirm-close aria-label="{{if eq .Language "en"}}Close{{else}}关闭{{end}}">×</button></header>
+    <p class="confirm-modal-body" id="confirm-modal-message" data-confirm-message></p>
+    <footer><button type="button" class="secondary-button min-h-9 border border-slate-300 bg-white px-3 py-1.5 text-sm font-bold text-slate-600 hover:bg-slate-100" data-confirm-close>{{if eq .Language "en"}}Cancel{{else}}取消{{end}}</button><button type="button" class="danger-button min-h-9 border border-rose-600 bg-rose-50 px-3 py-1.5 text-sm font-bold text-rose-800 hover:bg-rose-600 hover:text-white" data-confirm-accept>{{if eq .Language "en"}}Confirm{{else}}确认执行{{end}}</button></footer>
+  </div>
+</dialog>
 {{end}}
 
 {{define "page-heading"}}
